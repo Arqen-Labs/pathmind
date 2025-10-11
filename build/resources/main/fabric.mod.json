@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "pathmind",
+  "version": "1.0.0",
+  "name": "Pathmind",
+  "description": "A Minecraft Fabric mod that enhances gameplay with intelligent features.",
+  "authors": [
+    "YourName"
+  ],
+  "contact": {
+    "homepage": "https://github.com/yourusername/pathmind",
+    "sources": "https://github.com/yourusername/pathmind",
+    "issues": "https://github.com/yourusername/pathmind/issues"
+  },
+  "license": "CC BY-NC 4.0",
+  "icon": "assets/pathmind/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "com.pathmind.PathmindMod"
+    ],
+    "client": [
+      "com.pathmind.PathmindClientMod"
+    ]
+  },
+  "mixins": [
+    "pathmind.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.17.2",
+    "minecraft": "~1.21.8",
+    "java": ">=21",
+    "fabric-api": "*"
+  },
+  "suggests": {
+    "another-mod": "*"
+  }
+}

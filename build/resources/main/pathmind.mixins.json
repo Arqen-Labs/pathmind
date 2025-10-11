@@ -1,0 +1,17 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.pathmind.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    // Add your mixins here
+    // "ExampleMixin"
+  ],
+  "client": [
+    // Add your client mixins here
+    // "ExampleClientMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
