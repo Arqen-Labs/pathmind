@@ -4,6 +4,18 @@ import net.minecraft.text.Text;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import baritone.api.BaritoneAPI;
+import baritone.api.IBaritone;
+import baritone.api.process.ICustomGoalProcess;
+import baritone.api.process.IMineProcess;
+import baritone.api.process.IExploreProcess;
+import baritone.api.process.IFollowProcess;
+import baritone.api.process.IFarmProcess;
+import baritone.api.process.IElytraProcess;
+import baritone.api.pathing.goals.GoalBlock;
+import baritone.api.utils.BlockOptionalMeta;
+import baritone.api.utils.BetterBlockPos;
+import com.pathmind.execution.PreciseCompletionTracker;
 
 /**
  * Represents a single node in the Pathmind visual editor.
@@ -27,6 +39,19 @@ public class Node {
         this.y = y;
         this.parameters = new ArrayList<>();
         initializeParameters();
+    }
+
+    /**
+     * Gets the Baritone instance for the current player
+     * @return IBaritone instance or null if not available
+     */
+    private IBaritone getBaritone() {
+        try {
+            return BaritoneAPI.getProvider().getPrimaryBaritone();
+        } catch (Exception e) {
+            System.err.println("Failed to get Baritone instance: " + e.getMessage());
+            return null;
+        }
     }
 
     public String getId() {
@@ -412,7 +437,7 @@ public class Node {
     // Command execution methods that wait for Baritone completion
     private void executeGotoCommand(CompletableFuture<Void> future) {
         // Get position parameters
-        int x = 0, y = 0, z = 0;
+        int x = 0, y = 64, z = 0;
         NodeParameter xParam = getParameter("X");
         NodeParameter yParam = getParameter("Y");
         NodeParameter zParam = getParameter("Z");
@@ -421,11 +446,23 @@ public class Node {
         if (yParam != null) y = yParam.getIntValue();
         if (zParam != null) z = zParam.getIntValue();
         
-        String command = String.format("#goto %d %d %d", x, y, z);
-        System.out.println("Executing command: " + command);
+        System.out.println("Executing goto to: " + x + ", " + y + ", " + z);
         
-        // Send command to Baritone
-        executeCommandAndWaitForCompletion(command, future);
+        IBaritone baritone = getBaritone();
+        if (baritone != null) {
+            // Start precise tracking of this task
+            PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
+            
+            // Start the Baritone task
+            ICustomGoalProcess customGoalProcess = baritone.getCustomGoalProcess();
+            GoalBlock goal = new GoalBlock(x, y, z);
+            customGoalProcess.setGoalAndPath(goal);
+            
+            // The future will be completed by the TaskCompletionManager when the path reaches the goal
+        } else {
+            System.err.println("Baritone not available for goto command");
+            future.completeExceptionally(new RuntimeException("Baritone not available"));
+        }
     }
     
     private void executeMineCommand(CompletableFuture<Void> future) {
@@ -435,10 +472,22 @@ public class Node {
             block = blockParam.getStringValue();
         }
         
-        String command = String.format("#mine %s", block);
-        System.out.println("Executing command: " + command);
+        System.out.println("Executing mine for: " + block);
         
-        executeCommandAndWaitForCompletion(command, future);
+        IBaritone baritone = getBaritone();
+        if (baritone != null) {
+            // Start precise tracking of this task
+            PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_MINE, future);
+            
+            // Start the Baritone mining task
+            IMineProcess mineProcess = baritone.getMineProcess();
+            mineProcess.mineByName(block);
+            
+            // The future will be completed by the PreciseCompletionTracker when mining actually finishes
+        } else {
+            System.err.println("Baritone not available for mine command");
+            future.completeExceptionally(new RuntimeException("Baritone not available"));
+        }
     }
     
     private void executeCraftCommand(CompletableFuture<Void> future) {
@@ -454,7 +503,8 @@ public class Node {
         String command = String.format("#craft %s %d", item, quantity);
         System.out.println("Executing command: " + command);
         
-        executeCommandAndWaitForCompletion(command, future);
+        executeCommand(command);
+        future.complete(null); // These commands complete immediately
     }
     
     private void executePlaceCommand(CompletableFuture<Void> future) {
@@ -474,7 +524,8 @@ public class Node {
         String command = String.format("#place %s %d %d %d", block, x, y, z);
         System.out.println("Executing command: " + command);
         
-        executeCommandAndWaitForCompletion(command, future);
+        executeCommand(command);
+        future.complete(null); // These commands complete immediately
     }
     
     private void executeBuildCommand(CompletableFuture<Void> future) {
@@ -487,7 +538,8 @@ public class Node {
         String command = String.format("#build %s", schematic);
         System.out.println("Executing command: " + command);
         
-        executeCommandAndWaitForCompletion(command, future);
+        executeCommand(command);
+        future.complete(null); // These commands complete immediately
     }
     
     private void executeExploreCommand(CompletableFuture<Void> future) {
@@ -498,10 +550,22 @@ public class Node {
         if (xParam != null) x = xParam.getIntValue();
         if (zParam != null) z = zParam.getIntValue();
         
-        String command = String.format("#explore %d %d", x, z);
-        System.out.println("Executing command: " + command);
+        System.out.println("Executing explore at: " + x + ", " + z);
         
-        executeCommandAndWaitForCompletion(command, future);
+        IBaritone baritone = getBaritone();
+        if (baritone != null) {
+            // Start precise tracking of this task
+            PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_EXPLORE, future);
+            
+            // Start the Baritone exploration task
+            IExploreProcess exploreProcess = baritone.getExploreProcess();
+            exploreProcess.explore(x, z);
+            
+            // The future will be completed by the PreciseCompletionTracker when exploration actually finishes
+        } else {
+            System.err.println("Baritone not available for explore command");
+            future.completeExceptionally(new RuntimeException("Baritone not available"));
+        }
     }
     
     private void executeFollowCommand(CompletableFuture<Void> future) {
@@ -511,10 +575,19 @@ public class Node {
             player = playerParam.getStringValue();
         }
         
-        String command = String.format("#follow %s", player);
-        System.out.println("Executing command: " + command);
+        System.out.println("Executing follow for: " + player);
         
-        executeCommandAndWaitForCompletion(command, future);
+        IBaritone baritone = getBaritone();
+        if (baritone != null) {
+            IFollowProcess followProcess = baritone.getFollowProcess();
+            // Note: Follow process doesn't have a direct method for player names
+            // This would need to be implemented differently or use commands
+            executeCommand("#follow " + player);
+            future.complete(null); // Follow command completes immediately
+        } else {
+            System.err.println("Baritone not available for follow command");
+            future.completeExceptionally(new RuntimeException("Baritone not available"));
+        }
     }
     
     private void executeWaitCommand(CompletableFuture<Void> future) {
@@ -584,7 +657,7 @@ public class Node {
     }
     
     private void executeGoalCommand(CompletableFuture<Void> future) {
-        int x = 0, y = 0, z = 0;
+        int x = 0, y = 64, z = 0;
         NodeParameter xParam = getParameter("X");
         NodeParameter yParam = getParameter("Y");
         NodeParameter zParam = getParameter("Z");
@@ -593,25 +666,58 @@ public class Node {
         if (yParam != null) y = yParam.getIntValue();
         if (zParam != null) z = zParam.getIntValue();
         
-        String command = String.format("#goal %d %d %d", x, y, z);
-        System.out.println("Executing command: " + command);
+        System.out.println("Setting goal to: " + x + ", " + y + ", " + z);
         
-        executeCommandAndWaitForCompletion(command, future);
+        IBaritone baritone = getBaritone();
+        if (baritone != null) {
+            ICustomGoalProcess customGoalProcess = baritone.getCustomGoalProcess();
+            GoalBlock goal = new GoalBlock(x, y, z);
+            customGoalProcess.setGoal(goal);
+            
+            // Goal setting is immediate, no need to wait
+            future.complete(null);
+        } else {
+            System.err.println("Baritone not available for goal command");
+            future.completeExceptionally(new RuntimeException("Baritone not available"));
+        }
     }
     
     private void executePathCommand(CompletableFuture<Void> future) {
-        String command = "#path";
-        System.out.println("Executing command: " + command);
+        System.out.println("Executing path command");
         
-        executeCommandAndWaitForCompletion(command, future);
+        IBaritone baritone = getBaritone();
+        if (baritone != null) {
+            // Start precise tracking of this task
+            PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_PATH, future);
+            
+            // Start the Baritone pathing task
+            ICustomGoalProcess customGoalProcess = baritone.getCustomGoalProcess();
+            customGoalProcess.path();
+            
+            // The future will be completed by the PreciseCompletionTracker when the path actually reaches the goal
+        } else {
+            System.err.println("Baritone not available for path command");
+            future.completeExceptionally(new RuntimeException("Baritone not available"));
+        }
     }
     
     private void executeStopCommand(CompletableFuture<Void> future) {
-        String command = "#stop";
-        System.out.println("Executing command: " + command);
+        System.out.println("Executing stop command");
         
-        executeCommand(command);
-        future.complete(null); // Stop commands complete immediately
+        IBaritone baritone = getBaritone();
+        if (baritone != null) {
+            // Cancel all pending tasks first
+            PreciseCompletionTracker.getInstance().cancelAllTasks();
+            
+            // Stop all Baritone processes
+            baritone.getPathingBehavior().cancelEverything();
+            
+            // Complete immediately since stop is immediate
+            future.complete(null);
+        } else {
+            System.err.println("Baritone not available for stop command");
+            future.completeExceptionally(new RuntimeException("Baritone not available"));
+        }
     }
     
     private void executeInvertCommand(CompletableFuture<Void> future) {
@@ -626,28 +732,43 @@ public class Node {
         String command = "#come";
         System.out.println("Executing command: " + command);
         
-        executeCommandAndWaitForCompletion(command, future);
+        executeCommand(command);
+        future.complete(null); // These commands complete immediately
     }
     
     private void executeSurfaceCommand(CompletableFuture<Void> future) {
         String command = "#surface";
         System.out.println("Executing command: " + command);
         
-        executeCommandAndWaitForCompletion(command, future);
+        executeCommand(command);
+        future.complete(null); // These commands complete immediately
     }
     
     private void executeTunnelCommand(CompletableFuture<Void> future) {
         String command = "#tunnel";
         System.out.println("Executing command: " + command);
         
-        executeCommandAndWaitForCompletion(command, future);
+        executeCommand(command);
+        future.complete(null); // These commands complete immediately
     }
     
     private void executeFarmCommand(CompletableFuture<Void> future) {
-        String command = "#farm";
-        System.out.println("Executing command: " + command);
+        System.out.println("Executing farm command");
         
-        executeCommandAndWaitForCompletion(command, future);
+        IBaritone baritone = getBaritone();
+        if (baritone != null) {
+            // Start precise tracking of this task
+            PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_FARM, future);
+            
+            // Start the Baritone farming task
+            IFarmProcess farmProcess = baritone.getFarmProcess();
+            farmProcess.farm();
+            
+            // The future will be completed by the PreciseCompletionTracker when farming actually finishes
+        } else {
+            System.err.println("Baritone not available for farm command");
+            future.completeExceptionally(new RuntimeException("Baritone not available"));
+        }
     }
     
     private void executeCommand(String command) {
@@ -665,60 +786,5 @@ public class Node {
         }
     }
     
-    private void executeCommandAndWaitForCompletion(String command, CompletableFuture<Void> future) {
-        // Send the command
-        executeCommand(command);
-        
-        // Get appropriate delay based on command type
-        long delayMs = getCommandDelay(this.getType());
-        System.out.println("Waiting " + delayMs + "ms for " + this.getType() + " command to complete...");
-        
-        // Start a thread to wait for the command to complete
-        new Thread(() -> {
-            try {
-                // Wait for the appropriate duration for this command type
-                Thread.sleep(delayMs);
-                System.out.println("Baritone command completed: " + command);
-                future.complete(null);
-            } catch (InterruptedException e) {
-                System.err.println("Error waiting for Baritone completion: " + e.getMessage());
-                future.completeExceptionally(e);
-            }
-        }).start();
-    }
     
-    private long getCommandDelay(NodeType nodeType) {
-        switch (nodeType) {
-            case GOTO:
-                return 8000; // 8 seconds for goto commands (enough time to pathfind)
-            case MINE:
-                return 5000; // 5 seconds for mining
-            case CRAFT:
-                return 6000; // 6 seconds for crafting
-            case PLACE:
-                return 3000; // 3 seconds for placing blocks
-            case BUILD:
-                return 15000; // 15 seconds for building
-            case EXPLORE:
-                return 12000; // 12 seconds for exploration
-            case FARM:
-                return 8000; // 8 seconds for farming
-            case GOAL:
-                return 2000; // 2 seconds for goal commands
-            case PATH:
-                return 8000; // 8 seconds for path commands
-            case SURFACE:
-                return 6000; // 6 seconds for surface commands
-            case TUNNEL:
-                return 10000; // 10 seconds for tunneling
-            case FOLLOW:
-                return 8000; // 8 seconds for following
-            case STOP:
-            case INVERT:
-            case COME:
-                return 1000; // 1 second for simple commands
-            default:
-                return 3000; // Default 3 seconds
-        }
-    }
 }

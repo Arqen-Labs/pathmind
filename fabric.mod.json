@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "baritone",
+  "version": "1.15.0",
+  "name": "Baritone",
+  "description": "Google Maps for Blockgame",
+  "authors": [
+    "leijurv",
+    "Brady"
+  ],
+  "contact": {
+    "homepage": "https://github.com/cabaletta/baritone",
+    "sources": "https://github.com/cabaletta/baritone",
+    "issues": "https://github.com/cabaletta/baritone/issues"
+  },
+  "license": "LGPL-3.0",
+  "icon": "assets/baritone/icon.png",
+  "environment": "*",
+  "entrypoints": {},
+  "mixins": [
+    "mixins.baritone.json"
+  ],
+  "depends": {
+    "fabricloader": "\u003e\u003d0.14.22",
+    "minecraft": [
+      "1.21.6",
+      "1.21.7",
+      "1.21.8"
+    ]
+  },
+  "custom": {
+    "modmenu": {
+      "links": {
+        "modmenu.discord": "https://discord.gg/s6fRBAUpmr"
+      }
+    }
+  },
+  "jars": [
+    {
+      "file": "META-INF/jars/nether-pathfinder-1.4.1.jar"
+    }
+  ]
+}
