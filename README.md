@@ -39,6 +39,7 @@ A Minecraft Fabric mod that introduces a visual node editor system for creating 
 - **Minecraft**: 1.21.8
 - **Fabric Loader**: 0.17.2 or higher
 - **Fabric API**: 0.133.4+1.21.8 or higher
+- **Baritone API**: 1.15.0 (Fabric version) - [Download here](https://github.com/cabaletta/baritone/releases/download/v1.15.0/baritone-api-fabric-1.15.0.jar)
 - **Java**: 21 or higher
 
 ### Installation
@@ -51,11 +52,16 @@ A Minecraft Fabric mod that introduces a visual node editor system for creating 
    - Download the latest Fabric API for 1.21.8
    - [Download from Modrinth](https://modrinth.com/mod/fabric-api)
 
-3. **Install Pathmind**
+3. **Install Baritone API**
+   - Download the Baritone API Fabric version 1.15.0
+   - [Download from GitHub Releases](https://github.com/cabaletta/baritone/releases/download/v1.15.0/baritone-api-fabric-1.15.0.jar)
+   - Place it in your `mods` folder
+
+4. **Install Pathmind**
    - Download the latest Pathmind mod jar
    - Place it in your `mods` folder
 
-4. **Launch and Enjoy!**
+5. **Launch and Enjoy!**
    - Start Minecraft with Fabric Loader
    - Use your configured keybind to open the visual editor
 
@@ -157,6 +163,7 @@ The mod supports three main node types, each with distinct visual styling:
 | **Yarn Mappings** | 1.21.8+build.1 (with :v2) |
 | **Fabric Loader** | 0.17.2 |
 | **Fabric API** | 0.133.4+1.21.8 |
+| **Baritone API** | 1.15.0 |
 
 ## Contributing
 
