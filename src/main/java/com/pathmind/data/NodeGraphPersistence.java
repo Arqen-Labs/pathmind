@@ -1,0 +1,219 @@
+package com.pathmind.data;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.pathmind.nodes.Node;
+import com.pathmind.nodes.NodeConnection;
+import com.pathmind.nodes.NodeType;
+import com.pathmind.nodes.NodeParameter;
+import com.pathmind.nodes.ParameterType;
+
+import net.minecraft.client.MinecraftClient;
+
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Handles saving and loading node graphs to/from disk.
+ */
+public class NodeGraphPersistence {
+    private static final String SAVE_FILE_NAME = "pathmind_nodegraph.json";
+    private static final Gson GSON = new GsonBuilder()
+            .setPrettyPrinting()
+            .registerTypeAdapter(NodeType.class, new NodeTypeAdapter())
+            .create();
+    
+    /**
+     * Save the current node graph to disk
+     */
+    public static boolean saveNodeGraph(List<Node> nodes, List<NodeConnection> connections) {
+        try {
+            Path savePath = getSavePath();
+            
+            // Convert nodes and connections to serializable data
+            NodeGraphData data = new NodeGraphData();
+            
+            // Convert nodes
+            for (Node node : nodes) {
+                NodeGraphData.NodeData nodeData = new NodeGraphData.NodeData();
+                nodeData.setId(node.getId());
+                nodeData.setType(node.getType());
+                nodeData.setX(node.getX());
+                nodeData.setY(node.getY());
+                
+                // Convert parameters
+                List<NodeGraphData.ParameterData> paramDataList = new ArrayList<>();
+                for (NodeParameter param : node.getParameters()) {
+                    NodeGraphData.ParameterData paramData = new NodeGraphData.ParameterData();
+                    paramData.setName(param.getName());
+                    paramData.setValue(param.getStringValue());
+                    paramData.setType(param.getType().name());
+                    paramDataList.add(paramData);
+                }
+                nodeData.setParameters(paramDataList);
+                
+                data.getNodes().add(nodeData);
+            }
+            
+            // Convert connections
+            for (NodeConnection connection : connections) {
+                NodeGraphData.ConnectionData connData = new NodeGraphData.ConnectionData();
+                connData.setOutputNodeId(connection.getOutputNode().getId());
+                connData.setInputNodeId(connection.getInputNode().getId());
+                connData.setOutputSocket(connection.getOutputSocket());
+                connData.setInputSocket(connection.getInputSocket());
+                
+                data.getConnections().add(connData);
+            }
+            
+            // Write to file
+            Files.createDirectories(savePath.getParent());
+            try (Writer writer = Files.newBufferedWriter(savePath)) {
+                GSON.toJson(data, writer);
+            }
+            
+            System.out.println("Node graph saved successfully to: " + savePath);
+            return true;
+            
+        } catch (Exception e) {
+            System.err.println("Failed to save node graph: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+    
+    /**
+     * Load the node graph from disk
+     */
+    public static NodeGraphData loadNodeGraph() {
+        try {
+            Path savePath = getSavePath();
+            
+            if (!Files.exists(savePath)) {
+                System.out.println("No saved node graph found at: " + savePath);
+                return null;
+            }
+            
+            try (Reader reader = Files.newBufferedReader(savePath)) {
+                NodeGraphData data = GSON.fromJson(reader, NodeGraphData.class);
+                System.out.println("Node graph loaded successfully from: " + savePath);
+                return data;
+            }
+            
+        } catch (Exception e) {
+            System.err.println("Failed to load node graph: " + e.getMessage());
+            e.printStackTrace();
+            return null;
+        }
+    }
+    
+    /**
+     * Convert loaded data back to Node objects
+     */
+    public static List<Node> convertToNodes(NodeGraphData data) {
+        List<Node> nodes = new ArrayList<>();
+        Map<String, Node> nodeMap = new HashMap<>();
+        
+        // Create nodes
+        for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            Node node = new Node(nodeData.getType(), nodeData.getX(), nodeData.getY());
+            
+            // Set the same ID using reflection
+            try {
+                java.lang.reflect.Field idField = Node.class.getDeclaredField("id");
+                idField.setAccessible(true);
+                idField.set(node, nodeData.getId());
+            } catch (Exception e) {
+                System.err.println("Failed to set node ID: " + e.getMessage());
+            }
+            
+            // Restore parameters
+            node.getParameters().clear();
+            for (NodeGraphData.ParameterData paramData : nodeData.getParameters()) {
+                ParameterType paramType = ParameterType.valueOf(paramData.getType());
+                NodeParameter param = new NodeParameter(paramData.getName(), paramType, paramData.getValue());
+                node.getParameters().add(param);
+            }
+            
+            nodes.add(node);
+            nodeMap.put(nodeData.getId(), node);
+        }
+        
+        return nodes;
+    }
+    
+    /**
+     * Convert loaded data back to Connection objects
+     */
+    public static List<NodeConnection> convertToConnections(NodeGraphData data, Map<String, Node> nodeMap) {
+        List<NodeConnection> connections = new ArrayList<>();
+        
+        for (NodeGraphData.ConnectionData connData : data.getConnections()) {
+            Node outputNode = nodeMap.get(connData.getOutputNodeId());
+            Node inputNode = nodeMap.get(connData.getInputNodeId());
+            
+            if (outputNode != null && inputNode != null) {
+                NodeConnection connection = new NodeConnection(
+                    outputNode, 
+                    inputNode, 
+                    connData.getOutputSocket(), 
+                    connData.getInputSocket()
+                );
+                connections.add(connection);
+            } else {
+                System.err.println("Failed to restore connection: missing node(s)");
+            }
+        }
+        
+        return connections;
+    }
+    
+    /**
+     * Get the save file path in the Minecraft saves directory
+     */
+    private static Path getSavePath() {
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client != null && client.getServer() != null) {
+            // Server-side path
+            return Paths.get("saves", client.getServer().getSaveProperties().getLevelName(), SAVE_FILE_NAME);
+        } else {
+            // Client-side fallback
+            return Paths.get(System.getProperty("user.home"), ".minecraft", "saves", "pathmind", SAVE_FILE_NAME);
+        }
+    }
+    
+    /**
+     * Check if a saved node graph exists
+     */
+    public static boolean hasSavedNodeGraph() {
+        return Files.exists(getSavePath());
+    }
+}
+
+/**
+ * Custom adapter for NodeType enum serialization
+ */
+class NodeTypeAdapter extends com.google.gson.TypeAdapter<NodeType> {
+    @Override
+    public void write(com.google.gson.stream.JsonWriter out, NodeType value) throws IOException {
+        out.value(value.name());
+    }
+    
+    @Override
+    public NodeType read(com.google.gson.stream.JsonReader in) throws IOException {
+        String name = in.nextString();
+        try {
+            return NodeType.valueOf(name);
+        } catch (IllegalArgumentException e) {
+            // Handle unknown node types gracefully
+            System.err.println("Unknown node type: " + name + ", skipping...");
+            return null;
+        }
+    }
+}

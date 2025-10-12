@@ -3,6 +3,11 @@ package com.pathmind.ui;
 import com.pathmind.nodes.Node;
 import com.pathmind.nodes.NodeConnection;
 import com.pathmind.nodes.NodeType;
+import com.pathmind.nodes.NodeParameter;
+import com.pathmind.nodes.ParameterType;
+import com.pathmind.data.NodeGraphPersistence;
+import com.pathmind.data.NodeGraphData;
+import com.pathmind.execution.ExecutionManager;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.font.TextRenderer;
 
@@ -42,6 +47,14 @@ public class NodeGraph {
     // Socket hover state
     private Node hoveredSocketNode = null;
     private int hoveredSocketIndex = -1;
+    
+    // Start button hover state
+    private boolean hoveringStartButton = false;
+    
+    // Double-click detection
+    private long lastClickTime = 0;
+    private Node lastClickedNode = null;
+    private static final long DOUBLE_CLICK_THRESHOLD = 300; // milliseconds
 
     public NodeGraph() {
         this.nodes = new ArrayList<>();
@@ -72,7 +85,7 @@ public class NodeGraph {
         Node startNode = new Node(NodeType.START, centerX - 100, centerY - 50);
         nodes.add(startNode);
         
-        Node middleNode = new Node(NodeType.MINE, centerX, centerY - 50);
+        Node middleNode = new Node(NodeType.GOTO, centerX, centerY - 50);
         nodes.add(middleNode);
         
         Node endNode = new Node(NodeType.END, centerX + 100, centerY - 50);
@@ -246,6 +259,15 @@ public class NodeGraph {
         // Reset hover state
         hoveredSocketNode = null;
         hoveredSocketIndex = -1;
+        hoveringStartButton = false;
+        
+        // Check for start button hover
+        for (Node node : nodes) {
+            if (node.getType() == NodeType.START && isMouseOverStartButton(node, mouseX, mouseY)) {
+                hoveringStartButton = true;
+                break;
+            }
+        }
         
         // Don't check for socket hover if we're currently dragging a connection
         if (isDraggingConnection) {
@@ -388,7 +410,10 @@ public class NodeGraph {
     }
     
     public void deleteNodeIfInSidebar(Node node, int mouseX, int sidebarWidth) {
-        if (isInSidebar(mouseX, sidebarWidth)) {
+        // Use the same logic as the grey-out function - more than halfway over the sidebar
+        // Calculate the node's screen position (same as in renderNode)
+        int nodeScreenX = node.getX() - cameraX;
+        if (isNodeOverSidebar(node, sidebarWidth, nodeScreenX, node.getWidth())) {
             removeNode(node);
         }
     }
@@ -441,13 +466,18 @@ public class NodeGraph {
         return null;
     }
 
-    public void render(DrawContext context, TextRenderer textRenderer, int mouseX, int mouseY, float delta) {
-        // Render connections first (behind nodes)
-        renderConnections(context);
+    public void render(DrawContext context, TextRenderer textRenderer, int mouseX, int mouseY, float delta, boolean onlyDragged) {
+        if (!onlyDragged) {
+            // Render connections first (behind nodes) - only for stationary rendering
+            renderConnections(context);
+        }
         
         // Render nodes
         for (Node node : nodes) {
-            renderNode(context, textRenderer, node, mouseX, mouseY, delta);
+            boolean shouldRender = onlyDragged ? node.isDragging() : !node.isDragging();
+            if (shouldRender) {
+                renderNode(context, textRenderer, node, mouseX, mouseY, delta);
+            }
         }
     }
 
@@ -459,7 +489,7 @@ public class NodeGraph {
 
         // Check if node is being dragged over sidebar (grey-out effect)
         // Use screen coordinates (with camera offset) for this check
-        boolean isOverSidebar = node.isDragging() && isNodeOverSidebar(node, 120, x, width); // 120 is sidebar width
+        boolean isOverSidebar = node.isDragging() && isNodeOverSidebar(node, 140, x, width); // 140 is sidebar width
 
         // Node background
         int bgColor = node.isSelected() ? 0xFF404040 : 0xFF2A2A2A;
@@ -468,29 +498,40 @@ public class NodeGraph {
         }
         context.fill(x, y, x + width, y + height, bgColor);
         
-        // Node border - use light blue for selection, node type color otherwise
-        int borderColor = node.isSelected() ? 0xFF87CEEB : node.getType().getColor(); // Light blue selection
-        if (isOverSidebar) {
-            borderColor = 0xFF555555; // Darker grey border when over sidebar
+        // Node border - use light blue for selection, darker node type color for START/END, node type color otherwise
+        int borderColor;
+        if (node.isSelected()) {
+            borderColor = 0xFF87CEEB; // Light blue selection
+        } else if (node.getType() == NodeType.START) {
+            borderColor = isOverSidebar ? 0xFF2D4A2D : 0xFF2E7D32; // Darker green for START
+        } else if (node.getType() == NodeType.END) {
+            borderColor = isOverSidebar ? 0xFF4A2D2D : 0xFF7D2E2E; // Darker red for END
+        } else {
+            borderColor = node.getType().getColor(); // Regular node type color
+        }
+        if (isOverSidebar && node.getType() != NodeType.START && node.getType() != NodeType.END) {
+            borderColor = 0xFF555555; // Darker grey border when over sidebar (for regular nodes)
         }
         context.drawBorder(x, y, width, height, borderColor);
         
-        // Node header
-        int headerColor = node.getType().getColor() & 0x80FFFFFF;
-        if (isOverSidebar) {
-            headerColor = 0x80555555; // Grey header when over sidebar
+        // Node header (only for non-START/END nodes)
+        if (node.getType() != NodeType.START && node.getType() != NodeType.END) {
+            int headerColor = node.getType().getColor() & 0x80FFFFFF;
+            if (isOverSidebar) {
+                headerColor = 0x80555555; // Grey header when over sidebar
+            }
+            context.fill(x + 1, y + 1, x + width - 1, y + 14, headerColor);
+            
+            // Node title
+            int titleColor = isOverSidebar ? 0xFF888888 : 0xFFFFFFFF; // Grey text when over sidebar
+            context.drawTextWithShadow(
+                textRenderer,
+                node.getDisplayName(),
+                x + 4,
+                y + 4,
+                titleColor
+            );
         }
-        context.fill(x + 1, y + 1, x + width - 1, y + 14, headerColor);
-        
-        // Node title
-        int titleColor = isOverSidebar ? 0xFF888888 : 0xFFFFFFFF; // Grey text when over sidebar
-        context.drawTextWithShadow(
-            textRenderer,
-            node.getDisplayName(),
-            x + 4,
-            y + 4,
-            titleColor
-        );
         
         // Render input sockets
         for (int i = 0; i < node.getInputSocketCount(); i++) {
@@ -512,18 +553,96 @@ public class NodeGraph {
             renderSocket(context, node.getSocketX(false) - cameraX, node.getSocketY(i, false) - cameraY, false, socketColor);
         }
         
-        // Render node parameters area (placeholder for now)
-        int paramBgColor = isOverSidebar ? 0xFF2A2A2A : 0xFF1A1A1A; // Grey when over sidebar
-        context.fill(x + 3, y + 16, x + width - 3, y + height - 3, paramBgColor);
-        
-        int paramTextColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0; // Grey text when over sidebar
-        context.drawTextWithShadow(
-            textRenderer,
-            "Parameters",
-            x + 5,
-            y + 18,
-            paramTextColor
-        );
+        // Render node content based on type
+        if (node.getType() == NodeType.START) {
+            // START node - green square with play button
+            int greenColor = isOverSidebar ? 0xFF4A5D23 : 0xFF4CAF50; // Darker green when over sidebar
+            context.fill(x + 1, y + 1, x + width - 1, y + height - 1, greenColor);
+            
+            // Draw play button (triangle pointing right) - with hover effect
+            int playColor;
+            if (hoveringStartButton) {
+                playColor = isOverSidebar ? 0xFFCCCCCC : 0xFFE0E0E0; // Darker when hovered
+            } else {
+                playColor = isOverSidebar ? 0xFFE0E0E0 : 0xFFFFFFFF; // Normal white
+            }
+            int centerX = x + width / 2;
+            int centerY = y + height / 2;
+            
+            // Play triangle (pointing right) - bigger and cleaner
+            int triangleSize = 10; // Bigger triangle
+            int offset = 1; // Slight right offset for centering
+            
+            // Draw triangle using a cleaner algorithm
+            for (int i = 0; i < triangleSize; i++) {
+                int lineWidth = i + 1; // Each line gets progressively wider
+                int startX = centerX - triangleSize/2 + offset;
+                int lineY = centerY - triangleSize/2 + i;
+                
+                if (lineY >= y + 2 && lineY <= y + height - 3) {
+                    context.drawHorizontalLine(startX, startX + lineWidth, lineY, playColor);
+                }
+            }
+            
+        } else if (node.getType() == NodeType.END) {
+            // END node - red square with white stop square
+            int redColor = isOverSidebar ? 0xFF5D2323 : 0xFFF44336; // Darker red when over sidebar
+            context.fill(x + 1, y + 1, x + width - 1, y + height - 1, redColor);
+            
+            // Draw stop button (white square) - bigger and centered
+            int stopColor = isOverSidebar ? 0xFFE0E0E0 : 0xFFFFFFFF; // White square
+            int centerX = x + width / 2;
+            int centerY = y + height / 2;
+            
+            // Stop square - bigger
+            int squareSize = 10;
+            context.fill(centerX - squareSize/2, centerY - squareSize/2, 
+                       centerX + squareSize/2, centerY + squareSize/2, stopColor);
+                       
+        } else {
+            // Regular nodes with parameters
+            if (shouldShowParameters(node)) {
+                int paramBgColor = isOverSidebar ? 0xFF2A2A2A : 0xFF1A1A1A; // Grey when over sidebar
+                context.fill(x + 3, y + 16, x + width - 3, y + height - 3, paramBgColor);
+                
+                // Render parameters
+                int paramY = y + 18;
+                List<NodeParameter> parameters = node.getParameters();
+                int maxParams = Math.min(parameters.size(), 6); // Show max 6 parameters
+                
+                for (int i = 0; i < maxParams; i++) {
+                    NodeParameter param = parameters.get(i);
+                    String displayText = param.getName() + ": " + param.getDisplayValue();
+                    
+                    // Truncate text if too long
+                    if (displayText.length() > 12) {
+                        displayText = displayText.substring(0, 9) + "...";
+                    }
+                    
+                    int paramTextColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0; // Grey text when over sidebar
+                    context.drawTextWithShadow(
+                        textRenderer,
+                        displayText,
+                        x + 5,
+                        paramY,
+                        paramTextColor
+                    );
+                    paramY += 12;
+                }
+                
+                // Show "..." if there are more parameters
+                if (parameters.size() > 6) {
+                    int paramTextColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0;
+                    context.drawTextWithShadow(
+                        textRenderer,
+                        "...",
+                        x + 5,
+                        paramY,
+                        paramTextColor
+                    );
+                }
+            }
+        }
     }
 
     private void renderSocket(DrawContext context, int x, int y, boolean isInput, int color) {
@@ -600,4 +719,207 @@ public class NodeGraph {
     public int getCameraY() {
         return cameraY;
     }
+    
+    /**
+     * Handle node click and detect double-clicks for parameter editing
+     * Returns true if a double-click was detected and the popup should open
+     */
+    public boolean handleNodeClick(Node clickedNode, int mouseX, int mouseY) {
+        long currentTime = System.currentTimeMillis();
+        boolean isDoubleClick = false;
+        
+        if (clickedNode == lastClickedNode && 
+            (currentTime - lastClickTime) < DOUBLE_CLICK_THRESHOLD) {
+            isDoubleClick = true;
+        }
+        
+        lastClickTime = currentTime;
+        lastClickedNode = clickedNode;
+        
+        return isDoubleClick;
+    }
+    
+    private boolean isMouseOverStartButton(Node startNode, int mouseX, int mouseY) {
+        int x = startNode.getX() - cameraX;
+        int y = startNode.getY() - cameraY;
+        int centerX = x + startNode.getWidth() / 2;
+        int centerY = y + startNode.getHeight() / 2;
+        
+        // Check if mouse is within the triangle area
+        int triangleSize = 10;
+        int offset = 1;
+        int startX = centerX - triangleSize/2 + offset;
+        
+        // Simple bounding box check for the triangle
+        return mouseX >= startX && mouseX <= startX + triangleSize &&
+               mouseY >= centerY - triangleSize/2 && mouseY <= centerY + triangleSize/2;
+    }
+    
+    public boolean isHoveringStartButton() {
+        return hoveringStartButton;
+    }
+    
+    public boolean handleStartButtonClick() {
+        // Execute the node graph
+        executeNodeGraph();
+        return true; // Signal that the click was handled
+    }
+    
+    private void executeNodeGraph() {
+        // Find the START node
+        Node startNode = null;
+        for (Node node : nodes) {
+            if (node.getType() == NodeType.START) {
+                startNode = node;
+                break;
+            }
+        }
+        
+        if (startNode == null) {
+            System.out.println("No START node found!");
+            return;
+        }
+        
+        // Start execution and notify the execution manager
+        ExecutionManager.getInstance().startExecution(startNode);
+        System.out.println("Executing node graph...");
+        
+        // Execute nodes sequentially using CompletableFuture
+        executeNodesSequentially(startNode);
+    }
+    
+    private void executeNodesSequentially(Node startNode) {
+        // Execute nodes sequentially, waiting for each to complete before starting the next
+        executeNodeAndContinue(startNode);
+    }
+    
+    private void executeNodeAndContinue(Node currentNode) {
+        System.out.println("Executing node: " + currentNode.getType().getDisplayName());
+        
+        // Update the execution manager with the current active node
+        ExecutionManager.getInstance().setActiveNode(currentNode);
+        
+        // Execute the node and wait for completion
+        currentNode.execute().thenRun(() -> {
+            System.out.println("Node completed: " + currentNode.getType());
+            
+            // Check if this was the END node
+            if (currentNode.getType() == NodeType.END) {
+                System.out.println("Node graph execution complete!");
+                ExecutionManager.getInstance().stopExecution();
+                return;
+            }
+            
+            // Find the next connected node
+            Node nextNode = getNextConnectedNode(currentNode);
+            
+            if (nextNode != null) {
+                System.out.println("Proceeding to next node: " + nextNode.getType());
+                // Execute the next node
+                executeNodeAndContinue(nextNode);
+            } else {
+                System.out.println("No next node found - stopping execution");
+                ExecutionManager.getInstance().stopExecution();
+            }
+        }).exceptionally(throwable -> {
+            System.err.println("Error executing node " + currentNode.getType() + ": " + throwable.getMessage());
+            throwable.printStackTrace();
+            ExecutionManager.getInstance().stopExecution();
+            return null;
+        });
+    }
+    
+    private Node getNextConnectedNode(Node currentNode) {
+        for (NodeConnection connection : connections) {
+            if (connection.getOutputNode() == currentNode && connection.getOutputSocket() == 0) {
+                return connection.getInputNode();
+            }
+        }
+        return null;
+    }
+    
+    
+    /**
+     * Check if a node should show parameters (Start and End nodes don't)
+     */
+    public boolean shouldShowParameters(Node node) {
+        return node.hasParameters();
+    }
+    
+    /**
+     * Save the current node graph to disk
+     */
+    public boolean save() {
+        return NodeGraphPersistence.saveNodeGraph(nodes, connections);
+    }
+    
+    /**
+     * Load a node graph from disk, replacing the current one
+     */
+    public boolean load() {
+        NodeGraphData data = NodeGraphPersistence.loadNodeGraph();
+        if (data != null) {
+            // Clear current graph
+            nodes.clear();
+            connections.clear();
+            selectedNode = null;
+            draggingNode = null;
+            
+            // Load nodes and create node map for connections
+            java.util.Map<String, Node> nodeMap = new java.util.HashMap<>();
+            for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+                Node node = new Node(nodeData.getType(), nodeData.getX(), nodeData.getY());
+                
+                // Set the same ID using reflection
+                try {
+                    java.lang.reflect.Field idField = Node.class.getDeclaredField("id");
+                    idField.setAccessible(true);
+                    idField.set(node, nodeData.getId());
+                } catch (Exception e) {
+                    System.err.println("Failed to set node ID: " + e.getMessage());
+                }
+                
+                // Restore parameters
+                node.getParameters().clear();
+                for (NodeGraphData.ParameterData paramData : nodeData.getParameters()) {
+                    ParameterType paramType = ParameterType.valueOf(paramData.getType());
+                    NodeParameter param = new NodeParameter(paramData.getName(), paramType, paramData.getValue());
+                    node.getParameters().add(param);
+                }
+                
+                nodes.add(node);
+                nodeMap.put(nodeData.getId(), node);
+            }
+            
+            // Load connections
+            for (NodeGraphData.ConnectionData connData : data.getConnections()) {
+                Node outputNode = nodeMap.get(connData.getOutputNodeId());
+                Node inputNode = nodeMap.get(connData.getInputNodeId());
+                
+                if (outputNode != null && inputNode != null) {
+                    NodeConnection connection = new NodeConnection(
+                        outputNode, 
+                        inputNode, 
+                        connData.getOutputSocket(), 
+                        connData.getInputSocket()
+                    );
+                    connections.add(connection);
+                } else {
+                    System.err.println("Failed to restore connection: missing node(s)");
+                }
+            }
+            
+            System.out.println("Loaded " + nodes.size() + " nodes and " + connections.size() + " connections");
+            return true;
+        }
+        return false;
+    }
+    
+    /**
+     * Check if there's a saved node graph available
+     */
+    public boolean hasSavedGraph() {
+        return NodeGraphPersistence.hasSavedNodeGraph();
+    }
 }
+

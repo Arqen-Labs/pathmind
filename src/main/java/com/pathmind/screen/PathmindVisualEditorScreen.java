@@ -4,6 +4,8 @@ import com.pathmind.PathmindKeybinds;
 import com.pathmind.nodes.Node;
 import com.pathmind.nodes.NodeType;
 import com.pathmind.ui.NodeGraph;
+import com.pathmind.ui.NodeParameterOverlay;
+import com.pathmind.ui.Sidebar;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.text.Text;
@@ -27,11 +29,18 @@ public class PathmindVisualEditorScreen extends Screen {
     private static final int WHITE_MUTED = 0xFFE0E0E0;       // Muted white for secondary text
     
     private NodeGraph nodeGraph;
-    private int sidebarOffsetY = TITLE_BAR_HEIGHT;
+    private Sidebar sidebar;
+    private NodeParameterOverlay parameterOverlay;
+    
+    // Drag and drop state
+    private boolean isDraggingFromSidebar = false;
+    private NodeType draggingNodeType = null;
+    private int dragStartX, dragStartY;
     
     public PathmindVisualEditorScreen() {
         super(Text.translatable("screen.pathmind.visual_editor.title"));
         this.nodeGraph = new NodeGraph();
+        this.sidebar = new Sidebar();
     }
 
     @Override
@@ -39,8 +48,19 @@ public class PathmindVisualEditorScreen extends Screen {
         super.init();
         // No buttons needed - just the title bar
         
+        // Try to load saved node graph first
+        if (nodeGraph.hasSavedGraph()) {
+            System.out.println("Found saved node graph, loading...");
+            if (nodeGraph.load()) {
+                System.out.println("Successfully loaded saved node graph");
+                return; // Don't initialize default nodes if we loaded a saved graph
+            } else {
+                System.out.println("Failed to load saved node graph, using default");
+            }
+        }
+        
         // Initialize node graph with proper centering based on screen dimensions
-        nodeGraph.initializeWithScreenDimensions(this.width, this.height, SIDEBAR_WIDTH, TITLE_BAR_HEIGHT);
+        nodeGraph.initializeWithScreenDimensions(this.width, this.height, sidebar.getWidth(), TITLE_BAR_HEIGHT);
     }
 
     @Override
@@ -64,14 +84,27 @@ public class PathmindVisualEditorScreen extends Screen {
         // Update mouse hover for socket highlighting
         nodeGraph.updateMouseHover(mouseX, mouseY);
         
-        // Render node graph first
-        renderNodeGraph(context, mouseX, mouseY, delta);
+        // Render node graph (stationary nodes only)
+        renderNodeGraph(context, mouseX, mouseY, delta, false);
         
         // Always render sidebar after node graph to ensure sidebar line is visible
-        renderSidebar(context, mouseX, mouseY, delta);
+        sidebar.render(context, this.textRenderer, mouseX, mouseY, TITLE_BAR_HEIGHT, this.height - TITLE_BAR_HEIGHT);
+        
+        // Render dragged nodes above sidebar
+        renderNodeGraph(context, mouseX, mouseY, delta, true);
+        
+        // Render dragging node from sidebar
+        if (isDraggingFromSidebar && draggingNodeType != null) {
+            renderDraggingNode(context, mouseX, mouseY);
+        }
         
         // Render home button in bottom right
         renderHomeButton(context, mouseX, mouseY);
+        
+        // Render parameter overlay if visible
+        if (parameterOverlay != null && parameterOverlay.isVisible()) {
+            parameterOverlay.render(context, this.textRenderer, mouseX, mouseY, delta);
+        }
         
         // Re-render title bar on top of everything to ensure it's always visible
         context.fill(0, 0, this.width, TITLE_BAR_HEIGHT, DARK_GREY_ALT);
@@ -85,44 +118,55 @@ public class PathmindVisualEditorScreen extends Screen {
         );
     }
     
-    private void renderSidebar(DrawContext context, int mouseX, int mouseY, float delta) {
-        // Sidebar background
-        context.fill(0, TITLE_BAR_HEIGHT, SIDEBAR_WIDTH, this.height, DARK_GREY_ALT);
-        context.drawVerticalLine(SIDEBAR_WIDTH, TITLE_BAR_HEIGHT, this.height, GREY_LINE);
+    private void renderDraggingNode(DrawContext context, int mouseX, int mouseY) {
+        if (draggingNodeType == null) return;
         
-        // Sidebar title
-        context.drawTextWithShadow(
-                this.textRenderer,
-                Text.literal("Node Palette"),
-                10,
-                TITLE_BAR_HEIGHT + 10,
-                LIGHT_BLUE
-        );
+        // Create a temporary node for rendering
+        Node tempNode = new Node(draggingNodeType, mouseX - 40, mouseY - 50);
+        tempNode.setDragging(true);
         
-        // TODO: Add draggable node types here later
-        context.drawTextWithShadow(
+        // Render the node with a slight transparency
+        int alpha = 0x80;
+        int nodeColor = (draggingNodeType.getColor() & 0x00FFFFFF) | alpha;
+        
+        int x = mouseX - 40;
+        int y = mouseY - 50;
+        int width = tempNode.getWidth();
+        int height = tempNode.getHeight();
+        
+        // Node background with transparency
+        context.fill(x, y, x + width, y + height, 0x802A2A2A);
+        context.drawBorder(x, y, width, height, nodeColor);
+        
+        // Node header
+        if (draggingNodeType != NodeType.START && draggingNodeType != NodeType.END) {
+            context.fill(x + 1, y + 1, x + width - 1, y + 14, nodeColor);
+            context.drawTextWithShadow(
                 this.textRenderer,
-                Text.literal("Coming Soon..."),
-                10,
-                TITLE_BAR_HEIGHT + 40,
-                WHITE_MUTED
-        );
+                Text.literal(draggingNodeType.getDisplayName()),
+                x + 4,
+                y + 4,
+                0xFFFFFFFF
+            );
+        }
     }
     
-    private void renderNodeGraph(DrawContext context, int mouseX, int mouseY, float delta) {
-        // Node graph background
-        context.fill(SIDEBAR_WIDTH, TITLE_BAR_HEIGHT, this.width, this.height, DARK_GREY);
-        
-        // Render grid pattern for better visual organization
-        renderGrid(context);
+    private void renderNodeGraph(DrawContext context, int mouseX, int mouseY, float delta, boolean onlyDragged) {
+        if (!onlyDragged) {
+            // Node graph background
+            context.fill(sidebar.getWidth(), TITLE_BAR_HEIGHT, this.width, this.height, DARK_GREY);
+            
+            // Render grid pattern for better visual organization
+            renderGrid(context);
+        }
         
         // Render nodes
-        nodeGraph.render(context, this.textRenderer, mouseX, mouseY, delta);
+        nodeGraph.render(context, this.textRenderer, mouseX, mouseY, delta, onlyDragged);
     }
     
     private void renderGrid(DrawContext context) {
         int gridSize = 20;
-        int startX = SIDEBAR_WIDTH;
+        int startX = sidebar.getWidth();
         int startY = TITLE_BAR_HEIGHT;
         
         // Get camera offset from node graph
@@ -150,6 +194,13 @@ public class PathmindVisualEditorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        // Handle parameter overlay clicks first
+        if (parameterOverlay != null && parameterOverlay.isVisible()) {
+            if (parameterOverlay.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
+        }
+        
         // Check if clicking home button
         if (isHomeButtonClicked((int)mouseX, (int)mouseY, button)) {
             nodeGraph.resetCamera();
@@ -157,28 +208,42 @@ public class PathmindVisualEditorScreen extends Screen {
         }
         
         // Check if clicking in sidebar to add nodes
-        if (mouseX < SIDEBAR_WIDTH && mouseY > TITLE_BAR_HEIGHT) {
-            handleSidebarClick(mouseX, mouseY, button);
-            return true;
+        if (mouseX < sidebar.getWidth() && mouseY > TITLE_BAR_HEIGHT) {
+            if (sidebar.mouseClicked(mouseX, mouseY, button)) {
+                // Check if we should start dragging a node from sidebar
+                if (sidebar.isHoveringNode()) {
+                    isDraggingFromSidebar = true;
+                    draggingNodeType = sidebar.getHoveredNodeType();
+                    dragStartX = (int)mouseX;
+                    dragStartY = (int)mouseY;
+                }
+                return true;
+            }
         }
         
         // Check if clicking on nodes in the graph area
-        if (mouseX >= SIDEBAR_WIDTH && mouseY > TITLE_BAR_HEIGHT) {
+        if (mouseX >= sidebar.getWidth() && mouseY > TITLE_BAR_HEIGHT) {
             // Handle right-click or middle-click for panning
             if (button == 1 || button == 2) { // Right click or middle click
                 nodeGraph.startPanning((int)mouseX, (int)mouseY);
                 return true;
             }
+            
+            // Check if clicking START button
+            if (button == 0 && nodeGraph.isHoveringStartButton()) { // Left click on START button
+                if (nodeGraph.handleStartButtonClick()) {
+                    // Close the GUI after execution starts
+                    this.close();
+                    return true;
+                }
+            }
+            
             return handleNodeGraphClick(mouseX, mouseY, button);
         }
         
         return super.mouseClicked(mouseX, mouseY, button);
     }
     
-    private void handleSidebarClick(double mouseX, double mouseY, int button) {
-        // TODO: Handle dragging nodes from sidebar
-        // For now, just placeholder
-    }
     
     private boolean handleNodeGraphClick(double mouseX, double mouseY, int button) {
         // FIRST check if clicking on ANY socket (before checking node body)
@@ -210,6 +275,21 @@ public class PathmindVisualEditorScreen extends Screen {
         if (clickedNode != null) {
             // Node body clicked (not socket)
             if (button == 0) { // Left click - select node or start dragging
+                // Check for double-click to open parameter editor
+                if (nodeGraph.handleNodeClick(clickedNode, (int)mouseX, (int)mouseY) && 
+                    clickedNode.hasParameters()) {
+                    // Open parameter overlay
+                    parameterOverlay = new NodeParameterOverlay(
+                        clickedNode, 
+                        this.width, 
+                        this.height, 
+                        () -> parameterOverlay = null // Clear reference on close
+                    );
+                    parameterOverlay.init();
+                    parameterOverlay.show();
+                    return true;
+                }
+                
                 nodeGraph.selectNode(clickedNode);
                 nodeGraph.startDragging(clickedNode, (int)mouseX, (int)mouseY);
                 return true;
@@ -233,6 +313,11 @@ public class PathmindVisualEditorScreen extends Screen {
     
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        // Handle dragging from sidebar
+        if (isDraggingFromSidebar && button == 0) {
+            return true; // Continue dragging
+        }
+        
         // Handle node dragging and connection dragging
         if (button == 0) {
             nodeGraph.updateDrag((int)mouseX, (int)mouseY);
@@ -251,13 +336,26 @@ public class PathmindVisualEditorScreen extends Screen {
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         if (button == 0) {
-            // Check if dragging node into sidebar for deletion (only if actually dragging)
-            if (nodeGraph.getSelectedNode() != null && nodeGraph.getSelectedNode().isDragging()) {
-                nodeGraph.deleteNodeIfInSidebar(nodeGraph.getSelectedNode(), (int)mouseX, SIDEBAR_WIDTH);
+            // Handle dropping node from sidebar
+            if (isDraggingFromSidebar) {
+                if (mouseX >= sidebar.getWidth() && mouseY > TITLE_BAR_HEIGHT) {
+                    // Drop in graph area - create new node
+                    Node newNode = new Node(draggingNodeType, (int)mouseX - 40, (int)mouseY - 50);
+                    nodeGraph.addNode(newNode);
+                    nodeGraph.selectNode(newNode);
+                }
+                // Reset drag state
+                isDraggingFromSidebar = false;
+                draggingNodeType = null;
+            } else {
+                // Check if dragging node into sidebar for deletion (only if actually dragging)
+                if (nodeGraph.getSelectedNode() != null && nodeGraph.getSelectedNode().isDragging()) {
+                    nodeGraph.deleteNodeIfInSidebar(nodeGraph.getSelectedNode(), (int)mouseX, sidebar.getWidth());
+                }
+                
+                nodeGraph.stopDragging();
+                nodeGraph.stopDraggingConnection();
             }
-            
-            nodeGraph.stopDragging();
-            nodeGraph.stopDraggingConnection();
         } else if (button == 1 || button == 2) {
             // Stop panning on right-click or middle-click release
             nodeGraph.stopPanning();
@@ -267,6 +365,13 @@ public class PathmindVisualEditorScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        // Handle parameter overlay key presses first
+        if (parameterOverlay != null && parameterOverlay.isVisible()) {
+            if (parameterOverlay.keyPressed(keyCode, scanCode, modifiers)) {
+                return true;
+            }
+        }
+        
         // Close screen with Escape key
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             close();
@@ -283,6 +388,42 @@ public class PathmindVisualEditorScreen extends Screen {
         // This prevents the screen from closing when the same key is pressed
         
         return super.keyPressed(keyCode, scanCode, modifiers);
+    }
+    
+    @Override
+    public boolean charTyped(char chr, int modifiers) {
+        // Handle parameter overlay character typing first
+        if (parameterOverlay != null && parameterOverlay.isVisible()) {
+            if (parameterOverlay.charTyped(chr, modifiers)) {
+                return true;
+            }
+        }
+        
+        return super.charTyped(chr, modifiers);
+    }
+    
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        // Handle sidebar scrolling
+        if (mouseX >= 0 && mouseX <= sidebar.getWidth()) {
+            if (sidebar.mouseScrolled(mouseX, mouseY, verticalAmount)) {
+                return true;
+            }
+        }
+        
+        return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
+    }
+    
+    @Override
+    public void close() {
+        // Auto-save the node graph when closing
+        if (nodeGraph.save()) {
+            System.out.println("Node graph auto-saved successfully");
+        } else {
+            System.err.println("Failed to auto-save node graph");
+        }
+        
+        super.close();
     }
     
     private void renderHomeButton(DrawContext context, int mouseX, int mouseY) {

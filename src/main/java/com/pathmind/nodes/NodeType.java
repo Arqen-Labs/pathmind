@@ -5,13 +5,36 @@ package com.pathmind.nodes;
  * Similar to Blender's shader nodes, each type has specific properties and behaviors.
  */
 public enum NodeType {
+    // Special nodes
     START("Start", 0xFF4CAF50, "Begins the automation sequence"),
-    MINE("Mine", 0xFF2196F3, "Mines blocks at specified coordinates"),
-    CRAFT("Craft", 0xFFFF9800, "Crafts items using available materials"),
+    END("End", 0xFFF44336, "Ends the automation sequence"),
+    
+    // Navigation Commands
+    GOTO("Goto", 0xFF00BCD4, "Moves to specified coordinates"),
+    GOAL("Goal", 0xFF2196F3, "Sets a goal at specified coordinates"),
+    PATH("Path", 0xFF03DAC6, "Initiates pathfinding to the set goal"),
+    STOP("Stop", 0xFFF44336, "Stops the current pathfinding task"),
+    INVERT("Invert", 0xFFFF5722, "Inverts the current goal and path"),
+    COME("Come", 0xFF9C27B0, "Moves towards the camera's direction"),
+    SURFACE("Surface", 0xFF4CAF50, "Moves to the nearest surface"),
+    
+    // Mining and Building Commands
+    MINE("Mine", 0xFF2196F3, "Mines specified block types"),
+    BUILD("Build", 0xFFFF9800, "Constructs structures from schematic files"),
+    TUNNEL("Tunnel", 0xFF795548, "Digs a 2x3 tunnel forward automatically"),
+    FARM("Farm", 0xFF4CAF50, "Automates harvesting and replanting crops"),
     PLACE("Place", 0xFF9C27B0, "Places blocks at specified coordinates"),
-    MOVE("Move", 0xFF00BCD4, "Moves to specified coordinates"),
+    CRAFT("Craft", 0xFFFF9800, "Crafts items using available materials"),
+    
+    // Exploration Commands
+    EXPLORE("Explore", 0xFF673AB7, "Explores the world from origin coordinates"),
+    FOLLOW("Follow", 0xFF3F51B5, "Follows a specified player"),
+    
+    // Utility Commands
     WAIT("Wait", 0xFF607D8B, "Waits for specified duration"),
-    END("End", 0xFFF44336, "Ends the automation sequence");
+    MESSAGE("Message", 0xFF9E9E9E, "Sends a chat message"),
+    SET("Set", 0xFF795548, "Sets a Baritone configuration option"),
+    GET("Get", 0xFF795548, "Gets a Baritone configuration value");
 
     private final String displayName;
     private final int color;
@@ -45,5 +68,74 @@ public enum NodeType {
 
     public boolean isDraggableFromSidebar() {
         return this != START && this != END; // Start and End are special nodes
+    }
+    
+    /**
+     * Get the category this node belongs to for sidebar organization
+     */
+    public NodeCategory getCategory() {
+        switch (this) {
+            case START:
+            case END:
+                return NodeCategory.SPECIAL;
+            case GOTO:
+            case GOAL:
+            case PATH:
+            case STOP:
+            case INVERT:
+            case COME:
+            case SURFACE:
+                return NodeCategory.NAVIGATION;
+            case MINE:
+            case BUILD:
+            case TUNNEL:
+            case FARM:
+            case PLACE:
+            case CRAFT:
+                return NodeCategory.MINING_BUILDING;
+            case EXPLORE:
+            case FOLLOW:
+                return NodeCategory.EXPLORATION;
+            case WAIT:
+            case MESSAGE:
+            case SET:
+            case GET:
+                return NodeCategory.UTILITY;
+            default:
+                return NodeCategory.UTILITY;
+        }
+    }
+    
+    /**
+     * Check if this node type requires parameters
+     */
+    public boolean hasParameters() {
+        switch (this) {
+            case GOTO:
+            case GOAL:
+            case MINE:
+            case PLACE:
+            case CRAFT:
+            case BUILD:
+            case EXPLORE:
+            case FOLLOW:
+            case WAIT:
+            case MESSAGE:
+            case SET:
+            case GET:
+                return true;
+            case PATH:
+            case STOP:
+            case INVERT:
+            case COME:
+            case SURFACE:
+            case TUNNEL:
+            case FARM:
+            case START:
+            case END:
+                return false;
+            default:
+                return false;
+        }
     }
 }

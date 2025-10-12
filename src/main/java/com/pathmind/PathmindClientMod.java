@@ -1,8 +1,10 @@
 package com.pathmind;
 
 import com.pathmind.screen.PathmindVisualEditorScreen;
+import com.pathmind.ui.ActiveNodeOverlay;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.MinecraftClient;
 import org.slf4j.Logger;
@@ -14,10 +16,14 @@ import org.slf4j.LoggerFactory;
  */
 public class PathmindClientMod implements ClientModInitializer {
     private static final Logger LOGGER = LoggerFactory.getLogger("Pathmind/Client");
+    private ActiveNodeOverlay activeNodeOverlay;
 
     @Override
     public void onInitializeClient() {
         LOGGER.info("Initializing Pathmind client mod");
+        
+        // Initialize the active node overlay
+        this.activeNodeOverlay = new ActiveNodeOverlay();
         
         // Register keybindings
         PathmindKeybinds.registerKeybinds();
@@ -26,6 +32,14 @@ public class PathmindClientMod implements ClientModInitializer {
         // Register client tick events for keybind handling
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             handleKeybinds(client);
+        });
+        
+        // Register HUD render callback for the active node overlay
+        HudRenderCallback.EVENT.register((drawContext, tickDelta) -> {
+            MinecraftClient client = MinecraftClient.getInstance();
+            if (client.player != null && client.textRenderer != null) {
+                activeNodeOverlay.render(drawContext, client.textRenderer, client.getWindow().getScaledWidth(), client.getWindow().getScaledHeight());
+            }
         });
         
         LOGGER.info("Pathmind client mod initialized successfully");
