@@ -122,21 +122,26 @@ public class PathmindVisualEditorScreen extends Screen {
         if (draggingNodeType == null) return;
         
         // Create a temporary node for rendering
-        Node tempNode = new Node(draggingNodeType, mouseX - 40, mouseY - 50);
+        Node tempNode = new Node(draggingNodeType, 0, 0);
         tempNode.setDragging(true);
+        
+        // Calculate proper centering based on node dimensions
+        int width = tempNode.getWidth();
+        int height = tempNode.getHeight();
+        int x = mouseX - width / 2;
+        int y = mouseY - height / 2;
+        
+        // Update temp node position for rendering
+        tempNode.setPosition(x, y);
         
         // Render the node with a slight transparency
         int alpha = 0x80;
         int nodeColor = (draggingNodeType.getColor() & 0x00FFFFFF) | alpha;
         
-        int x = mouseX - 40;
-        int y = mouseY - 50;
-        int width = tempNode.getWidth();
-        int height = tempNode.getHeight();
-        
         // Node background with transparency
         context.fill(x, y, x + width, y + height, 0x802A2A2A);
-        context.drawBorder(x, y, width, height, nodeColor);
+        // Draw grey outline for dragging state
+        context.drawBorder(x, y, width, height, 0xFFAAAAAA);
         
         // Node header
         if (draggingNodeType != NodeType.START && draggingNodeType != NodeType.END) {
@@ -339,8 +344,14 @@ public class PathmindVisualEditorScreen extends Screen {
             // Handle dropping node from sidebar
             if (isDraggingFromSidebar) {
                 if (mouseX >= sidebar.getWidth() && mouseY > TITLE_BAR_HEIGHT) {
-                    // Drop in graph area - create new node
-                    Node newNode = new Node(draggingNodeType, (int)mouseX - 40, (int)mouseY - 50);
+                    // Drop in graph area - create new node with proper centering
+                    Node tempNode = new Node(draggingNodeType, 0, 0);
+                    int width = tempNode.getWidth();
+                    int height = tempNode.getHeight();
+                    int nodeX = (int)mouseX - width / 2;
+                    int nodeY = (int)mouseY - height / 2;
+                    
+                    Node newNode = new Node(draggingNodeType, nodeX, nodeY);
                     nodeGraph.addNode(newNode);
                     nodeGraph.selectNode(newNode);
                 }

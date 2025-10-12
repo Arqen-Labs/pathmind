@@ -67,7 +67,7 @@ public enum NodeType {
     }
 
     public boolean isDraggableFromSidebar() {
-        return this != START && this != END; // Start and End are special nodes
+        return true; // All nodes including START and END can be dragged from sidebar
     }
     
     /**

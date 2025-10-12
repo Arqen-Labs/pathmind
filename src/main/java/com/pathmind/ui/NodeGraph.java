@@ -498,9 +498,11 @@ public class NodeGraph {
         }
         context.fill(x, y, x + width, y + height, bgColor);
         
-        // Node border - use light blue for selection, darker node type color for START/END, node type color otherwise
+        // Node border - use light blue for selection, grey for dragging, darker node type color for START/END, node type color otherwise
         int borderColor;
-        if (node.isSelected()) {
+        if (node.isDragging()) {
+            borderColor = 0xFFAAAAAA; // Medium grey outline when dragging
+        } else if (node.isSelected()) {
             borderColor = 0xFF87CEEB; // Light blue selection
         } else if (node.getType() == NodeType.START) {
             borderColor = isOverSidebar ? 0xFF2D4A2D : 0xFF2E7D32; // Darker green for START
@@ -509,7 +511,7 @@ public class NodeGraph {
         } else {
             borderColor = node.getType().getColor(); // Regular node type color
         }
-        if (isOverSidebar && node.getType() != NodeType.START && node.getType() != NodeType.END) {
+        if (isOverSidebar && node.getType() != NodeType.START && node.getType() != NodeType.END && !node.isDragging()) {
             borderColor = 0xFF555555; // Darker grey border when over sidebar (for regular nodes)
         }
         context.drawBorder(x, y, width, height, borderColor);
