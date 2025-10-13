@@ -198,15 +198,18 @@ public class Sidebar {
                         context.fill(INNER_SIDEBAR_WIDTH, contentY, OUTER_SIDEBAR_WIDTH, contentY + NODE_HEIGHT, HOVER_COLOR);
                     }
                     
-                    // Node color indicator (using category color)
-                    context.fill(INNER_SIDEBAR_WIDTH + 4, contentY + 2, INNER_SIDEBAR_WIDTH + 14, contentY + 16, nodeType.getColor());
-                    context.drawBorder(INNER_SIDEBAR_WIDTH + 4, contentY + 2, 10, 14, 0xFF000000);
+                    // Node color indicator (using category color) - proper square/rectangle
+                    int indicatorSize = 12;
+                    int indicatorX = INNER_SIDEBAR_WIDTH + 8; // Align with category title
+                    int indicatorY = contentY + 3;
+                    context.fill(indicatorX, indicatorY, indicatorX + indicatorSize, indicatorY + indicatorSize, nodeType.getColor());
+                    context.drawBorder(indicatorX, indicatorY, indicatorSize, indicatorSize, 0xFF000000);
                     
                     // Node name
                     context.drawTextWithShadow(
                         textRenderer,
                         Text.literal(nodeType.getDisplayName()),
-                        INNER_SIDEBAR_WIDTH + 18,
+                        indicatorX + indicatorSize + 4, // Position after the indicator with some spacing
                         contentY + 4,
                         WHITE_MUTED
                     );
