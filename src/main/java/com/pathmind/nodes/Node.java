@@ -11,10 +11,7 @@ import baritone.api.process.IMineProcess;
 import baritone.api.process.IExploreProcess;
 import baritone.api.process.IFollowProcess;
 import baritone.api.process.IFarmProcess;
-import baritone.api.process.IElytraProcess;
 import baritone.api.pathing.goals.GoalBlock;
-import baritone.api.utils.BlockOptionalMeta;
-import baritone.api.utils.BetterBlockPos;
 import com.pathmind.execution.PreciseCompletionTracker;
 
 /**
@@ -24,6 +21,7 @@ import com.pathmind.execution.PreciseCompletionTracker;
 public class Node {
     private final String id;
     private final NodeType type;
+    private NodeMode mode;
     private int x, y;
     private final int width = 80;
     private final int height = 100;
@@ -35,6 +33,7 @@ public class Node {
     public Node(NodeType type, int x, int y) {
         this.id = java.util.UUID.randomUUID().toString();
         this.type = type;
+        this.mode = NodeMode.getDefaultModeForNodeType(type);
         this.x = x;
         this.y = y;
         this.parameters = new ArrayList<>();
@@ -60,6 +59,17 @@ public class Node {
 
     public NodeType getType() {
         return type;
+    }
+    
+    public NodeMode getMode() {
+        return mode;
+    }
+    
+    public void setMode(NodeMode mode) {
+        this.mode = mode;
+        // Reinitialize parameters when mode changes
+        parameters.clear();
+        initializeParameters();
     }
 
     public int getX() {
@@ -132,120 +142,11 @@ public class Node {
     }
 
     public int getInputSocketCount() {
-        switch (type) {
-            case START:
-                return 0;
-            case END:
-                return 1;
-            case MINE_BLOCK:
-            case MINE_MULTIPLE:
-            case BUILD_SCHEMATIC:
-            case BUILD_SCHEMATIC_XYZ:
-            case GOTO_XYZ:
-            case GOTO_XZ:
-            case GOTO_Y:
-            case GOTO_BLOCK:
-            case GOTO_PORTAL:
-            case GOTO_ENDER_CHEST:
-            case GOAL_XYZ:
-            case GOAL_XZ:
-            case GOAL_Y:
-            case GOAL_CURRENT:
-            case GOAL_CLEAR:
-            case EXPLORE:
-            case EXPLORE_XYZ:
-            case EXPLORE_FILTER:
-            case FOLLOW_PLAYER:
-            case FOLLOW_PLAYERS:
-            case FOLLOW_ENTITIES:
-            case FOLLOW_ENTITY_TYPE:
-            case WP_SAVE:
-            case WP_GOAL:
-            case WP_LIST:
-            case WP_GOAL_DEATH:
-            case CLICK:
-            case BLACKLIST:
-            case ETA:
-            case PROC:
-            case REPACK:
-            case GC:
-            case RENDER:
-            case RELOAD_ALL:
-            case SAVE_ALL:
-            case FIND:
-                return 1;
-            case PATH:
-            case STOP:
-            case CANCEL:
-            case FORCE_CANCEL:
-            case INVERT:
-            case COME:
-            case SURFACE:
-            case TOP:
-            case TUNNEL:
-            case FARM_RANGE:
-            case FARM_WAYPOINT:
-            default:
-                return 1;
-        }
+        return type == NodeType.START ? 0 : 1;
     }
 
     public int getOutputSocketCount() {
-        switch (type) {
-            case START:
-            case MINE_BLOCK:
-            case MINE_MULTIPLE:
-            case BUILD_SCHEMATIC:
-            case BUILD_SCHEMATIC_XYZ:
-            case GOTO_XYZ:
-            case GOTO_XZ:
-            case GOTO_Y:
-            case GOTO_BLOCK:
-            case GOTO_PORTAL:
-            case GOTO_ENDER_CHEST:
-            case GOAL_XYZ:
-            case GOAL_XZ:
-            case GOAL_Y:
-            case GOAL_CURRENT:
-            case GOAL_CLEAR:
-            case EXPLORE:
-            case EXPLORE_XYZ:
-            case EXPLORE_FILTER:
-            case FOLLOW_PLAYER:
-            case FOLLOW_PLAYERS:
-            case FOLLOW_ENTITIES:
-            case FOLLOW_ENTITY_TYPE:
-            case WP_SAVE:
-            case WP_GOAL:
-            case WP_LIST:
-            case WP_GOAL_DEATH:
-            case CLICK:
-            case BLACKLIST:
-            case ETA:
-            case PROC:
-            case REPACK:
-            case GC:
-            case RENDER:
-            case RELOAD_ALL:
-            case SAVE_ALL:
-            case FIND:
-            case PATH:
-            case STOP:
-            case CANCEL:
-            case FORCE_CANCEL:
-            case INVERT:
-            case COME:
-            case SURFACE:
-            case TOP:
-            case TUNNEL:
-            case FARM_RANGE:
-            case FARM_WAYPOINT:
-                return 1;
-            case END:
-                return 0;
-            default:
-                return 1;
-        }
+        return type == NodeType.END ? 0 : 1;
     }
 
     public int getSocketY(int socketIndex, boolean isInput) {
@@ -273,99 +174,144 @@ public class Node {
     }
 
     /**
-     * Initialize default parameters for each node type
+     * Initialize default parameters for each node type and mode
      */
     private void initializeParameters() {
+        // Handle generalized nodes with modes
+        if (mode != null) {
+            switch (mode) {
+                // GOTO modes
+                case GOTO_XYZ:
+                    parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
+                    parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "0"));
+                    parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
+                    break;
+                case GOTO_XZ:
+                    parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
+                    parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
+                    break;
+                case GOTO_Y:
+                    parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "64"));
+                    break;
+                case GOTO_BLOCK:
+                    parameters.add(new NodeParameter("Block", ParameterType.STRING, "stone"));
+                    break;
+                case GOTO_PORTAL:
+                case GOTO_ENDER_CHEST:
+                    // No parameters needed
+                    break;
+                    
+                // GOAL modes
+                case GOAL_XYZ:
+                    parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
+                    parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "0"));
+                    parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
+                    break;
+                case GOAL_XZ:
+                    parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
+                    parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
+                    break;
+                case GOAL_Y:
+                    parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "64"));
+                    break;
+                case GOAL_CURRENT:
+                case GOAL_CLEAR:
+                    // No parameters needed
+                    break;
+                    
+                // MINE modes
+                case MINE_SINGLE:
+                    parameters.add(new NodeParameter("Block", ParameterType.STRING, "stone"));
+                    break;
+                case MINE_MULTIPLE:
+                    parameters.add(new NodeParameter("Blocks", ParameterType.STRING, "stone,dirt"));
+                    break;
+                    
+                // BUILD modes
+                case BUILD_PLAYER:
+                    parameters.add(new NodeParameter("Schematic", ParameterType.STRING, "house.schematic"));
+                    break;
+                case BUILD_XYZ:
+                    parameters.add(new NodeParameter("Schematic", ParameterType.STRING, "house.schematic"));
+                    parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
+                    parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "0"));
+                    parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
+                    break;
+                    
+                // EXPLORE modes
+                case EXPLORE_CURRENT:
+                    // No parameters needed
+                    break;
+                case EXPLORE_XYZ:
+                    parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
+                    parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
+                    break;
+                case EXPLORE_FILTER:
+                    parameters.add(new NodeParameter("Filter", ParameterType.STRING, "explore.txt"));
+                    break;
+                    
+                // FOLLOW modes
+                case FOLLOW_PLAYER:
+                    parameters.add(new NodeParameter("Player", ParameterType.STRING, "PlayerName"));
+                    break;
+                case FOLLOW_PLAYERS:
+                case FOLLOW_ENTITIES:
+                    // No parameters needed
+                    break;
+                case FOLLOW_ENTITY_TYPE:
+                    parameters.add(new NodeParameter("Entity", ParameterType.STRING, "cow"));
+                    break;
+                    
+                // FARM modes
+                case FARM_RANGE:
+                    parameters.add(new NodeParameter("Range", ParameterType.INTEGER, "10"));
+                    break;
+                case FARM_WAYPOINT:
+                    parameters.add(new NodeParameter("Waypoint", ParameterType.STRING, "farm"));
+                    parameters.add(new NodeParameter("Range", ParameterType.INTEGER, "10"));
+                    break;
+                    
+                // STOP modes
+                case STOP_NORMAL:
+                case STOP_CANCEL:
+                case STOP_FORCE:
+                    // No parameters needed
+                    break;
+                    
+                default:
+                    // No parameters needed
+                    break;
+            }
+            return;
+        }
+        
+        // Handle node types that don't use modes
         switch (type) {
-            // Navigation Commands
-            case GOTO_XYZ:
-            case GOAL_XYZ:
+            case PLACE:
+                parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, "stone"));
                 parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
                 parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "0"));
                 parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
                 break;
-            case GOTO_XZ:
-            case GOAL_XZ:
-                parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
-                parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
+            case CRAFT:
+                parameters.add(new NodeParameter("Item", ParameterType.STRING, "stick"));
+                parameters.add(new NodeParameter("Quantity", ParameterType.INTEGER, "1"));
                 break;
-            case GOTO_Y:
-            case GOAL_Y:
-                parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "64"));
+            case WAIT:
+                parameters.add(new NodeParameter("Duration", ParameterType.DOUBLE, "1.0"));
                 break;
-            case GOTO_BLOCK:
-                parameters.add(new NodeParameter("Block", ParameterType.STRING, "stone"));
+            case MESSAGE:
+                parameters.add(new NodeParameter("Text", ParameterType.STRING, "Hello World"));
                 break;
-            
-            // Mining and Building Commands
-            case MINE_BLOCK:
-                parameters.add(new NodeParameter("Block", ParameterType.STRING, "stone"));
+            case SET:
+                parameters.add(new NodeParameter("Setting", ParameterType.STRING, "allowBreak"));
+                parameters.add(new NodeParameter("Value", ParameterType.STRING, "true"));
                 break;
-            case MINE_MULTIPLE:
-                parameters.add(new NodeParameter("Blocks", ParameterType.STRING, "stone,dirt"));
+            case GET:
+                parameters.add(new NodeParameter("Setting", ParameterType.STRING, "allowBreak"));
                 break;
-            case BUILD_SCHEMATIC:
-                parameters.add(new NodeParameter("Schematic", ParameterType.STRING, "house.schematic"));
-                break;
-            case BUILD_SCHEMATIC_XYZ:
-                parameters.add(new NodeParameter("Schematic", ParameterType.STRING, "house.schematic"));
-                parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
-                parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "0"));
-                parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
-                break;
-            case TUNNEL:
-                parameters.add(new NodeParameter("Width", ParameterType.INTEGER, "3"));
-                parameters.add(new NodeParameter("Height", ParameterType.INTEGER, "2"));
-                break;
-            case FARM_RANGE:
-                parameters.add(new NodeParameter("Range", ParameterType.INTEGER, "10"));
-                break;
-            case FARM_WAYPOINT:
-                parameters.add(new NodeParameter("Waypoint", ParameterType.STRING, "farm"));
-                parameters.add(new NodeParameter("Range", ParameterType.INTEGER, "10"));
-                break;
-            
-            // Exploration Commands
-            case EXPLORE_XYZ:
-                parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
-                parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
-                break;
-            case EXPLORE_FILTER:
-                parameters.add(new NodeParameter("Filter", ParameterType.STRING, "explore.txt"));
-                break;
-            case FOLLOW_PLAYER:
-                parameters.add(new NodeParameter("Player", ParameterType.STRING, "PlayerName"));
-                break;
-            case FOLLOW_ENTITY_TYPE:
-                parameters.add(new NodeParameter("Entity", ParameterType.STRING, "cow"));
-                break;
-            
-            // Waypoint Commands
-            case WP_SAVE:
-                parameters.add(new NodeParameter("Name", ParameterType.STRING, "waypoint"));
-                break;
-            case WP_GOAL:
-                parameters.add(new NodeParameter("Name", ParameterType.STRING, "waypoint"));
-                break;
-            
-            // Utility Commands
-            case FIND:
-                parameters.add(new NodeParameter("Block", ParameterType.STRING, "diamond_ore"));
-                break;
-            
-            // No parameters needed
-            case PATH:
-            case STOP:
-            case CANCEL:
-            case FORCE_CANCEL:
-            case INVERT:
-            case COME:
-            case SURFACE:
-            case TOP:
-            case START:
-            case END:
             default:
-                // These nodes have no parameters
+                // No parameters needed
                 break;
         }
     }
@@ -450,47 +396,53 @@ public class Node {
                 future.complete(null);
                 break;
                 
-            case GOTO_XYZ:
-            case GOTO_XZ:
-            case GOTO_Y:
-            case GOTO_BLOCK:
-            case GOTO_PORTAL:
-            case GOTO_ENDER_CHEST:
+            // Generalized nodes
+            case GOTO:
                 executeGotoCommand(future);
                 break;
-            case MINE_BLOCK:
-            case MINE_MULTIPLE:
+            case GOAL:
+                executeGoalCommand(future);
+                break;
+            case MINE:
                 executeMineCommand(future);
                 break;
-            case BUILD_SCHEMATIC:
-            case BUILD_SCHEMATIC_XYZ:
+            case BUILD:
                 executeBuildCommand(future);
                 break;
             case EXPLORE:
-            case EXPLORE_XYZ:
-            case EXPLORE_FILTER:
                 executeExploreCommand(future);
                 break;
-            case FOLLOW_PLAYER:
-            case FOLLOW_PLAYERS:
-            case FOLLOW_ENTITIES:
-            case FOLLOW_ENTITY_TYPE:
+            case FOLLOW:
                 executeFollowCommand(future);
                 break;
-            case GOAL_XYZ:
-            case GOAL_XZ:
-            case GOAL_Y:
-            case GOAL_CURRENT:
-            case GOAL_CLEAR:
-                executeGoalCommand(future);
-                break;
-            case PATH:
-                executePathCommand(future);
+            case FARM:
+                executeFarmCommand(future);
                 break;
             case STOP:
-            case CANCEL:
-            case FORCE_CANCEL:
                 executeStopCommand(future);
+                break;
+            case PLACE:
+                executePlaceCommand(future);
+                break;
+            case CRAFT:
+                executeCraftCommand(future);
+                break;
+            case WAIT:
+                executeWaitCommand(future);
+                break;
+            case MESSAGE:
+                executeMessageCommand(future);
+                break;
+            case SET:
+                executeSetCommand(future);
+                break;
+            case GET:
+                executeGetCommand(future);
+                break;
+                
+            // Legacy nodes
+            case PATH:
+                executePathCommand(future);
                 break;
             case INVERT:
                 executeInvertCommand(future);
@@ -499,15 +451,10 @@ public class Node {
                 executeComeCommand(future);
                 break;
             case SURFACE:
-            case TOP:
                 executeSurfaceCommand(future);
                 break;
             case TUNNEL:
                 executeTunnelCommand(future);
-                break;
-            case FARM_RANGE:
-            case FARM_WAYPOINT:
-                executeFarmCommand(future);
                 break;
                 
             default:
@@ -519,57 +466,147 @@ public class Node {
     
     // Command execution methods that wait for Baritone completion
     private void executeGotoCommand(CompletableFuture<Void> future) {
-        // Get position parameters
-        int x = 0, y = 64, z = 0;
-        NodeParameter xParam = getParameter("X");
-        NodeParameter yParam = getParameter("Y");
-        NodeParameter zParam = getParameter("Z");
-        
-        if (xParam != null) x = xParam.getIntValue();
-        if (yParam != null) y = yParam.getIntValue();
-        if (zParam != null) z = zParam.getIntValue();
-        
-        System.out.println("Executing goto to: " + x + ", " + y + ", " + z);
+        if (mode == null) {
+            future.completeExceptionally(new RuntimeException("No mode set for GOTO node"));
+            return;
+        }
         
         IBaritone baritone = getBaritone();
-        if (baritone != null) {
-            // Start precise tracking of this task
-            PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
-            
-            // Start the Baritone task
-            ICustomGoalProcess customGoalProcess = baritone.getCustomGoalProcess();
-            GoalBlock goal = new GoalBlock(x, y, z);
-            customGoalProcess.setGoalAndPath(goal);
-            
-            // The future will be completed by the TaskCompletionManager when the path reaches the goal
-        } else {
+        if (baritone == null) {
             System.err.println("Baritone not available for goto command");
             future.completeExceptionally(new RuntimeException("Baritone not available"));
+            return;
+        }
+        
+        ICustomGoalProcess customGoalProcess = baritone.getCustomGoalProcess();
+        
+        switch (mode) {
+            case GOTO_XYZ:
+                int x = 0, y = 64, z = 0;
+                NodeParameter xParam = getParameter("X");
+                NodeParameter yParam = getParameter("Y");
+                NodeParameter zParam = getParameter("Z");
+                
+                if (xParam != null) x = xParam.getIntValue();
+                if (yParam != null) y = yParam.getIntValue();
+                if (zParam != null) z = zParam.getIntValue();
+                
+                System.out.println("Executing goto to: " + x + ", " + y + ", " + z);
+                PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
+                GoalBlock goal = new GoalBlock(x, y, z);
+                customGoalProcess.setGoalAndPath(goal);
+                break;
+                
+            case GOTO_XZ:
+                int x2 = 0, z2 = 0;
+                NodeParameter xParam2 = getParameter("X");
+                NodeParameter zParam2 = getParameter("Z");
+                
+                if (xParam2 != null) x2 = xParam2.getIntValue();
+                if (zParam2 != null) z2 = zParam2.getIntValue();
+                
+                System.out.println("Executing goto to: " + x2 + ", " + z2);
+                PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
+                GoalBlock goal2 = new GoalBlock(x2, 0, z2); // Y will be determined by pathfinding
+                customGoalProcess.setGoalAndPath(goal2);
+                break;
+                
+            case GOTO_Y:
+                int y3 = 64;
+                NodeParameter yParam3 = getParameter("Y");
+                if (yParam3 != null) y3 = yParam3.getIntValue();
+                
+                System.out.println("Executing goto to Y level: " + y3);
+                PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
+                // For Y-only movement, we need to get current X,Z and set goal there
+                net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+                if (client != null && client.player != null) {
+                    int currentX = (int) client.player.getX();
+                    int currentZ = (int) client.player.getZ();
+                    GoalBlock goal3 = new GoalBlock(currentX, y3, currentZ);
+                    customGoalProcess.setGoalAndPath(goal3);
+                }
+                break;
+                
+            case GOTO_BLOCK:
+                String block = "stone";
+                NodeParameter blockParam = getParameter("Block");
+                if (blockParam != null) {
+                    block = blockParam.getStringValue();
+                }
+                
+                System.out.println("Executing goto to block: " + block);
+                PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
+                // Use Baritone's block goal - need to find the block first
+                executeCommand("#goto " + block);
+                break;
+                
+            case GOTO_PORTAL:
+                System.out.println("Executing goto to nearest portal");
+                PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
+                // Use Baritone's portal goal
+                executeCommand("#goto portal");
+                break;
+                
+            case GOTO_ENDER_CHEST:
+                System.out.println("Executing goto to nearest ender chest");
+                PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
+                // Use Baritone's ender chest goal
+                executeCommand("#goto ender_chest");
+                break;
+                
+            default:
+                future.completeExceptionally(new RuntimeException("Unknown GOTO mode: " + mode));
+                break;
         }
     }
     
     private void executeMineCommand(CompletableFuture<Void> future) {
-        String block = "stone";
-        NodeParameter blockParam = getParameter("Block");
-        if (blockParam != null) {
-            block = blockParam.getStringValue();
+        if (mode == null) {
+            future.completeExceptionally(new RuntimeException("No mode set for MINE node"));
+            return;
         }
         
-        System.out.println("Executing mine for: " + block);
-        
         IBaritone baritone = getBaritone();
-        if (baritone != null) {
-            // Start precise tracking of this task
-            PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_MINE, future);
-            
-            // Start the Baritone mining task
-            IMineProcess mineProcess = baritone.getMineProcess();
-            mineProcess.mineByName(block);
-            
-            // The future will be completed by the PreciseCompletionTracker when mining actually finishes
-        } else {
+        if (baritone == null) {
             System.err.println("Baritone not available for mine command");
             future.completeExceptionally(new RuntimeException("Baritone not available"));
+            return;
+        }
+        
+        IMineProcess mineProcess = baritone.getMineProcess();
+        PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_MINE, future);
+        
+        switch (mode) {
+            case MINE_SINGLE:
+                String block = "stone";
+                NodeParameter blockParam = getParameter("Block");
+                if (blockParam != null) {
+                    block = blockParam.getStringValue();
+                }
+                
+                System.out.println("Executing mine for: " + block);
+                mineProcess.mineByName(block);
+                break;
+                
+            case MINE_MULTIPLE:
+                String blocks = "stone,dirt";
+                NodeParameter blocksParam = getParameter("Blocks");
+                if (blocksParam != null) {
+                    blocks = blocksParam.getStringValue();
+                }
+                
+                System.out.println("Executing mine for blocks: " + blocks);
+                // Split the comma-separated block names and mine them
+                String[] blockNames = blocks.split(",");
+                for (String blockName : blockNames) {
+                    mineProcess.mineByName(blockName.trim());
+                }
+                break;
+                
+            default:
+                future.completeExceptionally(new RuntimeException("Unknown MINE mode: " + mode));
+                break;
         }
     }
     
@@ -612,65 +649,147 @@ public class Node {
     }
     
     private void executeBuildCommand(CompletableFuture<Void> future) {
+        if (mode == null) {
+            future.completeExceptionally(new RuntimeException("No mode set for BUILD node"));
+            return;
+        }
+        
         String schematic = "house.schematic";
         NodeParameter schematicParam = getParameter("Schematic");
         if (schematicParam != null) {
             schematic = schematicParam.getStringValue();
         }
         
-        String command = String.format("#build %s", schematic);
-        System.out.println("Executing command: " + command);
+        String command;
+        switch (mode) {
+            case BUILD_PLAYER:
+                command = String.format("#build %s", schematic);
+                System.out.println("Executing build at player location: " + command);
+                break;
+                
+            case BUILD_XYZ:
+                int x = 0, y = 0, z = 0;
+                NodeParameter xParam = getParameter("X");
+                NodeParameter yParam = getParameter("Y");
+                NodeParameter zParam = getParameter("Z");
+                
+                if (xParam != null) x = xParam.getIntValue();
+                if (yParam != null) y = yParam.getIntValue();
+                if (zParam != null) z = zParam.getIntValue();
+                
+                command = String.format("#build %s %d %d %d", schematic, x, y, z);
+                System.out.println("Executing build at coordinates: " + command);
+                break;
+                
+            default:
+                future.completeExceptionally(new RuntimeException("Unknown BUILD mode: " + mode));
+                return;
+        }
         
         executeCommand(command);
         future.complete(null); // These commands complete immediately
     }
     
     private void executeExploreCommand(CompletableFuture<Void> future) {
-        int x = 0, z = 0;
-        NodeParameter xParam = getParameter("X");
-        NodeParameter zParam = getParameter("Z");
-        
-        if (xParam != null) x = xParam.getIntValue();
-        if (zParam != null) z = zParam.getIntValue();
-        
-        System.out.println("Executing explore at: " + x + ", " + z);
+        if (mode == null) {
+            future.completeExceptionally(new RuntimeException("No mode set for EXPLORE node"));
+            return;
+        }
         
         IBaritone baritone = getBaritone();
-        if (baritone != null) {
-            // Start precise tracking of this task
-            PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_EXPLORE, future);
-            
-            // Start the Baritone exploration task
-            IExploreProcess exploreProcess = baritone.getExploreProcess();
-            exploreProcess.explore(x, z);
-            
-            // The future will be completed by the PreciseCompletionTracker when exploration actually finishes
-        } else {
+        if (baritone == null) {
             System.err.println("Baritone not available for explore command");
             future.completeExceptionally(new RuntimeException("Baritone not available"));
+            return;
+        }
+        
+        IExploreProcess exploreProcess = baritone.getExploreProcess();
+        PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_EXPLORE, future);
+        
+        switch (mode) {
+            case EXPLORE_CURRENT:
+                System.out.println("Executing explore from current position");
+                exploreProcess.explore(0, 0); // 0,0 means from current position
+                break;
+                
+            case EXPLORE_XYZ:
+                int x = 0, z = 0;
+                NodeParameter xParam = getParameter("X");
+                NodeParameter zParam = getParameter("Z");
+                
+                if (xParam != null) x = xParam.getIntValue();
+                if (zParam != null) z = zParam.getIntValue();
+                
+                System.out.println("Executing explore at: " + x + ", " + z);
+                exploreProcess.explore(x, z);
+                break;
+                
+            case EXPLORE_FILTER:
+                String filter = "explore.txt";
+                NodeParameter filterParam = getParameter("Filter");
+                if (filterParam != null) {
+                    filter = filterParam.getStringValue();
+                }
+                
+                System.out.println("Executing explore with filter: " + filter);
+                // For filter-based exploration, we need to use a different approach
+                executeCommand("#explore " + filter);
+                future.complete(null); // Command-based exploration completes immediately
+                return;
+                
+            default:
+                future.completeExceptionally(new RuntimeException("Unknown EXPLORE mode: " + mode));
+                return;
         }
     }
     
     private void executeFollowCommand(CompletableFuture<Void> future) {
-        String player = "PlayerName";
-        NodeParameter playerParam = getParameter("Player");
-        if (playerParam != null) {
-            player = playerParam.getStringValue();
+        if (mode == null) {
+            future.completeExceptionally(new RuntimeException("No mode set for FOLLOW node"));
+            return;
         }
         
-        System.out.println("Executing follow for: " + player);
-        
-        IBaritone baritone = getBaritone();
-        if (baritone != null) {
-            IFollowProcess followProcess = baritone.getFollowProcess();
-            // Note: Follow process doesn't have a direct method for player names
-            // This would need to be implemented differently or use commands
-            executeCommand("#follow " + player);
-            future.complete(null); // Follow command completes immediately
-        } else {
-            System.err.println("Baritone not available for follow command");
-            future.completeExceptionally(new RuntimeException("Baritone not available"));
+        String command;
+        switch (mode) {
+            case FOLLOW_PLAYER:
+                String player = "PlayerName";
+                NodeParameter playerParam = getParameter("Player");
+                if (playerParam != null) {
+                    player = playerParam.getStringValue();
+                }
+                
+                command = "#follow " + player;
+                System.out.println("Executing follow player: " + command);
+                break;
+                
+            case FOLLOW_PLAYERS:
+                command = "#follow players";
+                System.out.println("Executing follow any players: " + command);
+                break;
+                
+            case FOLLOW_ENTITIES:
+                command = "#follow entities";
+                System.out.println("Executing follow any entities: " + command);
+                break;
+                
+            case FOLLOW_ENTITY_TYPE:
+                String entity = "cow";
+                NodeParameter entityParam = getParameter("Entity");
+                if (entityParam != null) {
+                    entity = entityParam.getStringValue();
+                }
+                
+                command = "#follow " + entity;
+                System.out.println("Executing follow entity type: " + command);
+                break;
+                
+            default:
+                future.completeExceptionally(new RuntimeException("Unknown FOLLOW mode: " + mode));
+                return;
         }
+        
+        executeCommand(command);
+        future.complete(null); // Follow commands complete immediately
     }
     
     private void executeWaitCommand(CompletableFuture<Void> future) {
@@ -740,29 +859,89 @@ public class Node {
     }
     
     private void executeGoalCommand(CompletableFuture<Void> future) {
-        int x = 0, y = 64, z = 0;
-        NodeParameter xParam = getParameter("X");
-        NodeParameter yParam = getParameter("Y");
-        NodeParameter zParam = getParameter("Z");
-        
-        if (xParam != null) x = xParam.getIntValue();
-        if (yParam != null) y = yParam.getIntValue();
-        if (zParam != null) z = zParam.getIntValue();
-        
-        System.out.println("Setting goal to: " + x + ", " + y + ", " + z);
+        if (mode == null) {
+            future.completeExceptionally(new RuntimeException("No mode set for GOAL node"));
+            return;
+        }
         
         IBaritone baritone = getBaritone();
-        if (baritone != null) {
-            ICustomGoalProcess customGoalProcess = baritone.getCustomGoalProcess();
-            GoalBlock goal = new GoalBlock(x, y, z);
-            customGoalProcess.setGoal(goal);
-            
-            // Goal setting is immediate, no need to wait
-            future.complete(null);
-        } else {
+        if (baritone == null) {
             System.err.println("Baritone not available for goal command");
             future.completeExceptionally(new RuntimeException("Baritone not available"));
+            return;
         }
+        
+        ICustomGoalProcess customGoalProcess = baritone.getCustomGoalProcess();
+        
+        switch (mode) {
+            case GOAL_XYZ:
+                int x = 0, y = 64, z = 0;
+                NodeParameter xParam = getParameter("X");
+                NodeParameter yParam = getParameter("Y");
+                NodeParameter zParam = getParameter("Z");
+                
+                if (xParam != null) x = xParam.getIntValue();
+                if (yParam != null) y = yParam.getIntValue();
+                if (zParam != null) z = zParam.getIntValue();
+                
+                System.out.println("Setting goal to: " + x + ", " + y + ", " + z);
+                GoalBlock goal = new GoalBlock(x, y, z);
+                customGoalProcess.setGoal(goal);
+                break;
+                
+            case GOAL_XZ:
+                int x2 = 0, z2 = 0;
+                NodeParameter xParam2 = getParameter("X");
+                NodeParameter zParam2 = getParameter("Z");
+                
+                if (xParam2 != null) x2 = xParam2.getIntValue();
+                if (zParam2 != null) z2 = zParam2.getIntValue();
+                
+                System.out.println("Setting goal to: " + x2 + ", " + z2);
+                GoalBlock goal2 = new GoalBlock(x2, 0, z2); // Y will be determined by pathfinding
+                customGoalProcess.setGoal(goal2);
+                break;
+                
+            case GOAL_Y:
+                int y3 = 64;
+                NodeParameter yParam3 = getParameter("Y");
+                if (yParam3 != null) y3 = yParam3.getIntValue();
+                
+                System.out.println("Setting goal to Y level: " + y3);
+                // For Y-only goal, we need to get current X,Z and set goal there
+                net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+                if (client != null && client.player != null) {
+                    int currentX = (int) client.player.getX();
+                    int currentZ = (int) client.player.getZ();
+                    GoalBlock goal3 = new GoalBlock(currentX, y3, currentZ);
+                    customGoalProcess.setGoal(goal3);
+                }
+                break;
+                
+            case GOAL_CURRENT:
+                System.out.println("Setting goal to current position");
+                net.minecraft.client.MinecraftClient client2 = net.minecraft.client.MinecraftClient.getInstance();
+                if (client2 != null && client2.player != null) {
+                    int currentX = (int) client2.player.getX();
+                    int currentY = (int) client2.player.getY();
+                    int currentZ = (int) client2.player.getZ();
+                    GoalBlock goal4 = new GoalBlock(currentX, currentY, currentZ);
+                    customGoalProcess.setGoal(goal4);
+                }
+                break;
+                
+            case GOAL_CLEAR:
+                System.out.println("Clearing current goal");
+                customGoalProcess.setGoal(null);
+                break;
+                
+            default:
+                future.completeExceptionally(new RuntimeException("Unknown GOAL mode: " + mode));
+                return;
+        }
+        
+        // Goal setting is immediate, no need to wait
+        future.complete(null);
     }
     
     private void executePathCommand(CompletableFuture<Void> future) {
@@ -785,22 +964,50 @@ public class Node {
     }
     
     private void executeStopCommand(CompletableFuture<Void> future) {
-        System.out.println("Executing stop command");
+        if (mode == null) {
+            future.completeExceptionally(new RuntimeException("No mode set for STOP node"));
+            return;
+        }
         
         IBaritone baritone = getBaritone();
-        if (baritone != null) {
-            // Cancel all pending tasks first
-            PreciseCompletionTracker.getInstance().cancelAllTasks();
-            
-            // Stop all Baritone processes
-            baritone.getPathingBehavior().cancelEverything();
-            
-            // Complete immediately since stop is immediate
-            future.complete(null);
-        } else {
+        if (baritone == null) {
             System.err.println("Baritone not available for stop command");
             future.completeExceptionally(new RuntimeException("Baritone not available"));
+            return;
         }
+        
+        switch (mode) {
+            case STOP_NORMAL:
+                System.out.println("Executing stop command");
+                // Cancel all pending tasks first
+                PreciseCompletionTracker.getInstance().cancelAllTasks();
+                // Stop all Baritone processes
+                baritone.getPathingBehavior().cancelEverything();
+                break;
+                
+            case STOP_CANCEL:
+                System.out.println("Executing cancel command");
+                // Cancel all pending tasks first
+                PreciseCompletionTracker.getInstance().cancelAllTasks();
+                // Stop all Baritone processes
+                baritone.getPathingBehavior().cancelEverything();
+                break;
+                
+            case STOP_FORCE:
+                System.out.println("Executing force cancel command");
+                // Force cancel all tasks
+                PreciseCompletionTracker.getInstance().cancelAllTasks();
+                // Force stop all Baritone processes
+                baritone.getPathingBehavior().cancelEverything();
+                break;
+                
+            default:
+                future.completeExceptionally(new RuntimeException("Unknown STOP mode: " + mode));
+                return;
+        }
+        
+        // Complete immediately since stop is immediate
+        future.complete(null);
     }
     
     private void executeInvertCommand(CompletableFuture<Void> future) {
@@ -836,21 +1043,55 @@ public class Node {
     }
     
     private void executeFarmCommand(CompletableFuture<Void> future) {
-        System.out.println("Executing farm command");
+        if (mode == null) {
+            future.completeExceptionally(new RuntimeException("No mode set for FARM node"));
+            return;
+        }
         
         IBaritone baritone = getBaritone();
-        if (baritone != null) {
-            // Start precise tracking of this task
-            PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_FARM, future);
-            
-            // Start the Baritone farming task
-            IFarmProcess farmProcess = baritone.getFarmProcess();
-            farmProcess.farm();
-            
-            // The future will be completed by the PreciseCompletionTracker when farming actually finishes
-        } else {
+        if (baritone == null) {
             System.err.println("Baritone not available for farm command");
             future.completeExceptionally(new RuntimeException("Baritone not available"));
+            return;
+        }
+        
+        IFarmProcess farmProcess = baritone.getFarmProcess();
+        PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_FARM, future);
+        
+        switch (mode) {
+            case FARM_RANGE:
+                int range = 10;
+                NodeParameter rangeParam = getParameter("Range");
+                if (rangeParam != null) {
+                    range = rangeParam.getIntValue();
+                }
+                
+                System.out.println("Executing farm within range: " + range);
+                farmProcess.farm(range);
+                break;
+                
+            case FARM_WAYPOINT:
+                String waypoint = "farm";
+                int waypointRange = 10;
+                NodeParameter waypointParam = getParameter("Waypoint");
+                NodeParameter waypointRangeParam = getParameter("Range");
+                
+                if (waypointParam != null) {
+                    waypoint = waypointParam.getStringValue();
+                }
+                if (waypointRangeParam != null) {
+                    waypointRange = waypointRangeParam.getIntValue();
+                }
+                
+                System.out.println("Executing farm around waypoint: " + waypoint + " with range: " + waypointRange);
+                // For waypoint-based farming, we need to use a different approach
+                executeCommand("#farm " + waypoint + " " + waypointRange);
+                future.complete(null); // Command-based farming completes immediately
+                return;
+                
+            default:
+                future.completeExceptionally(new RuntimeException("Unknown FARM mode: " + mode));
+                return;
         }
     }
     

@@ -44,6 +44,7 @@ public class NodeGraphPersistence {
                 NodeGraphData.NodeData nodeData = new NodeGraphData.NodeData();
                 nodeData.setId(node.getId());
                 nodeData.setType(node.getType());
+                nodeData.setMode(node.getMode());
                 nodeData.setX(node.getX());
                 nodeData.setY(node.getY());
                 
@@ -133,7 +134,12 @@ public class NodeGraphPersistence {
                 System.err.println("Failed to set node ID: " + e.getMessage());
             }
             
-            // Restore parameters
+            // Set the mode if it exists (this will reinitialize parameters)
+            if (nodeData.getMode() != null) {
+                node.setMode(nodeData.getMode());
+            }
+            
+            // Restore parameters (overwrite the default parameters with saved ones)
             node.getParameters().clear();
             for (NodeGraphData.ParameterData paramData : nodeData.getParameters()) {
                 ParameterType paramType = ParameterType.valueOf(paramData.getType());

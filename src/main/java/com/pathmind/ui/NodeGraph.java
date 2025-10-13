@@ -85,7 +85,7 @@ public class NodeGraph {
         Node startNode = new Node(NodeType.START, centerX - 100, centerY - 50);
         nodes.add(startNode);
         
-        Node middleNode = new Node(NodeType.GOTO_XYZ, centerX, centerY - 50);
+        Node middleNode = new Node(NodeType.GOTO, centerX, centerY - 50);
         nodes.add(middleNode);
         
         Node endNode = new Node(NodeType.END, centerX + 100, centerY - 50);
@@ -881,7 +881,12 @@ public class NodeGraph {
                     System.err.println("Failed to set node ID: " + e.getMessage());
                 }
                 
-                // Restore parameters
+                // Set the mode if it exists (this will reinitialize parameters)
+                if (nodeData.getMode() != null) {
+                    node.setMode(nodeData.getMode());
+                }
+                
+                // Restore parameters (overwrite the default parameters with saved ones)
                 node.getParameters().clear();
                 for (NodeGraphData.ParameterData paramData : nodeData.getParameters()) {
                     ParameterType paramType = ParameterType.valueOf(paramData.getType());

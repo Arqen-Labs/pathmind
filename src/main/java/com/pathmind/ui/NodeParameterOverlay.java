@@ -2,6 +2,7 @@ package com.pathmind.ui;
 
 import com.pathmind.nodes.Node;
 import com.pathmind.nodes.NodeParameter;
+import com.pathmind.nodes.NodeMode;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.font.TextRenderer;
@@ -26,6 +27,11 @@ public class NodeParameterOverlay {
     private final Runnable onClose;
     private boolean visible = false;
     private int focusedFieldIndex = -1;
+    
+    // Mode selection fields
+    private NodeMode selectedMode;
+    private final List<NodeMode> availableModes;
+    private int modeDropdownOpen = -1; // -1 = closed, 0+ = open with selected index
 
     public NodeParameterOverlay(Node node, int screenWidth, int screenHeight, Runnable onClose) {
         this.node = node;
@@ -33,9 +39,20 @@ public class NodeParameterOverlay {
         this.parameterValues = new ArrayList<>();
         this.fieldFocused = new ArrayList<>();
         
+        // Initialize mode selection
+        this.availableModes = new ArrayList<>();
+        NodeMode[] modes = NodeMode.getModesForNodeType(node.getType());
+        if (modes != null) {
+            for (NodeMode mode : modes) {
+                this.availableModes.add(mode);
+            }
+        }
+        this.selectedMode = node.getMode();
+        
         // Calculate popup dimensions and position
         int parameterCount = node.getParameters().size();
-        this.popupHeight = Math.max(150, parameterCount * 45 + 100); // 45px per parameter + header/footer space for better spacing
+        int modeHeight = hasModeSelection() ? 30 : 0; // Extra height for mode selector
+        this.popupHeight = Math.max(150, parameterCount * 45 + 100 + modeHeight); // 45px per parameter + header/footer space + mode selector
         this.popupX = (screenWidth - popupWidth) / 2;
         this.popupY = (screenHeight - popupHeight) / 2;
     }
@@ -83,8 +100,59 @@ public class NodeParameterOverlay {
             0xFFFFFFFF
         );
         
-        // Render parameter labels and fields
+        // Render mode selector if applicable
         int labelY = popupY + 45;
+        if (hasModeSelection()) {
+            // Mode selector label
+            context.drawTextWithShadow(
+                textRenderer,
+                Text.literal("Mode:"),
+                popupX + 20,
+                labelY + 5,
+                0xFFE0E0E0
+            );
+            
+            // Mode dropdown button
+            int modeButtonX = popupX + 20;
+            int modeButtonY = labelY + 20;
+            int modeButtonWidth = popupWidth - 40;
+            int modeButtonHeight = 20;
+            
+            // Check if mode dropdown is clicked
+            boolean modeButtonHovered = mouseX >= modeButtonX && mouseX <= modeButtonX + modeButtonWidth &&
+                                      mouseY >= modeButtonY && mouseY <= modeButtonY + modeButtonHeight;
+            
+            int modeBgColor = modeButtonHovered ? 0xFF2A2A2A : 0xFF1A1A1A;
+            int modeBorderColor = modeButtonHovered ? 0xFF87CEEB : 0xFF666666;
+            
+            context.fill(modeButtonX, modeButtonY, modeButtonX + modeButtonWidth, modeButtonY + modeButtonHeight, modeBgColor);
+            context.drawBorder(modeButtonX, modeButtonY, modeButtonWidth, modeButtonHeight, modeBorderColor);
+            
+            // Render selected mode text
+            String modeText = selectedMode != null ? selectedMode.getDisplayName() : "Select Mode";
+            context.drawTextWithShadow(
+                textRenderer,
+                Text.literal(modeText),
+                modeButtonX + 4,
+                modeButtonY + 6,
+                0xFFFFFFFF
+            );
+            
+            // Render dropdown arrow
+            context.drawTextWithShadow(
+                textRenderer,
+                Text.literal("▼"),
+                modeButtonX + modeButtonWidth - 16,
+                modeButtonY + 6,
+                0xFFE0E0E0
+            );
+            
+            // Note: Dropdown rendering moved to end of method for proper z-order
+            
+            labelY += 50; // Move down for mode selector
+        }
+        
+        // Render parameter labels and fields
         for (int i = 0; i < node.getParameters().size(); i++) {
             NodeParameter param = node.getParameters().get(i);
             context.drawTextWithShadow(
@@ -147,6 +215,41 @@ public class NodeParameterOverlay {
         // Render buttons
         renderButton(context, textRenderer, saveButton, mouseX, mouseY);
         renderButton(context, textRenderer, cancelButton, mouseX, mouseY);
+        
+        // Render mode dropdown on top of everything else (proper z-order)
+        if (hasModeSelection() && modeDropdownOpen >= 0) {
+            int dropdownLabelY = popupY + 45;
+            int modeButtonX = popupX + 20;
+            int modeButtonY = dropdownLabelY + 20;
+            int modeButtonWidth = popupWidth - 40;
+            int modeButtonHeight = 20;
+            
+            int dropdownY = modeButtonY + modeButtonHeight;
+            int dropdownHeight = availableModes.size() * 20;
+            
+            // Dropdown background with higher z-order
+            context.fill(modeButtonX, dropdownY, modeButtonX + modeButtonWidth, dropdownY + dropdownHeight, 0xFF1A1A1A);
+            context.drawBorder(modeButtonX, dropdownY, modeButtonWidth, dropdownHeight, 0xFF666666);
+            
+            // Render mode options
+            for (int i = 0; i < availableModes.size(); i++) {
+                NodeMode mode = availableModes.get(i);
+                int optionY = dropdownY + i * 20;
+                
+                // Highlight selected option
+                if (i == modeDropdownOpen) {
+                    context.fill(modeButtonX, optionY, modeButtonX + modeButtonWidth, optionY + 20, 0xFF404040);
+                }
+                
+                context.drawTextWithShadow(
+                    textRenderer,
+                    Text.literal(mode.getDisplayName()),
+                    modeButtonX + 4,
+                    optionY + 6,
+                    0xFFFFFFFF
+                );
+            }
+        }
     }
 
     private void renderButton(DrawContext context, TextRenderer textRenderer, ButtonWidget button, int mouseX, int mouseY) {
@@ -180,8 +283,55 @@ public class NodeParameterOverlay {
             return true;
         }
         
-        // Check field clicks
+        // Check mode selector click
         int labelY = popupY + 45;
+        if (hasModeSelection()) {
+            int modeButtonX = popupX + 20;
+            int modeButtonY = labelY + 20;
+            int modeButtonWidth = popupWidth - 40;
+            int modeButtonHeight = 20;
+            
+            if (mouseX >= modeButtonX && mouseX <= modeButtonX + modeButtonWidth &&
+                mouseY >= modeButtonY && mouseY <= modeButtonY + modeButtonHeight) {
+                // Toggle dropdown
+                if (modeDropdownOpen >= 0) {
+                    modeDropdownOpen = -1; // Close dropdown
+                } else {
+                    modeDropdownOpen = 0; // Open dropdown
+                }
+                return true;
+            }
+            
+            // Check dropdown option clicks
+            if (modeDropdownOpen >= 0) {
+                int dropdownY = modeButtonY + modeButtonHeight;
+                int dropdownHeight = availableModes.size() * 20;
+                
+                if (mouseX >= modeButtonX && mouseX <= modeButtonX + modeButtonWidth &&
+                    mouseY >= dropdownY && mouseY <= dropdownY + dropdownHeight) {
+                    // Calculate which option was clicked
+                    int optionIndex = (int) ((mouseY - dropdownY) / 20);
+                    if (optionIndex >= 0 && optionIndex < availableModes.size()) {
+                        selectedMode = availableModes.get(optionIndex);
+                        // Update node mode and reinitialize parameters
+                        node.setMode(selectedMode);
+                        // Reinitialize parameter values
+                        parameterValues.clear();
+                        fieldFocused.clear();
+                        for (NodeParameter param : node.getParameters()) {
+                            parameterValues.add(param.getStringValue());
+                            fieldFocused.add(false);
+                        }
+                    }
+                    modeDropdownOpen = -1; // Close dropdown
+                    return true;
+                }
+            }
+            
+            labelY += 50; // Move down for mode selector
+        }
+        
+        // Check field clicks
         for (int i = 0; i < node.getParameters().size(); i++) {
             int fieldX = popupX + 20;
             int fieldY = labelY + 20; // Match the rendering position
@@ -197,6 +347,23 @@ public class NodeParameterOverlay {
             labelY += 45;
         }
         
+        // Close dropdown if clicking outside of it
+        if (hasModeSelection() && modeDropdownOpen >= 0) {
+            int closeLabelY = popupY + 45;
+            int modeButtonX = popupX + 20;
+            int modeButtonY = closeLabelY + 20;
+            int modeButtonWidth = popupWidth - 40;
+            int modeButtonHeight = 20;
+            int dropdownY = modeButtonY + modeButtonHeight;
+            int dropdownHeight = availableModes.size() * 20;
+            
+            // Check if click is outside dropdown area
+            if (!(mouseX >= modeButtonX && mouseX <= modeButtonX + modeButtonWidth &&
+                  mouseY >= modeButtonY && mouseY <= dropdownY + dropdownHeight)) {
+                modeDropdownOpen = -1; // Close dropdown
+            }
+        }
+        
         // Close if clicking outside the popup
         if (mouseX < popupX || mouseX > popupX + popupWidth ||
             mouseY < popupY || mouseY > popupY + popupHeight) {
@@ -204,7 +371,8 @@ public class NodeParameterOverlay {
             return true;
         }
         
-        return false;
+        // Always consume mouse events when popup is visible to prevent underlying UI interaction
+        return true;
     }
 
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
@@ -260,6 +428,11 @@ public class NodeParameterOverlay {
     }
 
     private void saveParameters() {
+        // Update node mode if applicable
+        if (hasModeSelection() && selectedMode != null) {
+            node.setMode(selectedMode);
+        }
+        
         // Update node parameters with field values
         List<NodeParameter> parameters = node.getParameters();
         for (int i = 0; i < parameters.size() && i < parameterValues.size(); i++) {
@@ -285,5 +458,9 @@ public class NodeParameterOverlay {
 
     public boolean isVisible() {
         return visible;
+    }
+    
+    private boolean hasModeSelection() {
+        return !availableModes.isEmpty();
     }
 }

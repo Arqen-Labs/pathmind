@@ -1,8 +1,7 @@
 package com.pathmind.data;
 
 import com.pathmind.nodes.NodeType;
-import com.pathmind.nodes.NodeParameter;
-import com.pathmind.nodes.NodeConnection;
+import com.pathmind.nodes.NodeMode;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -46,6 +45,7 @@ public class NodeGraphData {
     public static class NodeData {
         private String id;
         private NodeType type;
+        private NodeMode mode;
         private int x, y;
         private List<ParameterData> parameters;
         
@@ -53,9 +53,10 @@ public class NodeGraphData {
             this.parameters = new ArrayList<>();
         }
         
-        public NodeData(String id, NodeType type, int x, int y, List<ParameterData> parameters) {
+        public NodeData(String id, NodeType type, NodeMode mode, int x, int y, List<ParameterData> parameters) {
             this.id = id;
             this.type = type;
+            this.mode = mode;
             this.x = x;
             this.y = y;
             this.parameters = parameters;
@@ -67,6 +68,9 @@ public class NodeGraphData {
         
         public NodeType getType() { return type; }
         public void setType(NodeType type) { this.type = type; }
+        
+        public NodeMode getMode() { return mode; }
+        public void setMode(NodeMode mode) { this.mode = mode; }
         
         public int getX() { return x; }
         public void setX(int x) { this.x = x; }

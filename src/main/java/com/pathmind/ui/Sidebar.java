@@ -119,6 +119,7 @@ public class Sidebar {
         
         // Render colored tabs
         NodeCategory[] categories = NodeCategory.values();
+        int visibleTabIndex = 0; // Track visible tabs separately from array index
         for (int i = 0; i < categories.length; i++) {
             NodeCategory category = categories[i];
             
@@ -127,7 +128,8 @@ public class Sidebar {
                 continue;
             }
             
-            int tabY = currentY + i * (TAB_SIZE + TAB_SPACING);
+            int tabY = currentY + visibleTabIndex * (TAB_SIZE + TAB_SPACING);
+            visibleTabIndex++; // Increment only for visible tabs
             
             // Center the tab horizontally in the inner sidebar
             int tabX = (INNER_SIDEBAR_WIDTH - TAB_SIZE) / 2;
