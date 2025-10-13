@@ -242,6 +242,8 @@ public class Sidebar {
                 selectedCategory = hoveredCategory;
                 // Clear any hovered node when switching categories
                 hoveredNodeType = null;
+                // Reset scroll to top when changing categories
+                scrollOffset = 0;
                 calculateMaxScroll(currentSidebarHeight);
                 return true;
             }
