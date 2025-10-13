@@ -10,8 +10,8 @@
     {
       "id": "1534538e-d17e-4cc1-84e0-d74ba23b0e4a",
       "type": "GOTO",
-      "x": 430,
-      "y": 162,
+      "x": 402,
+      "y": 147,
       "parameters": [
         {
           "name": "X",

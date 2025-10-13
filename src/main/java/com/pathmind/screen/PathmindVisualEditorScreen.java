@@ -1,6 +1,5 @@
 package com.pathmind.screen;
 
-import com.pathmind.PathmindKeybinds;
 import com.pathmind.nodes.Node;
 import com.pathmind.nodes.NodeType;
 import com.pathmind.ui.NodeGraph;
@@ -17,16 +16,12 @@ import org.lwjgl.glfw.GLFW;
  */
 public class PathmindVisualEditorScreen extends Screen {
     private static final int TITLE_BAR_HEIGHT = 20;
-    private static final int SIDEBAR_WIDTH = 120;
     
     // Dark mode color palette
     private static final int DARK_GREY = 0xFF1A1A1A;        // Very dark grey background
     private static final int DARK_GREY_ALT = 0xFF2A2A2A;     // Slightly lighter dark grey
-    private static final int LIGHT_BLUE = 0xFF87CEEB;        // Light blue accent
-    private static final int LIGHT_BLUE_DARK = 0xFF4682B4;   // Darker light blue
     private static final int GREY_LINE = 0xFF666666;         // Grey line color
     private static final int WHITE = 0xFFFFFFFF;             // Pure white text
-    private static final int WHITE_MUTED = 0xFFE0E0E0;       // Muted white for secondary text
     
     private NodeGraph nodeGraph;
     private Sidebar sidebar;
@@ -35,7 +30,6 @@ public class PathmindVisualEditorScreen extends Screen {
     // Drag and drop state
     private boolean isDraggingFromSidebar = false;
     private NodeType draggingNodeType = null;
-    private int dragStartX, dragStartY;
     
     public PathmindVisualEditorScreen() {
         super(Text.translatable("screen.pathmind.visual_editor.title"));
@@ -219,8 +213,6 @@ public class PathmindVisualEditorScreen extends Screen {
                 if (sidebar.isHoveringNode()) {
                     isDraggingFromSidebar = true;
                     draggingNodeType = sidebar.getHoveredNodeType();
-                    dragStartX = (int)mouseX;
-                    dragStartY = (int)mouseY;
                 }
                 return true;
             }

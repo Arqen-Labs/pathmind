@@ -37,12 +37,10 @@ public enum NodeType {
     GET("Get", 0xFF795548, "Gets a Baritone configuration value");
 
     private final String displayName;
-    private final int color;
     private final String description;
 
     NodeType(String displayName, int color, String description) {
         this.displayName = displayName;
-        this.color = color;
         this.description = description;
     }
 
@@ -51,7 +49,13 @@ public enum NodeType {
     }
 
     public int getColor() {
-        return color;
+        // Special nodes keep their original colors
+        if (this == START) {
+            return 0xFF4CAF50; // Green
+        } else if (this == END) {
+            return 0xFFF44336; // Red
+        }
+        return getCategory().getColor();
     }
 
     public String getDescription() {
