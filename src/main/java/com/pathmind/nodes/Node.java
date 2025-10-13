@@ -137,26 +137,54 @@ public class Node {
                 return 0;
             case END:
                 return 1;
-            case MINE:
-            case CRAFT:
-            case PLACE:
-            case GOTO:
-            case GOAL:
-            case BUILD:
+            case MINE_BLOCK:
+            case MINE_MULTIPLE:
+            case BUILD_SCHEMATIC:
+            case BUILD_SCHEMATIC_XYZ:
+            case GOTO_XYZ:
+            case GOTO_XZ:
+            case GOTO_Y:
+            case GOTO_BLOCK:
+            case GOTO_PORTAL:
+            case GOTO_ENDER_CHEST:
+            case GOAL_XYZ:
+            case GOAL_XZ:
+            case GOAL_Y:
+            case GOAL_CURRENT:
+            case GOAL_CLEAR:
             case EXPLORE:
-            case FOLLOW:
-            case WAIT:
-            case MESSAGE:
-            case SET:
-            case GET:
+            case EXPLORE_XYZ:
+            case EXPLORE_FILTER:
+            case FOLLOW_PLAYER:
+            case FOLLOW_PLAYERS:
+            case FOLLOW_ENTITIES:
+            case FOLLOW_ENTITY_TYPE:
+            case WP_SAVE:
+            case WP_GOAL:
+            case WP_LIST:
+            case WP_GOAL_DEATH:
+            case CLICK:
+            case BLACKLIST:
+            case ETA:
+            case PROC:
+            case REPACK:
+            case GC:
+            case RENDER:
+            case RELOAD_ALL:
+            case SAVE_ALL:
+            case FIND:
                 return 1;
             case PATH:
             case STOP:
+            case CANCEL:
+            case FORCE_CANCEL:
             case INVERT:
             case COME:
             case SURFACE:
+            case TOP:
             case TUNNEL:
-            case FARM:
+            case FARM_RANGE:
+            case FARM_WAYPOINT:
             default:
                 return 1;
         }
@@ -165,25 +193,53 @@ public class Node {
     public int getOutputSocketCount() {
         switch (type) {
             case START:
-            case MINE:
-            case CRAFT:
-            case PLACE:
-            case GOTO:
-            case GOAL:
-            case BUILD:
+            case MINE_BLOCK:
+            case MINE_MULTIPLE:
+            case BUILD_SCHEMATIC:
+            case BUILD_SCHEMATIC_XYZ:
+            case GOTO_XYZ:
+            case GOTO_XZ:
+            case GOTO_Y:
+            case GOTO_BLOCK:
+            case GOTO_PORTAL:
+            case GOTO_ENDER_CHEST:
+            case GOAL_XYZ:
+            case GOAL_XZ:
+            case GOAL_Y:
+            case GOAL_CURRENT:
+            case GOAL_CLEAR:
             case EXPLORE:
-            case FOLLOW:
-            case WAIT:
-            case MESSAGE:
-            case SET:
-            case GET:
+            case EXPLORE_XYZ:
+            case EXPLORE_FILTER:
+            case FOLLOW_PLAYER:
+            case FOLLOW_PLAYERS:
+            case FOLLOW_ENTITIES:
+            case FOLLOW_ENTITY_TYPE:
+            case WP_SAVE:
+            case WP_GOAL:
+            case WP_LIST:
+            case WP_GOAL_DEATH:
+            case CLICK:
+            case BLACKLIST:
+            case ETA:
+            case PROC:
+            case REPACK:
+            case GC:
+            case RENDER:
+            case RELOAD_ALL:
+            case SAVE_ALL:
+            case FIND:
             case PATH:
             case STOP:
+            case CANCEL:
+            case FORCE_CANCEL:
             case INVERT:
             case COME:
             case SURFACE:
+            case TOP:
             case TUNNEL:
-            case FARM:
+            case FARM_RANGE:
+            case FARM_WAYPOINT:
                 return 1;
             case END:
                 return 0;
@@ -222,65 +278,90 @@ public class Node {
     private void initializeParameters() {
         switch (type) {
             // Navigation Commands
-            case GOTO:
-            case GOAL:
+            case GOTO_XYZ:
+            case GOAL_XYZ:
                 parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
                 parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "0"));
                 parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
+                break;
+            case GOTO_XZ:
+            case GOAL_XZ:
+                parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
+                parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
+                break;
+            case GOTO_Y:
+            case GOAL_Y:
+                parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "64"));
+                break;
+            case GOTO_BLOCK:
+                parameters.add(new NodeParameter("Block", ParameterType.STRING, "stone"));
                 break;
             
             // Mining and Building Commands
-            case MINE:
+            case MINE_BLOCK:
                 parameters.add(new NodeParameter("Block", ParameterType.STRING, "stone"));
                 break;
-            case CRAFT:
-                parameters.add(new NodeParameter("Item", ParameterType.STRING, "stick"));
-                parameters.add(new NodeParameter("Quantity", ParameterType.INTEGER, "1"));
+            case MINE_MULTIPLE:
+                parameters.add(new NodeParameter("Blocks", ParameterType.STRING, "stone,dirt"));
                 break;
-            case PLACE:
-                parameters.add(new NodeParameter("Block", ParameterType.STRING, "stone"));
+            case BUILD_SCHEMATIC:
+                parameters.add(new NodeParameter("Schematic", ParameterType.STRING, "house.schematic"));
+                break;
+            case BUILD_SCHEMATIC_XYZ:
+                parameters.add(new NodeParameter("Schematic", ParameterType.STRING, "house.schematic"));
                 parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
                 parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "0"));
                 parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
                 break;
-            case BUILD:
-                parameters.add(new NodeParameter("Schematic", ParameterType.STRING, "house.schematic"));
+            case TUNNEL:
+                parameters.add(new NodeParameter("Width", ParameterType.INTEGER, "3"));
+                parameters.add(new NodeParameter("Height", ParameterType.INTEGER, "2"));
+                break;
+            case FARM_RANGE:
+                parameters.add(new NodeParameter("Range", ParameterType.INTEGER, "10"));
+                break;
+            case FARM_WAYPOINT:
+                parameters.add(new NodeParameter("Waypoint", ParameterType.STRING, "farm"));
+                parameters.add(new NodeParameter("Range", ParameterType.INTEGER, "10"));
                 break;
             
             // Exploration Commands
-            case EXPLORE:
-                parameters.add(new NodeParameter("Radius", ParameterType.INTEGER, "100"));
+            case EXPLORE_XYZ:
                 parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
                 parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
                 break;
-            case FOLLOW:
+            case EXPLORE_FILTER:
+                parameters.add(new NodeParameter("Filter", ParameterType.STRING, "explore.txt"));
+                break;
+            case FOLLOW_PLAYER:
                 parameters.add(new NodeParameter("Player", ParameterType.STRING, "PlayerName"));
+                break;
+            case FOLLOW_ENTITY_TYPE:
+                parameters.add(new NodeParameter("Entity", ParameterType.STRING, "cow"));
+                break;
+            
+            // Waypoint Commands
+            case WP_SAVE:
+                parameters.add(new NodeParameter("Name", ParameterType.STRING, "waypoint"));
+                break;
+            case WP_GOAL:
+                parameters.add(new NodeParameter("Name", ParameterType.STRING, "waypoint"));
                 break;
             
             // Utility Commands
-            case WAIT:
-                parameters.add(new NodeParameter("Duration", ParameterType.DOUBLE, "1.0"));
-                parameters.add(new NodeParameter("Unit", ParameterType.STRING, "seconds"));
-                break;
-            case MESSAGE:
-                parameters.add(new NodeParameter("Text", ParameterType.STRING, "Hello World"));
-                break;
-            case SET:
-                parameters.add(new NodeParameter("Setting", ParameterType.STRING, "allowBreak"));
-                parameters.add(new NodeParameter("Value", ParameterType.STRING, "true"));
-                break;
-            case GET:
-                parameters.add(new NodeParameter("Setting", ParameterType.STRING, "allowBreak"));
+            case FIND:
+                parameters.add(new NodeParameter("Block", ParameterType.STRING, "diamond_ore"));
                 break;
             
             // No parameters needed
             case PATH:
             case STOP:
+            case CANCEL:
+            case FORCE_CANCEL:
             case INVERT:
             case COME:
             case SURFACE:
-            case TUNNEL:
-            case FARM:
+            case TOP:
             case START:
             case END:
             default:
@@ -369,46 +450,46 @@ public class Node {
                 future.complete(null);
                 break;
                 
-            case GOTO:
+            case GOTO_XYZ:
+            case GOTO_XZ:
+            case GOTO_Y:
+            case GOTO_BLOCK:
+            case GOTO_PORTAL:
+            case GOTO_ENDER_CHEST:
                 executeGotoCommand(future);
                 break;
-            case MINE:
+            case MINE_BLOCK:
+            case MINE_MULTIPLE:
                 executeMineCommand(future);
                 break;
-            case CRAFT:
-                executeCraftCommand(future);
-                break;
-            case PLACE:
-                executePlaceCommand(future);
-                break;
-            case BUILD:
+            case BUILD_SCHEMATIC:
+            case BUILD_SCHEMATIC_XYZ:
                 executeBuildCommand(future);
                 break;
             case EXPLORE:
+            case EXPLORE_XYZ:
+            case EXPLORE_FILTER:
                 executeExploreCommand(future);
                 break;
-            case FOLLOW:
+            case FOLLOW_PLAYER:
+            case FOLLOW_PLAYERS:
+            case FOLLOW_ENTITIES:
+            case FOLLOW_ENTITY_TYPE:
                 executeFollowCommand(future);
                 break;
-            case WAIT:
-                executeWaitCommand(future);
-                break;
-            case MESSAGE:
-                executeMessageCommand(future);
-                break;
-            case SET:
-                executeSetCommand(future);
-                break;
-            case GET:
-                executeGetCommand(future);
-                break;
-            case GOAL:
+            case GOAL_XYZ:
+            case GOAL_XZ:
+            case GOAL_Y:
+            case GOAL_CURRENT:
+            case GOAL_CLEAR:
                 executeGoalCommand(future);
                 break;
             case PATH:
                 executePathCommand(future);
                 break;
             case STOP:
+            case CANCEL:
+            case FORCE_CANCEL:
                 executeStopCommand(future);
                 break;
             case INVERT:
@@ -418,12 +499,14 @@ public class Node {
                 executeComeCommand(future);
                 break;
             case SURFACE:
+            case TOP:
                 executeSurfaceCommand(future);
                 break;
             case TUNNEL:
                 executeTunnelCommand(future);
                 break;
-            case FARM:
+            case FARM_RANGE:
+            case FARM_WAYPOINT:
                 executeFarmCommand(future);
                 break;
                 

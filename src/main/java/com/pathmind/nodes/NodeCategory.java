@@ -7,6 +7,7 @@ public enum NodeCategory {
     NAVIGATION("Navigation", 0xFF00BCD4, "Movement and pathfinding commands", "→"),
     MINING_BUILDING("Mining & Building", 0xFFFF9800, "Mining, building, and crafting commands", "⛏"),
     EXPLORATION("Exploration", 0xFF9C27B0, "World exploration commands", "🗺"),
+    WAYPOINTS("Waypoints", 0xFF9C27B0, "Waypoint management commands", "📍"),
     UTILITY("Utility", 0xFF4CAF50, "Utility and configuration commands", "⚙"),
     SPECIAL("Special", 0xFFE91E63, "Special workflow nodes", "★");
 

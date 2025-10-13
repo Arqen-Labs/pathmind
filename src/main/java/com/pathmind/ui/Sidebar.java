@@ -44,6 +44,7 @@ public class Sidebar {
     private NodeCategory selectedCategory = null;
     private int scrollOffset = 0;
     private int maxScroll = 0;
+    private int currentSidebarHeight = 400; // Store current sidebar height
     
     public Sidebar() {
         this.categoryExpanded = new HashMap<>();
@@ -62,7 +63,7 @@ public class Sidebar {
         
         // Organize nodes by category
         initializeCategoryNodes();
-        calculateMaxScroll();
+        calculateMaxScroll(400); // Default height for initialization
     }
     
     private void initializeCategoryNodes() {
@@ -79,7 +80,7 @@ public class Sidebar {
         }
     }
     
-    private void calculateMaxScroll() {
+    private void calculateMaxScroll(int sidebarHeight) {
         int totalHeight = 0;
         
         // Add space for category header and nodes (content starts at top)
@@ -96,12 +97,15 @@ public class Sidebar {
         // Add padding
         totalHeight += PADDING * 2;
         
-        // Calculate max scroll (assuming sidebar height of 400 for now)
-        int sidebarHeight = 400;
-        maxScroll = Math.max(0, totalHeight - sidebarHeight + 50);
+        // Calculate max scroll with proper room for scrolling
+        maxScroll = Math.max(0, totalHeight - sidebarHeight + 100); // Extra 100px for better scrolling
     }
     
     public void render(DrawContext context, TextRenderer textRenderer, int mouseX, int mouseY, int sidebarStartY, int sidebarHeight) {
+        // Store current sidebar height and update max scroll
+        this.currentSidebarHeight = sidebarHeight;
+        calculateMaxScroll(sidebarHeight);
+        
         // Outer sidebar background
         context.fill(0, sidebarStartY, OUTER_SIDEBAR_WIDTH, sidebarStartY + sidebarHeight, DARK_GREY_ALT);
         context.drawVerticalLine(OUTER_SIDEBAR_WIDTH, sidebarStartY, sidebarStartY + sidebarHeight, GREY_LINE);
@@ -110,7 +114,8 @@ public class Sidebar {
         context.fill(0, sidebarStartY, INNER_SIDEBAR_WIDTH, sidebarStartY + sidebarHeight, DARKER_GREY);
         context.drawVerticalLine(INNER_SIDEBAR_WIDTH, sidebarStartY, sidebarStartY + sidebarHeight, GREY_LINE);
         
-        int currentY = sidebarStartY + TOP_PADDING - scrollOffset;
+        // Tabs stay static (don't scroll with content)
+        int currentY = sidebarStartY + TOP_PADDING;
         
         // Render colored tabs
         NodeCategory[] categories = NodeCategory.values();
@@ -237,7 +242,7 @@ public class Sidebar {
                 selectedCategory = hoveredCategory;
                 // Clear any hovered node when switching categories
                 hoveredNodeType = null;
-                calculateMaxScroll();
+                calculateMaxScroll(currentSidebarHeight);
                 return true;
             }
             

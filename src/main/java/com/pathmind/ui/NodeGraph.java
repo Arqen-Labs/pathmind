@@ -85,7 +85,7 @@ public class NodeGraph {
         Node startNode = new Node(NodeType.START, centerX - 100, centerY - 50);
         nodes.add(startNode);
         
-        Node middleNode = new Node(NodeType.GOTO, centerX, centerY - 50);
+        Node middleNode = new Node(NodeType.GOTO_XYZ, centerX, centerY - 50);
         nodes.add(middleNode);
         
         Node endNode = new Node(NodeType.END, centerX + 100, centerY - 50);
