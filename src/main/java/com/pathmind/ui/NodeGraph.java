@@ -12,6 +12,7 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.text.Text;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -1051,115 +1052,184 @@ public class NodeGraph {
     public boolean load() {
         NodeGraphData data = NodeGraphPersistence.loadNodeGraph();
         if (data != null) {
-            // Clear current graph
-            nodes.clear();
-            connections.clear();
-            selectedNode = null;
-            draggingNode = null;
-            
-            // Load nodes and create node map for connections
-            java.util.Map<String, Node> nodeMap = new java.util.HashMap<>();
-            for (NodeGraphData.NodeData nodeData : data.getNodes()) {
-                Node node = new Node(nodeData.getType(), nodeData.getX(), nodeData.getY());
-                
-                // Set the same ID using reflection
-                try {
-                    java.lang.reflect.Field idField = Node.class.getDeclaredField("id");
-                    idField.setAccessible(true);
-                    idField.set(node, nodeData.getId());
-                } catch (Exception e) {
-                    System.err.println("Failed to set node ID: " + e.getMessage());
-                }
-                
-                // Set the mode if it exists (this will reinitialize parameters)
-                if (nodeData.getMode() != null) {
-                    node.setMode(nodeData.getMode());
-                }
-                
-                // Restore parameters (overwrite the default parameters with saved ones)
-                node.getParameters().clear();
-                if (nodeData.getParameters() != null) {
-                    for (NodeGraphData.ParameterData paramData : nodeData.getParameters()) {
-                        ParameterType paramType = ParameterType.valueOf(paramData.getType());
-                        NodeParameter param = new NodeParameter(paramData.getName(), paramType, paramData.getValue());
-                        node.getParameters().add(param);
-                    }
-                }
-                node.recalculateDimensions();
-
-                nodes.add(node);
-                nodeMap.put(nodeData.getId(), node);
-            }
-
-            // Restore sensor attachments
-            for (NodeGraphData.NodeData nodeData : data.getNodes()) {
-                if (nodeData.getAttachedSensorId() != null) {
-                    Node control = nodeMap.get(nodeData.getId());
-                    Node sensor = nodeMap.get(nodeData.getAttachedSensorId());
-                    if (control != null && sensor != null) {
-                        control.attachSensor(sensor);
-                    }
-                }
-            }
-
-            for (NodeGraphData.NodeData nodeData : data.getNodes()) {
-                if (nodeData.getParentControlId() != null) {
-                    Node sensor = nodeMap.get(nodeData.getId());
-                    Node control = nodeMap.get(nodeData.getParentControlId());
-                    if (sensor != null && control != null && sensor.isSensorNode()) {
-                        control.attachSensor(sensor);
-                    }
-                }
-            }
-
-            for (NodeGraphData.NodeData nodeData : data.getNodes()) {
-                if (nodeData.getAttachedActionId() != null) {
-                    Node control = nodeMap.get(nodeData.getId());
-                    Node child = nodeMap.get(nodeData.getAttachedActionId());
-                    if (control != null && child != null) {
-                        control.attachActionNode(child);
-                    }
-                }
-            }
-
-            for (NodeGraphData.NodeData nodeData : data.getNodes()) {
-                if (nodeData.getParentActionControlId() != null) {
-                    Node child = nodeMap.get(nodeData.getId());
-                    Node control = nodeMap.get(nodeData.getParentActionControlId());
-                    if (child != null && control != null && control.canAcceptActionNode(child)) {
-                        control.attachActionNode(child);
-                    }
-                }
-            }
-
-            // Load connections
-            for (NodeGraphData.ConnectionData connData : data.getConnections()) {
-                Node outputNode = nodeMap.get(connData.getOutputNodeId());
-                Node inputNode = nodeMap.get(connData.getInputNodeId());
-
-                if (outputNode != null && inputNode != null) {
-                    if (outputNode.isSensorNode() || inputNode.isSensorNode()) {
-                        continue;
-                    }
-                    NodeConnection connection = new NodeConnection(
-                        outputNode,
-                        inputNode,
-                        connData.getOutputSocket(),
-                        connData.getInputSocket()
-                    );
-                    connections.add(connection);
-                } else {
-                    System.err.println("Failed to restore connection: missing node(s)");
-                }
-            }
-
-            sensorDropTarget = null;
-            actionDropTarget = null;
-
-            System.out.println("Loaded " + nodes.size() + " nodes and " + connections.size() + " connections");
-            return true;
+            return applyLoadedData(data);
         }
         return false;
+    }
+
+    public boolean importFromPath(Path savePath) {
+        NodeGraphData data = NodeGraphPersistence.loadNodeGraphFromPath(savePath);
+        if (data != null) {
+            return applyLoadedData(data);
+        }
+        return false;
+    }
+
+    public boolean exportToPath(Path savePath) {
+        return NodeGraphPersistence.saveNodeGraphToPath(nodes, connections, savePath);
+    }
+
+    public void clearWorkspace() {
+        for (Node node : new ArrayList<>(nodes)) {
+            if (node.hasAttachedSensor()) {
+                node.detachSensor();
+            }
+            if (node.hasAttachedActionNode()) {
+                node.detachActionNode();
+            }
+            if (node.isSensorNode() && node.isAttachedToControl()) {
+                Node parent = node.getParentControl();
+                if (parent != null) {
+                    parent.detachSensor();
+                }
+            }
+            if (node.isAttachedToActionControl()) {
+                Node parent = node.getParentActionControl();
+                if (parent != null) {
+                    parent.detachActionNode();
+                }
+            }
+            node.setDragging(false);
+            node.setSelected(false);
+        }
+
+        nodes.clear();
+        connections.clear();
+        selectedNode = null;
+        draggingNode = null;
+        hoveredNode = null;
+        hoveredSocketNode = null;
+        hoveredSocketIndex = -1;
+        hoveredSocket = -1;
+        hoveredSocketIsInput = false;
+        hoveringStartButton = false;
+        isDraggingConnection = false;
+        connectionSourceNode = null;
+        disconnectedConnection = null;
+        sensorDropTarget = null;
+        actionDropTarget = null;
+        lastClickedNode = null;
+        lastClickTime = 0;
+    }
+
+    private boolean applyLoadedData(NodeGraphData data) {
+        nodes.clear();
+        connections.clear();
+        selectedNode = null;
+        draggingNode = null;
+
+        // Load nodes and create node map for connections
+        java.util.Map<String, Node> nodeMap = new java.util.HashMap<>();
+        for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            Node node = new Node(nodeData.getType(), nodeData.getX(), nodeData.getY());
+
+            // Set the same ID using reflection
+            try {
+                java.lang.reflect.Field idField = Node.class.getDeclaredField("id");
+                idField.setAccessible(true);
+                idField.set(node, nodeData.getId());
+            } catch (Exception e) {
+                System.err.println("Failed to set node ID: " + e.getMessage());
+            }
+
+            // Set the mode if it exists (this will reinitialize parameters)
+            if (nodeData.getMode() != null) {
+                node.setMode(nodeData.getMode());
+            }
+
+            // Restore parameters (overwrite the default parameters with saved ones)
+            node.getParameters().clear();
+            if (nodeData.getParameters() != null) {
+                for (NodeGraphData.ParameterData paramData : nodeData.getParameters()) {
+                    ParameterType paramType = ParameterType.valueOf(paramData.getType());
+                    NodeParameter param = new NodeParameter(paramData.getName(), paramType, paramData.getValue());
+                    node.getParameters().add(param);
+                }
+            }
+            node.recalculateDimensions();
+
+            nodes.add(node);
+            nodeMap.put(nodeData.getId(), node);
+        }
+
+        // Restore sensor attachments
+        for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            if (nodeData.getAttachedSensorId() != null) {
+                Node control = nodeMap.get(nodeData.getId());
+                Node sensor = nodeMap.get(nodeData.getAttachedSensorId());
+                if (control != null && sensor != null) {
+                    control.attachSensor(sensor);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            if (nodeData.getParentControlId() != null) {
+                Node sensor = nodeMap.get(nodeData.getId());
+                Node control = nodeMap.get(nodeData.getParentControlId());
+                if (sensor != null && control != null && sensor.isSensorNode()) {
+                    control.attachSensor(sensor);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            if (nodeData.getAttachedActionId() != null) {
+                Node control = nodeMap.get(nodeData.getId());
+                Node child = nodeMap.get(nodeData.getAttachedActionId());
+                if (control != null && child != null) {
+                    control.attachActionNode(child);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            if (nodeData.getParentActionControlId() != null) {
+                Node child = nodeMap.get(nodeData.getId());
+                Node control = nodeMap.get(nodeData.getParentActionControlId());
+                if (child != null && control != null && control.canAcceptActionNode(child)) {
+                    control.attachActionNode(child);
+                }
+            }
+        }
+
+        // Load connections
+        for (NodeGraphData.ConnectionData connData : data.getConnections()) {
+            Node outputNode = nodeMap.get(connData.getOutputNodeId());
+            Node inputNode = nodeMap.get(connData.getInputNodeId());
+
+            if (outputNode != null && inputNode != null) {
+                if (outputNode.isSensorNode() || inputNode.isSensorNode()) {
+                    continue;
+                }
+                NodeConnection connection = new NodeConnection(
+                    outputNode,
+                    inputNode,
+                    connData.getOutputSocket(),
+                    connData.getInputSocket()
+                );
+                connections.add(connection);
+            } else {
+                System.err.println("Failed to restore connection: missing node(s)");
+            }
+        }
+
+        sensorDropTarget = null;
+        actionDropTarget = null;
+        hoveredNode = null;
+        hoveredSocketNode = null;
+        hoveredSocketIndex = -1;
+        hoveredSocket = -1;
+        hoveredSocketIsInput = false;
+        hoveringStartButton = false;
+        isDraggingConnection = false;
+        connectionSourceNode = null;
+        disconnectedConnection = null;
+        lastClickedNode = null;
+        lastClickTime = 0;
+
+        System.out.println("Loaded " + nodes.size() + " nodes and " + connections.size() + " connections");
+        return true;
     }
     
     /**

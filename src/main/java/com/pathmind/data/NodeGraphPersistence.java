@@ -33,12 +33,14 @@ public class NodeGraphPersistence {
      * Save the current node graph to disk
      */
     public static boolean saveNodeGraph(List<Node> nodes, List<NodeConnection> connections) {
+        return saveNodeGraphToPath(nodes, connections, getSavePath());
+    }
+
+    public static boolean saveNodeGraphToPath(List<Node> nodes, List<NodeConnection> connections, Path savePath) {
         try {
-            Path savePath = getSavePath();
-            
             // Convert nodes and connections to serializable data
             NodeGraphData data = new NodeGraphData();
-            
+
             // Convert nodes
             for (Node node : nodes) {
                 NodeGraphData.NodeData nodeData = new NodeGraphData.NodeData();
@@ -47,7 +49,7 @@ public class NodeGraphPersistence {
                 nodeData.setMode(node.getMode());
                 nodeData.setX(node.getX());
                 nodeData.setY(node.getY());
-                
+
                 // Convert parameters
                 List<NodeGraphData.ParameterData> paramDataList = new ArrayList<>();
                 for (NodeParameter param : node.getParameters()) {
@@ -65,7 +67,7 @@ public class NodeGraphPersistence {
 
                 data.getNodes().add(nodeData);
             }
-            
+
             // Convert connections
             for (NodeConnection connection : connections) {
                 if (connection.getOutputNode().isSensorNode() || connection.getInputNode().isSensorNode()) {
@@ -76,19 +78,20 @@ public class NodeGraphPersistence {
                 connData.setInputNodeId(connection.getInputNode().getId());
                 connData.setOutputSocket(connection.getOutputSocket());
                 connData.setInputSocket(connection.getInputSocket());
-                
+
                 data.getConnections().add(connData);
             }
-            
-            // Write to file
-            Files.createDirectories(savePath.getParent());
+
+            if (savePath.getParent() != null) {
+                Files.createDirectories(savePath.getParent());
+            }
             try (Writer writer = Files.newBufferedWriter(savePath)) {
                 GSON.toJson(data, writer);
             }
-            
+
             System.out.println("Node graph saved successfully to: " + savePath);
             return true;
-            
+
         } catch (Exception e) {
             System.err.println("Failed to save node graph: " + e.getMessage());
             e.printStackTrace();
@@ -100,20 +103,22 @@ public class NodeGraphPersistence {
      * Load the node graph from disk
      */
     public static NodeGraphData loadNodeGraph() {
+        return loadNodeGraphFromPath(getSavePath());
+    }
+
+    public static NodeGraphData loadNodeGraphFromPath(Path savePath) {
         try {
-            Path savePath = getSavePath();
-            
             if (!Files.exists(savePath)) {
                 System.out.println("No saved node graph found at: " + savePath);
                 return null;
             }
-            
+
             try (Reader reader = Files.newBufferedReader(savePath)) {
                 NodeGraphData data = GSON.fromJson(reader, NodeGraphData.class);
                 System.out.println("Node graph loaded successfully from: " + savePath);
                 return data;
             }
-            
+
         } catch (Exception e) {
             System.err.println("Failed to load node graph: " + e.getMessage());
             e.printStackTrace();
@@ -236,6 +241,10 @@ public class NodeGraphPersistence {
     /**
      * Get the save file path in the Minecraft saves directory
      */
+    public static Path getDefaultSavePath() {
+        return getSavePath();
+    }
+
     private static Path getSavePath() {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client != null && client.getServer() != null) {
