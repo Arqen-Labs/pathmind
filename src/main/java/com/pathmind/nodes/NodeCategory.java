@@ -17,7 +17,7 @@ public enum NodeCategory {
     PLAYER_EQUIPMENT("Equipment", 0xFF66BB6A, "Armor and held item management", "🛡"),
     WAYPOINTS("Waypoints", 0xFF9C27B0, "Waypoint management commands", "📍"),
     UTILITY("Utility", 0xFF4CAF50, "Utility and configuration commands", "⚙"),
-    SPECIAL("Special", 0xFFE91E63, "Special workflow nodes", "★");
+    EVENTS("Events", 0xFFE91E63, "Event entry points and triggers", "★");
 
     private final String displayName;
     private final int color;

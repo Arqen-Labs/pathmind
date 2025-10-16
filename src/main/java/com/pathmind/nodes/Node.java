@@ -207,14 +207,31 @@ public class Node {
     }
 
     public boolean isSensorNode() {
-        return type == NodeType.SENSOR_TOUCHING_BLOCK ||
-               type == NodeType.SENSOR_TOUCHING_ENTITY ||
-               type == NodeType.SENSOR_AT_COORDINATES;
+        switch (type) {
+            case SENSOR_TOUCHING_BLOCK:
+            case SENSOR_TOUCHING_ENTITY:
+            case SENSOR_AT_COORDINATES:
+            case SENSOR_BLOCK_AHEAD:
+            case SENSOR_BLOCK_BELOW:
+            case SENSOR_LIGHT_LEVEL_BELOW:
+            case SENSOR_IS_DAYTIME:
+            case SENSOR_IS_RAINING:
+            case SENSOR_HEALTH_BELOW:
+            case SENSOR_HUNGER_BELOW:
+            case SENSOR_ENTITY_NEARBY:
+            case SENSOR_ITEM_IN_INVENTORY:
+            case SENSOR_IS_SWIMMING:
+            case SENSOR_IS_IN_LAVA:
+            case SENSOR_IS_UNDERWATER:
+            case SENSOR_IS_FALLING:
+                return true;
+            default:
+                return false;
+        }
     }
 
     public boolean canAcceptSensor() {
         switch (type) {
-            case CONTROL_IF:
             case CONTROL_IF_ELSE:
             case CONTROL_REPEAT_UNTIL:
                 return true;
@@ -291,26 +308,17 @@ public class Node {
     }
 
     public int getInputSocketCount() {
-        if (type == NodeType.START || isSensorNode()) {
+        if (type == NodeType.START || type == NodeType.EVENT_FUNCTION || isSensorNode()) {
             return 0;
         }
         return 1;
     }
 
     public int getOutputSocketCount() {
-        if (type == NodeType.END || isSensorNode()) {
+        if (isSensorNode()) {
             return 0;
         }
-        switch (type) {
-            case CONTROL_IF:
-            case CONTROL_IF_ELSE:
-                return 2;
-            case CONTROL_REPEAT:
-            case CONTROL_REPEAT_UNTIL:
-                return 1;
-            default:
-                return 1;
-        }
+        return type == NodeType.CONTROL_IF_ELSE ? 2 : 1;
     }
 
     public int getOutputSocketColor(int socketIndex) {
@@ -326,7 +334,7 @@ public class Node {
 
     public int getSocketY(int socketIndex, boolean isInput) {
         int socketHeight = 12;
-        if (type == NodeType.START || type == NodeType.END) {
+        if (type == NodeType.START || type == NodeType.EVENT_FUNCTION) {
             // For START and END nodes, center the socket vertically
             return y + getHeight() / 2;
         } else {
@@ -782,10 +790,13 @@ public class Node {
             case CONTROL_REPEAT:
                 parameters.add(new NodeParameter("Count", ParameterType.INTEGER, "10"));
                 break;
-            case CONTROL_REPEAT_UNTIL:
-                break;
-            case CONTROL_IF:
             case CONTROL_IF_ELSE:
+                break;
+            case EVENT_FUNCTION:
+                parameters.add(new NodeParameter("Name", ParameterType.STRING, "function"));
+                break;
+            case EVENT_CALL:
+                parameters.add(new NodeParameter("Name", ParameterType.STRING, "function"));
                 break;
             case SENSOR_TOUCHING_BLOCK:
                 parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, "minecraft:stone"));
@@ -797,6 +808,41 @@ public class Node {
                 parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
                 parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "64"));
                 parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
+                break;
+            case SENSOR_BLOCK_AHEAD:
+                parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, "minecraft:stone"));
+                break;
+            case SENSOR_BLOCK_BELOW:
+                parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, "minecraft:stone"));
+                break;
+            case SENSOR_LIGHT_LEVEL_BELOW:
+                parameters.add(new NodeParameter("Threshold", ParameterType.INTEGER, "7"));
+                break;
+            case SENSOR_IS_DAYTIME:
+                break;
+            case SENSOR_IS_RAINING:
+                break;
+            case SENSOR_HEALTH_BELOW:
+                parameters.add(new NodeParameter("Amount", ParameterType.DOUBLE, "10.0"));
+                break;
+            case SENSOR_HUNGER_BELOW:
+                parameters.add(new NodeParameter("Amount", ParameterType.INTEGER, "10"));
+                break;
+            case SENSOR_ENTITY_NEARBY:
+                parameters.add(new NodeParameter("Entity", ParameterType.ENTITY_TYPE, "minecraft:zombie"));
+                parameters.add(new NodeParameter("Range", ParameterType.INTEGER, "6"));
+                break;
+            case SENSOR_ITEM_IN_INVENTORY:
+                parameters.add(new NodeParameter("Item", ParameterType.STRING, "minecraft:stone"));
+                break;
+            case SENSOR_IS_SWIMMING:
+                break;
+            case SENSOR_IS_IN_LAVA:
+                break;
+            case SENSOR_IS_UNDERWATER:
+                break;
+            case SENSOR_IS_FALLING:
+                parameters.add(new NodeParameter("Distance", ParameterType.DOUBLE, "2.0"));
                 break;
             default:
                 // No parameters needed
@@ -824,7 +870,7 @@ public class Node {
     }
 
     /**
-     * Check if this node has parameters (Start and End nodes don't)
+     * Check if this node has parameters (Start nodes don't)
      */
     public boolean hasParameters() {
         return !parameters.isEmpty();
@@ -834,9 +880,19 @@ public class Node {
      * Recalculate node dimensions based on current content
      */
     public void recalculateDimensions() {
-        if (type == NodeType.START || type == NodeType.END) {
+        if (type == NodeType.START) {
             this.width = START_END_SIZE;
             this.height = START_END_SIZE;
+            return;
+        }
+
+        if (type == NodeType.EVENT_FUNCTION) {
+            NodeParameter nameParam = getParameter("Name");
+            String label = nameParam != null ? nameParam.getDisplayValue() : "";
+            String text = "Function: " + label;
+            int computedWidth = Math.max(MIN_WIDTH, text.length() * CHAR_PIXEL_WIDTH + 32);
+            this.width = computedWidth;
+            this.height = Math.max(START_END_SIZE + 12, 56);
             return;
         }
 
@@ -952,13 +1008,15 @@ public class Node {
                 System.out.println("START node - passing through");
                 future.complete(null);
                 break;
-                
-            case END:
-                // END node stops execution
-                System.out.println("END node - execution complete");
+            case EVENT_FUNCTION:
+                System.out.println("Function node - awaiting body execution");
                 future.complete(null);
                 break;
-                
+            case EVENT_CALL:
+                System.out.println("Call Function node - dispatching handlers");
+                future.complete(null);
+                break;
+
             // Generalized nodes
             case GOTO:
                 executeGotoCommand(future);
@@ -987,11 +1045,8 @@ public class Node {
             case CONTROL_FOREVER:
                 executeControlForever(future);
                 break;
-            case CONTROL_IF:
-                executeControlIf(future, false);
-                break;
             case CONTROL_IF_ELSE:
-                executeControlIf(future, true);
+                executeControlIfElse(future);
                 break;
             case FARM:
                 executeFarmCommand(future);
@@ -1087,13 +1142,22 @@ public class Node {
                 executeDrinkCommand(future);
                 break;
             case SENSOR_TOUCHING_BLOCK:
-                executeSensorTouchingBlock(future);
-                break;
             case SENSOR_TOUCHING_ENTITY:
-                executeSensorTouchingEntity(future);
-                break;
             case SENSOR_AT_COORDINATES:
-                executeSensorAtCoordinates(future);
+            case SENSOR_BLOCK_AHEAD:
+            case SENSOR_BLOCK_BELOW:
+            case SENSOR_LIGHT_LEVEL_BELOW:
+            case SENSOR_IS_DAYTIME:
+            case SENSOR_IS_RAINING:
+            case SENSOR_HEALTH_BELOW:
+            case SENSOR_HUNGER_BELOW:
+            case SENSOR_ENTITY_NEARBY:
+            case SENSOR_ITEM_IN_INVENTORY:
+            case SENSOR_IS_SWIMMING:
+            case SENSOR_IS_IN_LAVA:
+            case SENSOR_IS_UNDERWATER:
+            case SENSOR_IS_FALLING:
+                completeSensorEvaluation(future);
                 break;
             
             // Legacy nodes
@@ -1491,7 +1555,7 @@ public class Node {
         future.complete(null);
     }
     
-    private void executeControlIf(CompletableFuture<Void> future, boolean hasElseBranch) {
+    private void executeControlIfElse(CompletableFuture<Void> future) {
         boolean condition = evaluateConditionFromParameters();
         setNextOutputSocket(condition ? 0 : 1);
         future.complete(null);
@@ -2334,19 +2398,7 @@ public class Node {
         future.complete(null);
     }
     
-    private void executeSensorTouchingBlock(CompletableFuture<Void> future) {
-        boolean result = evaluateSensor();
-        setNextOutputSocket(result ? 0 : 1);
-        future.complete(null);
-    }
-
-    private void executeSensorTouchingEntity(CompletableFuture<Void> future) {
-        boolean result = evaluateSensor();
-        setNextOutputSocket(result ? 0 : 1);
-        future.complete(null);
-    }
-
-    private void executeSensorAtCoordinates(CompletableFuture<Void> future) {
+    private void completeSensorEvaluation(CompletableFuture<Void> future) {
         boolean result = evaluateSensor();
         setNextOutputSocket(result ? 0 : 1);
         future.complete(null);
@@ -2510,6 +2562,62 @@ public class Node {
                 result = evaluateSensorCondition(SensorConditionType.AT_COORDINATES, null, null, x, y, z);
                 break;
             }
+            case SENSOR_BLOCK_AHEAD: {
+                String blockId = getStringParameter("Block", "minecraft:stone");
+                result = isBlockAhead(blockId);
+                break;
+            }
+            case SENSOR_BLOCK_BELOW: {
+                String blockId = getStringParameter("Block", "minecraft:stone");
+                result = isBlockBelow(blockId);
+                break;
+            }
+            case SENSOR_LIGHT_LEVEL_BELOW: {
+                int threshold = MathHelper.clamp(getIntParameter("Threshold", 7), 0, 15);
+                result = isLightLevelBelow(threshold);
+                break;
+            }
+            case SENSOR_IS_DAYTIME:
+                result = isDaytime();
+                break;
+            case SENSOR_IS_RAINING:
+                result = isRaining();
+                break;
+            case SENSOR_HEALTH_BELOW: {
+                double amount = MathHelper.clamp(getDoubleParameter("Amount", 10.0), 0.0, 40.0);
+                result = isHealthBelow(amount);
+                break;
+            }
+            case SENSOR_HUNGER_BELOW: {
+                int amount = MathHelper.clamp(getIntParameter("Amount", 10), 0, 20);
+                result = isHungerBelow(amount);
+                break;
+            }
+            case SENSOR_ENTITY_NEARBY: {
+                String entityId = getStringParameter("Entity", "minecraft:zombie");
+                double range = Math.max(1.0, getIntParameter("Range", 6));
+                result = isEntityNearby(entityId, range);
+                break;
+            }
+            case SENSOR_ITEM_IN_INVENTORY: {
+                String itemId = getStringParameter("Item", "minecraft:stone");
+                result = hasItemInInventory(itemId);
+                break;
+            }
+            case SENSOR_IS_SWIMMING:
+                result = isSwimming();
+                break;
+            case SENSOR_IS_IN_LAVA:
+                result = isInLava();
+                break;
+            case SENSOR_IS_UNDERWATER:
+                result = isUnderwater();
+                break;
+            case SENSOR_IS_FALLING: {
+                double distance = Math.max(0.0, getDoubleParameter("Distance", 2.0));
+                result = isFalling(distance);
+                break;
+            }
             default:
                 result = false;
                 break;
@@ -2610,6 +2718,142 @@ public class Node {
         }
         BlockPos playerPos = client.player.getBlockPos();
         return playerPos.getX() == x && playerPos.getY() == y && playerPos.getZ() == z;
+    }
+
+    private boolean isBlockAhead(String blockId) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || blockId == null || blockId.isEmpty()) {
+            return false;
+        }
+        Identifier identifier = Identifier.tryParse(blockId);
+        if (identifier == null || !Registries.BLOCK.containsId(identifier)) {
+            return false;
+        }
+        Block block = Registries.BLOCK.get(identifier);
+        Direction facing = client.player.getHorizontalFacing();
+        BlockPos targetPos = client.player.getBlockPos().offset(facing);
+        return client.player.getWorld().getBlockState(targetPos).isOf(block);
+    }
+
+    private boolean isBlockBelow(String blockId) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || blockId == null || blockId.isEmpty()) {
+            return false;
+        }
+        Identifier identifier = Identifier.tryParse(blockId);
+        if (identifier == null || !Registries.BLOCK.containsId(identifier)) {
+            return false;
+        }
+        Block block = Registries.BLOCK.get(identifier);
+        BlockPos below = client.player.getBlockPos().down();
+        return client.player.getWorld().getBlockState(below).isOf(block);
+    }
+
+    private boolean isLightLevelBelow(int threshold) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || client.player.getWorld() == null) {
+            return false;
+        }
+        BlockPos pos = client.player.getBlockPos();
+        return client.player.getWorld().getLightLevel(pos) < threshold;
+    }
+
+    private boolean isDaytime() {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.world == null) {
+            return false;
+        }
+        long time = client.world.getTimeOfDay() % 24000L;
+        return time < 12000L;
+    }
+
+    private boolean isRaining() {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.world == null || client.player == null) {
+            return false;
+        }
+        return client.world.isRaining() || client.world.hasRain(client.player.getBlockPos());
+    }
+
+    private boolean isHealthBelow(double amount) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            return false;
+        }
+        return client.player.getHealth() < amount;
+    }
+
+    private boolean isHungerBelow(int amount) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            return false;
+        }
+        return client.player.getHungerManager().getFoodLevel() < amount;
+    }
+
+    private boolean isEntityNearby(String entityId, double range) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || entityId == null || entityId.isEmpty()) {
+            return false;
+        }
+        Identifier identifier = Identifier.tryParse(entityId);
+        if (identifier == null || !Registries.ENTITY_TYPE.containsId(identifier)) {
+            return false;
+        }
+        EntityType<?> entityType = Registries.ENTITY_TYPE.get(identifier);
+        Box searchBox = client.player.getBoundingBox().expand(range);
+        List<Entity> entities = client.player.getWorld().getOtherEntities(
+            client.player,
+            searchBox,
+            entity -> entity.getType() == entityType
+        );
+        return !entities.isEmpty();
+    }
+
+    private boolean hasItemInInventory(String itemId) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || itemId == null || itemId.isEmpty()) {
+            return false;
+        }
+        Identifier identifier = Identifier.tryParse(itemId);
+        if (identifier == null || !Registries.ITEM.containsId(identifier)) {
+            return false;
+        }
+        net.minecraft.item.Item item = Registries.ITEM.get(identifier);
+        for (ItemStack stack : client.player.getInventory().main) {
+            if (!stack.isEmpty() && stack.isOf(item)) {
+                return true;
+            }
+        }
+        for (ItemStack stack : client.player.getInventory().offHand) {
+            if (!stack.isEmpty() && stack.isOf(item)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isSwimming() {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        return client != null && client.player != null && client.player.isSwimming();
+    }
+
+    private boolean isInLava() {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        return client != null && client.player != null && client.player.isInLava();
+    }
+
+    private boolean isUnderwater() {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        return client != null && client.player != null && client.player.isSubmergedInWater();
+    }
+
+    private boolean isFalling(double distance) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            return false;
+        }
+        return client.player.fallDistance >= distance && !client.player.isOnGround();
     }
     
     private void executeCommand(String command) {

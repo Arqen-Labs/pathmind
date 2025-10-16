@@ -5,9 +5,10 @@ package com.pathmind.nodes;
  * Similar to Blender's shader nodes, each type has specific properties and behaviors.
  */
 public enum NodeType {
-    // Special nodes
+    // Event nodes
     START("Start", 0xFF4CAF50, "Begins the automation sequence"),
-    END("End", 0xFFF44336, "Ends the automation sequence"),
+    EVENT_FUNCTION("Function", 0xFFE91E63, "Runs a named function body when triggered"),
+    EVENT_CALL("Call Function", 0xFFE91E63, "Triggers the execution of a named function"),
     
     // Navigation Commands
     GOTO("Goto", 0xFF00BCD4, "Moves to specified coordinates"),
@@ -34,9 +35,8 @@ public enum NodeType {
     CONTROL_REPEAT("Repeat", 0xFFFFC107, "Repeat enclosed nodes a set number of times"),
     CONTROL_REPEAT_UNTIL("Repeat Until", 0xFFFFC107, "Repeat until a condition becomes true"),
     CONTROL_FOREVER("Forever", 0xFFFFC107, "Loop enclosed nodes indefinitely"),
-    CONTROL_IF("If", 0xFFFFC107, "Run inner nodes when a condition is true"),
     CONTROL_IF_ELSE("If Else", 0xFFFFC107, "Run one of two branches depending on a condition"),
-    
+
     // Player movement commands
     LOOK("Look", 0xFF03A9F4, "Adjusts the player's view direction"),
     JUMP("Jump", 0xFF009688, "Makes the player jump"),
@@ -76,7 +76,20 @@ public enum NodeType {
     SENSOR_TOUCHING_BLOCK("Touching Block", 0xFF64B5F6, "Detect if player is touching a specific block"),
     SENSOR_TOUCHING_ENTITY("Touching Entity", 0xFF64B5F6, "Detect if player is touching an entity"),
     SENSOR_AT_COORDINATES("At Coordinates", 0xFF64B5F6, "Detect if player is at specific coordinates"),
-    
+    SENSOR_BLOCK_AHEAD("Block Ahead", 0xFF64B5F6, "Detect if a specific block is directly in front of the player"),
+    SENSOR_BLOCK_BELOW("Block Below", 0xFF64B5F6, "Detect if a specific block is beneath the player"),
+    SENSOR_LIGHT_LEVEL_BELOW("Light Below", 0xFF64B5F6, "Detect if the ambient light level is below a threshold"),
+    SENSOR_IS_DAYTIME("Is Daytime", 0xFF64B5F6, "Detect if it is currently daytime"),
+    SENSOR_IS_RAINING("Is Raining", 0xFF64B5F6, "Detect if it is raining or snowing"),
+    SENSOR_HEALTH_BELOW("Health Below", 0xFF64B5F6, "Detect if player health is below a threshold"),
+    SENSOR_HUNGER_BELOW("Hunger Below", 0xFF64B5F6, "Detect if player hunger is below a threshold"),
+    SENSOR_ENTITY_NEARBY("Entity Nearby", 0xFF64B5F6, "Detect if an entity type is within range"),
+    SENSOR_ITEM_IN_INVENTORY("Has Item", 0xFF64B5F6, "Detect if the player has a specific item"),
+    SENSOR_IS_SWIMMING("Is Swimming", 0xFF64B5F6, "Detect if the player is swimming"),
+    SENSOR_IS_IN_LAVA("In Lava", 0xFF64B5F6, "Detect if the player is touching lava"),
+    SENSOR_IS_UNDERWATER("Underwater", 0xFF64B5F6, "Detect if the player is fully submerged"),
+    SENSOR_IS_FALLING("Is Falling", 0xFF64B5F6, "Detect if the player is currently falling"),
+
     // Utility Commands
     WAIT("Wait", 0xFF607D8B, "Waits for specified duration"),
     MESSAGE("Message", 0xFF9E9E9E, "Sends a chat message"),
@@ -99,8 +112,6 @@ public enum NodeType {
         // Special nodes keep their original colors
         if (this == START) {
             return 0xFF4CAF50; // Green
-        } else if (this == END) {
-            return 0xFFF44336; // Red
         }
         return getCategory().getColor();
     }
@@ -114,11 +125,11 @@ public enum NodeType {
     }
 
     public boolean isOutputNode() {
-        return this == END;
+        return false;
     }
 
     public boolean isDraggableFromSidebar() {
-        return true; // All nodes including START and END can be dragged from sidebar
+        return true; // All nodes including START can be dragged from sidebar
     }
     
     /**
@@ -127,8 +138,9 @@ public enum NodeType {
     public NodeCategory getCategory() {
         switch (this) {
             case START:
-            case END:
-                return NodeCategory.SPECIAL;
+            case EVENT_FUNCTION:
+            case EVENT_CALL:
+                return NodeCategory.EVENTS;
             case GOTO:
             case GOAL:
             case PATH:
@@ -150,7 +162,6 @@ public enum NodeType {
             case CONTROL_REPEAT:
             case CONTROL_REPEAT_UNTIL:
             case CONTROL_FOREVER:
-            case CONTROL_IF:
             case CONTROL_IF_ELSE:
                 return NodeCategory.CONTROLS;
             case LOOK:
@@ -185,6 +196,19 @@ public enum NodeType {
             case SENSOR_TOUCHING_BLOCK:
             case SENSOR_TOUCHING_ENTITY:
             case SENSOR_AT_COORDINATES:
+            case SENSOR_BLOCK_AHEAD:
+            case SENSOR_BLOCK_BELOW:
+            case SENSOR_LIGHT_LEVEL_BELOW:
+            case SENSOR_IS_DAYTIME:
+            case SENSOR_IS_RAINING:
+            case SENSOR_HEALTH_BELOW:
+            case SENSOR_HUNGER_BELOW:
+            case SENSOR_ENTITY_NEARBY:
+            case SENSOR_ITEM_IN_INVENTORY:
+            case SENSOR_IS_SWIMMING:
+            case SENSOR_IS_IN_LAVA:
+            case SENSOR_IS_UNDERWATER:
+            case SENSOR_IS_FALLING:
                 return NodeCategory.SENSORS;
             case WAIT:
             case MESSAGE:
@@ -201,6 +225,8 @@ public enum NodeType {
      */
     public boolean hasParameters() {
         switch (this) {
+            case EVENT_FUNCTION:
+            case EVENT_CALL:
             case GOTO:
             case GOAL:
             case MINE:
@@ -237,23 +263,19 @@ public enum NodeType {
             case DRINK:
             case CONTROL_REPEAT:
             case CONTROL_REPEAT_UNTIL:
-            case CONTROL_IF:
             case CONTROL_IF_ELSE:
             case SENSOR_TOUCHING_BLOCK:
             case SENSOR_TOUCHING_ENTITY:
             case SENSOR_AT_COORDINATES:
+            case SENSOR_BLOCK_AHEAD:
+            case SENSOR_BLOCK_BELOW:
+            case SENSOR_LIGHT_LEVEL_BELOW:
+            case SENSOR_HEALTH_BELOW:
+            case SENSOR_HUNGER_BELOW:
+            case SENSOR_ENTITY_NEARBY:
+            case SENSOR_ITEM_IN_INVENTORY:
+            case SENSOR_IS_FALLING:
                 return true;
-            case PATH:
-            case STOP:
-            case INVERT:
-            case COME:
-            case SURFACE:
-            case TUNNEL:
-            case FARM:
-            case START:
-            case END:
-            case SWAP_HANDS:
-                return false;
             default:
                 return false;
         }

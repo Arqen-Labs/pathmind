@@ -10,7 +10,9 @@ import com.pathmind.data.NodeGraphData;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Manages the execution state of the node graph.
@@ -24,12 +26,18 @@ public class ExecutionManager {
     private long executionEndTime;
     private static final long MINIMUM_DISPLAY_DURATION = 3000; // 3 seconds minimum display
     private NodeGraphData lastExecutedGraph;
-    
+    private List<Node> activeNodes;
+    private List<NodeConnection> activeConnections;
+    private final List<String> executingEvents;
+
     private ExecutionManager() {
         this.activeNode = null;
         this.isExecuting = false;
         this.executionStartTime = 0;
         this.executionEndTime = 0;
+        this.activeNodes = new ArrayList<>();
+        this.activeConnections = new ArrayList<>();
+        this.executingEvents = new ArrayList<>();
     }
     
     public static ExecutionManager getInstance() {
@@ -54,9 +62,20 @@ public class ExecutionManager {
         List<NodeConnection> filteredConnections = filterConnections(connections);
 
         this.lastExecutedGraph = createGraphSnapshot(nodes, filteredConnections);
+        this.activeNodes = new ArrayList<>(nodes);
+        this.activeConnections = new ArrayList<>(filteredConnections);
 
         startExecution(startNode);
-        executeNodesSequentially(startNode, new ArrayList<>(filteredConnections));
+        runChain(startNode).whenComplete((ignored, throwable) -> {
+            if (throwable != null) {
+                System.err.println("ExecutionManager: Error during execution - " + throwable.getMessage());
+                throwable.printStackTrace();
+            }
+            stopExecution();
+            activeNodes.clear();
+            activeConnections.clear();
+            executingEvents.clear();
+        });
     }
 
     public void replayLastGraph() {
@@ -239,35 +258,72 @@ public class ExecutionManager {
         return 0;
     }
 
-    private void executeNodesSequentially(Node currentNode, List<NodeConnection> connections) {
+    private CompletableFuture<Void> runChain(Node currentNode) {
         setActiveNode(currentNode);
 
-        currentNode.execute().thenRun(() -> {
-            System.out.println("ExecutionManager: Node completed - " + currentNode.getType());
+        return currentNode.execute()
+            .thenCompose(ignored -> handleEventCallIfNeeded(currentNode))
+            .thenCompose(ignored -> {
+                int nextSocket = currentNode.consumeNextOutputSocket();
+                Node nextNode = getNextConnectedNode(currentNode, activeConnections, nextSocket);
+                if (nextNode == null && nextSocket != 0) {
+                    nextNode = getNextConnectedNode(currentNode, activeConnections, 0);
+                }
+                if (nextNode != null) {
+                    return runChain(nextNode);
+                }
+                return CompletableFuture.completedFuture(null);
+            });
+    }
 
-            if (currentNode.getType() == NodeType.END) {
-                System.out.println("ExecutionManager: Node graph execution complete!");
-                stopExecution();
-                return;
-            }
+    private CompletableFuture<Void> handleEventCallIfNeeded(Node node) {
+        if (node.getType() != NodeType.EVENT_CALL) {
+            return CompletableFuture.completedFuture(null);
+        }
 
-            int nextSocket = currentNode.consumeNextOutputSocket();
-            Node nextNode = getNextConnectedNode(currentNode, connections, nextSocket);
-            if (nextNode == null && nextSocket != 0) {
-                nextNode = getNextConnectedNode(currentNode, connections, 0);
+        NodeParameter nameParam = node.getParameter("Name");
+        String eventName = normalizeEventName(nameParam != null ? nameParam.getStringValue() : null);
+        if (eventName.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        if (executingEvents.contains(eventName)) {
+            System.out.println("ExecutionManager: Skipping recursive event call for " + eventName);
+            return CompletableFuture.completedFuture(null);
+        }
+
+        List<Node> handlers = new ArrayList<>();
+        for (Node candidate : activeNodes) {
+            if (candidate.getType() == NodeType.EVENT_FUNCTION) {
+                NodeParameter candidateParam = candidate.getParameter("Name");
+                String candidateName = normalizeEventName(candidateParam != null ? candidateParam.getStringValue() : null);
+                if (!candidateName.isEmpty() && candidateName.equals(eventName)) {
+                    handlers.add(candidate);
+                }
             }
-            if (nextNode != null) {
-                executeNodesSequentially(nextNode, connections);
-            } else {
-                System.out.println("ExecutionManager: No next node found - stopping execution");
-                stopExecution();
-            }
-        }).exceptionally(throwable -> {
-            System.err.println("ExecutionManager: Error executing node " + currentNode.getType() + ": " + throwable.getMessage());
-            throwable.printStackTrace();
-            stopExecution();
-            return null;
-        });
+        }
+
+        if (handlers.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        executingEvents.add(eventName);
+        CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
+        for (Node handler : handlers) {
+            chain = chain.thenCompose(ignored -> runChain(handler));
+        }
+        return chain.whenComplete((ignored, throwable) -> executingEvents.remove(eventName));
+    }
+
+    private String normalizeEventName(String value) {
+        if (value == null) {
+            return "";
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+        return trimmed.toLowerCase(Locale.ROOT);
     }
 
     private Node getNextConnectedNode(Node currentNode, List<NodeConnection> connections, int outputSocket) {

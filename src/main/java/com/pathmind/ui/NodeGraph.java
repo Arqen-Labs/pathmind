@@ -93,12 +93,8 @@ public class NodeGraph {
         Node middleNode = new Node(NodeType.GOTO, centerX, centerY - 50);
         nodes.add(middleNode);
         
-        Node endNode = new Node(NodeType.END, centerX + 100, centerY - 50);
-        nodes.add(endNode);
-        
         // Connect them
         connections.add(new NodeConnection(startNode, middleNode, 0, 0));
-        connections.add(new NodeConnection(middleNode, endNode, 0, 0));
     }
 
 
@@ -665,7 +661,7 @@ public class NodeGraph {
         }
         context.fill(x, y, x + width, y + height, bgColor);
         
-        // Node border - use light blue for selection, grey for dragging, darker node type color for START/END, node type color otherwise
+        // Node border - use light blue for selection, grey for dragging, darker node type color for START/events, node type color otherwise
         int borderColor;
         if (node.isDragging()) {
             borderColor = 0xFFAAAAAA; // Medium grey outline when dragging
@@ -673,18 +669,18 @@ public class NodeGraph {
             borderColor = 0xFF87CEEB; // Light blue selection
         } else if (node.getType() == NodeType.START) {
             borderColor = isOverSidebar ? 0xFF2D4A2D : 0xFF2E7D32; // Darker green for START
-        } else if (node.getType() == NodeType.END) {
-            borderColor = isOverSidebar ? 0xFF4A2D2D : 0xFF7D2E2E; // Darker red for END
+        } else if (node.getType() == NodeType.EVENT_FUNCTION) {
+            borderColor = isOverSidebar ? 0xFF5C2C44 : 0xFFAD1457; // Darker pink for event functions
         } else {
             borderColor = node.getType().getColor(); // Regular node type color
         }
-        if (isOverSidebar && node.getType() != NodeType.START && node.getType() != NodeType.END && !node.isDragging()) {
+        if (isOverSidebar && node.getType() != NodeType.START && !node.isDragging()) {
             borderColor = 0xFF555555; // Darker grey border when over sidebar (for regular nodes)
         }
         context.drawBorder(x, y, width, height, borderColor);
-        
-        // Node header (only for non-START/END nodes)
-        if (node.getType() != NodeType.START && node.getType() != NodeType.END) {
+
+        // Node header (only for non-START/event function nodes)
+        if (node.getType() != NodeType.START && node.getType() != NodeType.EVENT_FUNCTION) {
             int headerColor = node.getType().getColor() & 0x80FFFFFF;
             if (isOverSidebar) {
                 headerColor = 0x80555555; // Grey header when over sidebar
@@ -755,21 +751,42 @@ public class NodeGraph {
                 }
             }
             
-        } else if (node.getType() == NodeType.END) {
-            // END node - red square with white stop square
-            int redColor = isOverSidebar ? 0xFF5D2323 : 0xFFF44336; // Darker red when over sidebar
-            context.fill(x + 1, y + 1, x + width - 1, y + height - 1, redColor);
-            
-            // Draw stop button (white square) - bigger and centered
-            int stopColor = isOverSidebar ? 0xFFE0E0E0 : 0xFFFFFFFF; // White square
-            int centerX = x + width / 2;
-            int centerY = y + height / 2;
-            
-            // Stop square - bigger
-            int squareSize = 10;
-            context.fill(centerX - squareSize/2, centerY - squareSize/2, 
-                       centerX + squareSize/2, centerY + squareSize/2, stopColor);
-                       
+        } else if (node.getType() == NodeType.EVENT_FUNCTION) {
+            int baseColor = isOverSidebar ? 0xFF5C2C44 : 0xFFE91E63;
+            context.fill(x + 1, y + 1, x + width - 1, y + height - 1, baseColor);
+
+            int titleColor = isOverSidebar ? 0xFFE3BBCB : 0xFFFFF5F8;
+            context.drawTextWithShadow(
+                textRenderer,
+                Text.literal("Function"),
+                x + 6,
+                y + 4,
+                titleColor
+            );
+
+            int boxLeft = x + 6;
+            int boxRight = x + width - 6;
+            int boxHeight = 16;
+            int boxTop = y + height / 2 - boxHeight / 2;
+            int boxBottom = boxTop + boxHeight;
+            int inputBackground = isOverSidebar ? 0xFF2E2E2E : 0xFF1F1F1F;
+            context.fill(boxLeft, boxTop, boxRight, boxBottom, inputBackground);
+            int inputBorder = isOverSidebar ? 0xFF6A3A50 : 0xFF000000;
+            context.drawBorder(boxLeft, boxTop, boxRight - boxLeft, boxHeight, inputBorder);
+
+            NodeParameter nameParam = node.getParameter("Name");
+            String value = nameParam != null ? nameParam.getDisplayValue() : "";
+            String display = value.isEmpty() ? "enter name" : value;
+            display = trimTextToWidth(display, textRenderer, boxRight - boxLeft - 8);
+            int textY = boxTop + (boxHeight - textRenderer.fontHeight) / 2 + 1;
+            int textColor = isOverSidebar ? 0xFFBFA1AF : 0xFFFFEEF5;
+            context.drawTextWithShadow(
+                textRenderer,
+                Text.literal(display),
+                boxLeft + 4,
+                textY,
+                textColor
+            );
         } else {
             // Regular nodes with parameters
             if (shouldShowParameters(node)) {
@@ -1018,7 +1035,7 @@ public class NodeGraph {
      * Check if a node should show parameters (Start and End nodes don't)
      */
     public boolean shouldShowParameters(Node node) {
-        return node.hasParameters() && !node.canAcceptSensor();
+        return node.hasParameters() && !node.canAcceptSensor() && node.getType() != NodeType.EVENT_FUNCTION;
     }
     
     /**
