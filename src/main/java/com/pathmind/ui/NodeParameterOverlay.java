@@ -19,9 +19,11 @@ public class NodeParameterOverlay {
     private final List<String> parameterValues;
     private final List<Boolean> fieldFocused;
     private final int popupWidth = 300;
-    private final int popupHeight;
-    private final int popupX;
-    private final int popupY;
+    private final int screenWidth;
+    private final int screenHeight;
+    private int popupHeight;
+    private int popupX;
+    private int popupY;
     private ButtonWidget saveButton;
     private ButtonWidget cancelButton;
     private final Runnable onClose;
@@ -38,6 +40,8 @@ public class NodeParameterOverlay {
         this.onClose = onClose;
         this.parameterValues = new ArrayList<>();
         this.fieldFocused = new ArrayList<>();
+        this.screenWidth = screenWidth;
+        this.screenHeight = screenHeight;
         
         // Initialize mode selection
         this.availableModes = new ArrayList<>();
@@ -49,36 +53,13 @@ public class NodeParameterOverlay {
         }
         this.selectedMode = node.getMode();
         
-        // Calculate popup dimensions and position
-        int parameterCount = node.getParameters().size();
-        int modeHeight = hasModeSelection() ? 30 : 0; // Extra height for mode selector
-        this.popupHeight = Math.max(150, parameterCount * 45 + 100 + modeHeight); // 45px per parameter + header/footer space + mode selector
-        this.popupX = (screenWidth - popupWidth) / 2;
-        this.popupY = (screenHeight - popupHeight) / 2;
+        updatePopupDimensions();
     }
 
     public void init() {
-        // Clear existing values
-        parameterValues.clear();
-        fieldFocused.clear();
-        
-        // Initialize parameter values
-        for (NodeParameter param : node.getParameters()) {
-            parameterValues.add(param.getStringValue());
-            fieldFocused.add(false);
-        }
-        
-        // Create buttons
-        int buttonY = popupY + popupHeight - 40;
-        this.saveButton = ButtonWidget.builder(
-            Text.literal("Save"),
-            button -> saveParameters()
-        ).dimensions(popupX + 20, buttonY, 80, 20).build();
-        
-        this.cancelButton = ButtonWidget.builder(
-            Text.literal("Cancel"),
-            button -> close()
-        ).dimensions(popupX + popupWidth - 100, buttonY, 80, 20).build();
+        resetParameterFields();
+        updatePopupDimensions();
+        recreateButtons();
     }
 
     public void render(DrawContext context, TextRenderer textRenderer, int mouseX, int mouseY, float delta) {
@@ -253,6 +234,10 @@ public class NodeParameterOverlay {
     }
 
     private void renderButton(DrawContext context, TextRenderer textRenderer, ButtonWidget button, int mouseX, int mouseY) {
+        if (button == null) {
+            return;
+        }
+        
         boolean hovered = mouseX >= button.getX() && mouseX <= button.getX() + button.getWidth() &&
                          mouseY >= button.getY() && mouseY <= button.getY() + button.getHeight();
         
@@ -274,11 +259,11 @@ public class NodeParameterOverlay {
         if (!visible) return false;
         
         // Check button clicks
-        if (saveButton.isMouseOver(mouseX, mouseY)) {
+        if (saveButton != null && saveButton.isMouseOver(mouseX, mouseY)) {
             saveButton.onPress();
             return true;
         }
-        if (cancelButton.isMouseOver(mouseX, mouseY)) {
+        if (cancelButton != null && cancelButton.isMouseOver(mouseX, mouseY)) {
             cancelButton.onPress();
             return true;
         }
@@ -315,13 +300,9 @@ public class NodeParameterOverlay {
                         selectedMode = availableModes.get(optionIndex);
                         // Update node mode and reinitialize parameters
                         node.setMode(selectedMode);
-                        // Reinitialize parameter values
-                        parameterValues.clear();
-                        fieldFocused.clear();
-                        for (NodeParameter param : node.getParameters()) {
-                            parameterValues.add(param.getStringValue());
-                            fieldFocused.add(false);
-                        }
+                        resetParameterFields();
+                        updatePopupDimensions();
+                        recreateButtons();
                     }
                     modeDropdownOpen = -1; // Close dropdown
                     return true;
@@ -458,6 +439,38 @@ public class NodeParameterOverlay {
 
     public boolean isVisible() {
         return visible;
+    }
+    
+    private void resetParameterFields() {
+        parameterValues.clear();
+        fieldFocused.clear();
+        
+        for (NodeParameter param : node.getParameters()) {
+            parameterValues.add(param.getStringValue());
+            fieldFocused.add(false);
+        }
+    }
+    
+    private void updatePopupDimensions() {
+        int parameterCount = node.getParameters().size();
+        int modeHeight = hasModeSelection() ? 30 : 0;
+        this.popupHeight = Math.max(150, parameterCount * 45 + 100 + modeHeight);
+        this.popupX = (screenWidth - popupWidth) / 2;
+        this.popupY = (screenHeight - popupHeight) / 2;
+    }
+    
+    private void recreateButtons() {
+        int buttonY = popupY + popupHeight - 40;
+        
+        this.saveButton = ButtonWidget.builder(
+            Text.literal("Save"),
+            b -> saveParameters()
+        ).dimensions(popupX + 20, buttonY, 80, 20).build();
+        
+        this.cancelButton = ButtonWidget.builder(
+            Text.literal("Cancel"),
+            b -> close()
+        ).dimensions(popupX + popupWidth - 100, buttonY, 80, 20).build();
     }
     
     private boolean hasModeSelection() {
