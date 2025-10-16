@@ -57,6 +57,17 @@ public class Node {
     private static final int PARAM_PADDING_BOTTOM = 6;
     private static final int BODY_PADDING_NO_PARAMS = 12;
     private static final int START_END_SIZE = 36;
+    private static final int SENSOR_SLOT_MARGIN_HORIZONTAL = 8;
+    private static final int SENSOR_SLOT_INNER_PADDING = 4;
+    private static final int SENSOR_SLOT_MIN_CONTENT_WIDTH = 60;
+    private static final int SENSOR_SLOT_MIN_CONTENT_HEIGHT = 28;
+    private static final int ACTION_SLOT_MARGIN_HORIZONTAL = 8;
+    private static final int ACTION_SLOT_INNER_PADDING = 4;
+    private static final int ACTION_SLOT_MIN_CONTENT_WIDTH = 80;
+    private static final int ACTION_SLOT_MIN_CONTENT_HEIGHT = 32;
+    private static final int SLOT_AREA_PADDING_TOP = 4;
+    private static final int SLOT_AREA_PADDING_BOTTOM = 6;
+    private static final int SLOT_VERTICAL_SPACING = 6;
     private int width;
     private int height;
     private int nextOutputSocket = 0;
@@ -67,6 +78,10 @@ public class Node {
     private boolean dragging = false;
     private int dragOffsetX, dragOffsetY;
     private final List<NodeParameter> parameters;
+    private Node attachedSensor;
+    private Node parentControl;
+    private Node attachedActionNode;
+    private Node parentActionControl;
 
     public Node(NodeType type, int x, int y) {
         this.id = java.util.UUID.randomUUID().toString();
@@ -75,6 +90,10 @@ public class Node {
         this.x = x;
         this.y = y;
         this.parameters = new ArrayList<>();
+        this.attachedSensor = null;
+        this.parentControl = null;
+        this.attachedActionNode = null;
+        this.parentActionControl = null;
         initializeParameters();
         recalculateDimensions();
         resetControlState();
@@ -123,6 +142,16 @@ public class Node {
     }
 
     public void setPosition(int x, int y) {
+        setPositionSilently(x, y);
+        if (attachedSensor != null) {
+            updateAttachedSensorPosition();
+        }
+        if (attachedActionNode != null) {
+            updateAttachedActionPosition();
+        }
+    }
+
+    private void setPositionSilently(int x, int y) {
         this.x = x;
         this.y = y;
     }
@@ -175,27 +204,122 @@ public class Node {
         return Text.literal(type.getDisplayName());
     }
 
+    public boolean isSensorNode() {
+        return type == NodeType.SENSOR_TOUCHING_BLOCK ||
+               type == NodeType.SENSOR_TOUCHING_ENTITY ||
+               type == NodeType.SENSOR_AT_COORDINATES;
+    }
+
+    public boolean canAcceptSensor() {
+        switch (type) {
+            case CONTROL_IF:
+            case CONTROL_IF_ELSE:
+            case CONTROL_REPEAT_UNTIL:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    public boolean hasSensorSlot() {
+        return canAcceptSensor();
+    }
+
+    public boolean canAcceptActionNode() {
+        switch (type) {
+            case CONTROL_REPEAT:
+            case CONTROL_REPEAT_UNTIL:
+            case CONTROL_FOREVER:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    public boolean hasActionSlot() {
+        return canAcceptActionNode();
+    }
+
+    public boolean hasAttachedSensor() {
+        return attachedSensor != null;
+    }
+
+    public Node getAttachedSensor() {
+        return attachedSensor;
+    }
+
+    public boolean isAttachedToControl() {
+        return parentControl != null;
+    }
+
+    public Node getParentControl() {
+        return parentControl;
+    }
+
+    public String getAttachedSensorId() {
+        return attachedSensor != null ? attachedSensor.getId() : null;
+    }
+
+    public String getParentControlId() {
+        return parentControl != null ? parentControl.getId() : null;
+    }
+
+    public boolean hasAttachedActionNode() {
+        return attachedActionNode != null;
+    }
+
+    public Node getAttachedActionNode() {
+        return attachedActionNode;
+    }
+
+    public boolean isAttachedToActionControl() {
+        return parentActionControl != null;
+    }
+
+    public Node getParentActionControl() {
+        return parentActionControl;
+    }
+
+    public String getAttachedActionId() {
+        return attachedActionNode != null ? attachedActionNode.getId() : null;
+    }
+
+    public String getParentActionControlId() {
+        return parentActionControl != null ? parentActionControl.getId() : null;
+    }
+
     public int getInputSocketCount() {
-        return type == NodeType.START ? 0 : 1;
+        if (type == NodeType.START || isSensorNode()) {
+            return 0;
+        }
+        return 1;
     }
 
     public int getOutputSocketCount() {
-        if (type == NodeType.END) {
+        if (type == NodeType.END || isSensorNode()) {
             return 0;
         }
         switch (type) {
             case CONTROL_IF:
             case CONTROL_IF_ELSE:
+                return 2;
             case CONTROL_REPEAT:
             case CONTROL_REPEAT_UNTIL:
-                return 2;
-            case SENSOR_TOUCHING_BLOCK:
-            case SENSOR_TOUCHING_ENTITY:
-            case SENSOR_AT_COORDINATES:
-                return 2;
+                return 1;
             default:
                 return 1;
         }
+    }
+
+    public int getOutputSocketColor(int socketIndex) {
+        if (type == NodeType.CONTROL_IF_ELSE) {
+            if (socketIndex == 0) {
+                return 0xFF4CAF50; // Green for true branch
+            } else if (socketIndex == 1) {
+                return 0xFFF44336; // Red for false branch
+            }
+        }
+        return getType().getColor();
     }
 
     public int getSocketY(int socketIndex, boolean isInput) {
@@ -228,8 +352,211 @@ public class Node {
         int socketX = getSocketX(isInput);
         int socketY = getSocketY(socketIndex, isInput);
         int socketRadius = 6; // Smaller size for more space
-        
+
         return Math.abs(mouseX - socketX) <= socketRadius && Math.abs(mouseY - socketY) <= socketRadius;
+    }
+
+    public int getSensorSlotLeft() {
+        return x + SENSOR_SLOT_MARGIN_HORIZONTAL;
+    }
+
+    private int getSlotAreaStartY() {
+        int top = y + HEADER_HEIGHT;
+        boolean hasSlots = hasSensorSlot() || hasActionSlot();
+        if (hasParameters()) {
+            top += PARAM_PADDING_TOP + parameters.size() * PARAM_LINE_HEIGHT + PARAM_PADDING_BOTTOM;
+            if (hasSlots) {
+                top += SLOT_AREA_PADDING_TOP;
+            }
+        } else if (hasSlots) {
+            top += SLOT_AREA_PADDING_TOP;
+        } else {
+            top += BODY_PADDING_NO_PARAMS;
+        }
+        return top;
+    }
+
+    public int getSensorSlotTop() {
+        return getSlotAreaStartY();
+    }
+
+    public int getSensorSlotWidth() {
+        int minWidth = SENSOR_SLOT_MIN_CONTENT_WIDTH + 2 * SENSOR_SLOT_INNER_PADDING;
+        int widthWithMargins = this.width - 2 * SENSOR_SLOT_MARGIN_HORIZONTAL;
+        return Math.max(minWidth, widthWithMargins);
+    }
+
+    public int getSensorSlotHeight() {
+        int sensorContentHeight = attachedSensor != null ? attachedSensor.getHeight() : SENSOR_SLOT_MIN_CONTENT_HEIGHT;
+        return sensorContentHeight + 2 * SENSOR_SLOT_INNER_PADDING;
+    }
+
+    public boolean isPointInsideSensorSlot(int pointX, int pointY) {
+        if (!hasSensorSlot()) {
+            return false;
+        }
+        int slotLeft = getSensorSlotLeft();
+        int slotTop = getSensorSlotTop();
+        int slotWidth = getSensorSlotWidth();
+        int slotHeight = getSensorSlotHeight();
+        return pointX >= slotLeft && pointX <= slotLeft + slotWidth &&
+               pointY >= slotTop && pointY <= slotTop + slotHeight;
+    }
+
+    public int getActionSlotLeft() {
+        return x + ACTION_SLOT_MARGIN_HORIZONTAL;
+    }
+
+    public int getActionSlotTop() {
+        int top = getSlotAreaStartY();
+        if (hasSensorSlot()) {
+            top += getSensorSlotHeight();
+            if (hasActionSlot()) {
+                top += SLOT_VERTICAL_SPACING;
+            }
+        }
+        return top;
+    }
+
+    public int getActionSlotWidth() {
+        int minWidth = ACTION_SLOT_MIN_CONTENT_WIDTH + 2 * ACTION_SLOT_INNER_PADDING;
+        int widthWithMargins = this.width - 2 * ACTION_SLOT_MARGIN_HORIZONTAL;
+        return Math.max(minWidth, widthWithMargins);
+    }
+
+    public int getActionSlotHeight() {
+        int contentHeight = attachedActionNode != null ? attachedActionNode.getHeight() : ACTION_SLOT_MIN_CONTENT_HEIGHT;
+        return contentHeight + 2 * ACTION_SLOT_INNER_PADDING;
+    }
+
+    public boolean isPointInsideActionSlot(int pointX, int pointY) {
+        if (!hasActionSlot()) {
+            return false;
+        }
+        int slotLeft = getActionSlotLeft();
+        int slotTop = getActionSlotTop();
+        int slotWidth = getActionSlotWidth();
+        int slotHeight = getActionSlotHeight();
+        return pointX >= slotLeft && pointX <= slotLeft + slotWidth &&
+               pointY >= slotTop && pointY <= slotTop + slotHeight;
+    }
+
+    public void updateAttachedSensorPosition() {
+        if (attachedSensor == null) {
+            return;
+        }
+        int slotX = getSensorSlotLeft() + SENSOR_SLOT_INNER_PADDING;
+        int slotY = getSensorSlotTop() + SENSOR_SLOT_INNER_PADDING;
+        int availableWidth = getSensorSlotWidth() - 2 * SENSOR_SLOT_INNER_PADDING;
+        int availableHeight = getSensorSlotHeight() - 2 * SENSOR_SLOT_INNER_PADDING;
+        int sensorX = slotX + Math.max(0, (availableWidth - attachedSensor.getWidth()) / 2);
+        int sensorY = slotY + Math.max(0, (availableHeight - attachedSensor.getHeight()) / 2);
+        attachedSensor.setPositionSilently(sensorX, sensorY);
+    }
+
+    public void updateAttachedActionPosition() {
+        if (attachedActionNode == null) {
+            return;
+        }
+        int slotX = getActionSlotLeft() + ACTION_SLOT_INNER_PADDING;
+        int slotY = getActionSlotTop() + ACTION_SLOT_INNER_PADDING;
+        int availableWidth = getActionSlotWidth() - 2 * ACTION_SLOT_INNER_PADDING;
+        int availableHeight = getActionSlotHeight() - 2 * ACTION_SLOT_INNER_PADDING;
+        int nodeX = slotX + Math.max(0, (availableWidth - attachedActionNode.getWidth()) / 2);
+        int nodeY = slotY + Math.max(0, (availableHeight - attachedActionNode.getHeight()) / 2);
+        attachedActionNode.setPositionSilently(nodeX, nodeY);
+    }
+
+    public boolean attachSensor(Node sensor) {
+        if (!canAcceptSensor() || sensor == null || !sensor.isSensorNode() || sensor == this) {
+            return false;
+        }
+
+        if (sensor.parentControl == this && attachedSensor == sensor) {
+            updateAttachedSensorPosition();
+            return true;
+        }
+
+        if (sensor.parentControl != null) {
+            sensor.parentControl.detachSensor();
+        }
+
+        if (attachedSensor != null && attachedSensor != sensor) {
+            Node previousSensor = attachedSensor;
+            previousSensor.parentControl = null;
+            previousSensor.setDragging(false);
+            previousSensor.setSelected(false);
+            previousSensor.setPositionSilently(this.x + this.width + SENSOR_SLOT_MARGIN_HORIZONTAL, this.y);
+        }
+
+        attachedSensor = sensor;
+        sensor.parentControl = this;
+        sensor.setDragging(false);
+        sensor.setSelected(false);
+
+        recalculateDimensions();
+        updateAttachedSensorPosition();
+        return true;
+    }
+
+    public void detachSensor() {
+        if (attachedSensor != null) {
+            Node sensor = attachedSensor;
+            sensor.parentControl = null;
+            attachedSensor = null;
+            recalculateDimensions();
+        }
+    }
+
+    public boolean canAcceptActionNode(Node node) {
+        if (!canAcceptActionNode() || node == null || node == this || node.isSensorNode()) {
+            return false;
+        }
+        if (attachedActionNode != null && attachedActionNode != node) {
+            return false;
+        }
+        return true;
+    }
+
+    public boolean attachActionNode(Node node) {
+        if (!canAcceptActionNode(node)) {
+            return false;
+        }
+
+        if (node.parentActionControl == this && attachedActionNode == node) {
+            updateAttachedActionPosition();
+            return true;
+        }
+
+        if (node.parentActionControl != null) {
+            node.parentActionControl.detachActionNode();
+        }
+
+        if (attachedActionNode != null && attachedActionNode != node) {
+            Node previous = attachedActionNode;
+            previous.parentActionControl = null;
+            previous.setDragging(false);
+            previous.setSelected(false);
+            previous.setPositionSilently(this.x + this.width + ACTION_SLOT_MARGIN_HORIZONTAL, this.y);
+        }
+
+        attachedActionNode = node;
+        node.parentActionControl = this;
+        node.setDragging(false);
+        node.setSelected(false);
+
+        recalculateDimensions();
+        updateAttachedActionPosition();
+        return true;
+    }
+
+    public void detachActionNode() {
+        if (attachedActionNode != null) {
+            Node node = attachedActionNode;
+            node.parentActionControl = null;
+            attachedActionNode = null;
+            recalculateDimensions();
+        }
     }
 
     /**
@@ -441,21 +768,9 @@ public class Node {
                 parameters.add(new NodeParameter("Count", ParameterType.INTEGER, "10"));
                 break;
             case CONTROL_REPEAT_UNTIL:
-                parameters.add(new NodeParameter("Condition", ParameterType.STRING, "Touching Block"));
-                parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, "minecraft:stone"));
-                parameters.add(new NodeParameter("Entity", ParameterType.ENTITY_TYPE, "minecraft:zombie"));
-                parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
-                parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "64"));
-                parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
                 break;
             case CONTROL_IF:
             case CONTROL_IF_ELSE:
-                parameters.add(new NodeParameter("Condition", ParameterType.STRING, "Touching Block"));
-                parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, "minecraft:stone"));
-                parameters.add(new NodeParameter("Entity", ParameterType.ENTITY_TYPE, "minecraft:zombie"));
-                parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
-                parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "64"));
-                parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
                 break;
             case SENSOR_TOUCHING_BLOCK:
                 parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, "minecraft:stone"));
@@ -519,14 +834,59 @@ public class Node {
         }
 
         int computedWidth = maxTextLength * CHAR_PIXEL_WIDTH + 24; // padding and border allowance
+        if (hasSensorSlot()) {
+            int sensorContentWidth = SENSOR_SLOT_MIN_CONTENT_WIDTH;
+            if (attachedSensor != null) {
+                sensorContentWidth = Math.max(sensorContentWidth, attachedSensor.getWidth());
+            }
+            int requiredWidth = sensorContentWidth + 2 * (SENSOR_SLOT_INNER_PADDING + SENSOR_SLOT_MARGIN_HORIZONTAL);
+            computedWidth = Math.max(computedWidth, requiredWidth);
+        }
+        if (hasActionSlot()) {
+            int actionContentWidth = ACTION_SLOT_MIN_CONTENT_WIDTH;
+            if (attachedActionNode != null) {
+                actionContentWidth = Math.max(actionContentWidth, attachedActionNode.getWidth());
+            }
+            int requiredWidth = actionContentWidth + 2 * (ACTION_SLOT_INNER_PADDING + ACTION_SLOT_MARGIN_HORIZONTAL);
+            computedWidth = Math.max(computedWidth, requiredWidth);
+        }
         this.width = Math.max(MIN_WIDTH, computedWidth);
 
+        int contentHeight;
+        boolean hasSlots = hasSensorSlot() || hasActionSlot();
         if (hasParameters()) {
-            int contentHeight = HEADER_HEIGHT + PARAM_PADDING_TOP + (parameters.size() * PARAM_LINE_HEIGHT) + PARAM_PADDING_BOTTOM;
-            this.height = Math.max(MIN_HEIGHT, contentHeight);
+            contentHeight = HEADER_HEIGHT + PARAM_PADDING_TOP + (parameters.size() * PARAM_LINE_HEIGHT) + PARAM_PADDING_BOTTOM;
+            if (hasSlots) {
+                contentHeight += SLOT_AREA_PADDING_TOP;
+            }
+        } else if (hasSlots) {
+            contentHeight = HEADER_HEIGHT + SLOT_AREA_PADDING_TOP;
         } else {
-            int contentHeight = HEADER_HEIGHT + BODY_PADDING_NO_PARAMS;
-            this.height = Math.max(MIN_HEIGHT, contentHeight);
+            contentHeight = HEADER_HEIGHT + BODY_PADDING_NO_PARAMS;
+        }
+
+        if (hasSensorSlot()) {
+            contentHeight += getSensorSlotHeight();
+        }
+
+        if (hasActionSlot()) {
+            if (hasSensorSlot()) {
+                contentHeight += SLOT_VERTICAL_SPACING;
+            }
+            contentHeight += getActionSlotHeight();
+        }
+
+        if (hasSlots) {
+            contentHeight += SLOT_AREA_PADDING_BOTTOM;
+        }
+
+        this.height = Math.max(MIN_HEIGHT, contentHeight);
+
+        if (attachedSensor != null) {
+            updateAttachedSensorPosition();
+        }
+        if (attachedActionNode != null) {
+            updateAttachedActionPosition();
         }
     }
 
@@ -1960,27 +2320,19 @@ public class Node {
     }
     
     private void executeSensorTouchingBlock(CompletableFuture<Void> future) {
-        String blockId = getStringParameter("Block", "minecraft:stone");
-        boolean result = evaluateSensorCondition(SensorConditionType.TOUCHING_BLOCK, blockId, null, 0, 0, 0);
-        lastSensorResult = result;
+        boolean result = evaluateSensor();
         setNextOutputSocket(result ? 0 : 1);
         future.complete(null);
     }
-    
+
     private void executeSensorTouchingEntity(CompletableFuture<Void> future) {
-        String entityId = getStringParameter("Entity", "minecraft:zombie");
-        boolean result = evaluateSensorCondition(SensorConditionType.TOUCHING_ENTITY, null, entityId, 0, 0, 0);
-        lastSensorResult = result;
+        boolean result = evaluateSensor();
         setNextOutputSocket(result ? 0 : 1);
         future.complete(null);
     }
-    
+
     private void executeSensorAtCoordinates(CompletableFuture<Void> future) {
-        int x = getIntParameter("X", 0);
-        int y = getIntParameter("Y", 64);
-        int z = getIntParameter("Z", 0);
-        boolean result = evaluateSensorCondition(SensorConditionType.AT_COORDINATES, null, null, x, y, z);
-        lastSensorResult = result;
+        boolean result = evaluateSensor();
         setNextOutputSocket(result ? 0 : 1);
         future.complete(null);
     }
@@ -2119,14 +2471,56 @@ public class Node {
         }
     }
 
+    public boolean evaluateSensor() {
+        if (!isSensorNode()) {
+            return false;
+        }
+
+        boolean result;
+        switch (type) {
+            case SENSOR_TOUCHING_BLOCK: {
+                String blockId = getStringParameter("Block", "minecraft:stone");
+                result = evaluateSensorCondition(SensorConditionType.TOUCHING_BLOCK, blockId, null, 0, 0, 0);
+                break;
+            }
+            case SENSOR_TOUCHING_ENTITY: {
+                String entityId = getStringParameter("Entity", "minecraft:zombie");
+                result = evaluateSensorCondition(SensorConditionType.TOUCHING_ENTITY, null, entityId, 0, 0, 0);
+                break;
+            }
+            case SENSOR_AT_COORDINATES: {
+                int x = getIntParameter("X", 0);
+                int y = getIntParameter("Y", 64);
+                int z = getIntParameter("Z", 0);
+                result = evaluateSensorCondition(SensorConditionType.AT_COORDINATES, null, null, x, y, z);
+                break;
+            }
+            default:
+                result = false;
+                break;
+        }
+
+        this.lastSensorResult = result;
+        return result;
+    }
+
     private boolean evaluateConditionFromParameters() {
+        if (attachedSensor != null) {
+            boolean result = attachedSensor.evaluateSensor();
+            this.lastSensorResult = result;
+            return result;
+        }
+
+        // Legacy fallback when no sensor is attached
         String condition = getStringParameter("Condition", "Touching Block");
         String blockId = getStringParameter("Block", "minecraft:stone");
         String entityId = getStringParameter("Entity", "minecraft:zombie");
         int x = getIntParameter("X", 0);
         int y = getIntParameter("Y", 64);
         int z = getIntParameter("Z", 0);
-        return evaluateSensorCondition(SensorConditionType.fromLabel(condition), blockId, entityId, x, y, z);
+        boolean result = evaluateSensorCondition(SensorConditionType.fromLabel(condition), blockId, entityId, x, y, z);
+        this.lastSensorResult = result;
+        return result;
     }
     
     private boolean evaluateSensorCondition(SensorConditionType type, String blockId, String entityId, int x, int y, int z) {

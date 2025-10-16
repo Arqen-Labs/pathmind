@@ -48,11 +48,15 @@ public class NodeGraphData {
         private NodeMode mode;
         private int x, y;
         private List<ParameterData> parameters;
-        
+        private String attachedSensorId;
+        private String parentControlId;
+        private String attachedActionId;
+        private String parentActionControlId;
+
         public NodeData() {
             this.parameters = new ArrayList<>();
         }
-        
+
         public NodeData(String id, NodeType type, NodeMode mode, int x, int y, List<ParameterData> parameters) {
             this.id = id;
             this.type = type;
@@ -60,8 +64,12 @@ public class NodeGraphData {
             this.x = x;
             this.y = y;
             this.parameters = parameters;
+            this.attachedSensorId = null;
+            this.parentControlId = null;
+            this.attachedActionId = null;
+            this.parentActionControlId = null;
         }
-        
+
         // Getters and setters
         public String getId() { return id; }
         public void setId(String id) { this.id = id; }
@@ -77,9 +85,21 @@ public class NodeGraphData {
         
         public int getY() { return y; }
         public void setY(int y) { this.y = y; }
-        
+
         public List<ParameterData> getParameters() { return parameters; }
         public void setParameters(List<ParameterData> parameters) { this.parameters = parameters; }
+
+        public String getAttachedSensorId() { return attachedSensorId; }
+        public void setAttachedSensorId(String attachedSensorId) { this.attachedSensorId = attachedSensorId; }
+
+        public String getParentControlId() { return parentControlId; }
+        public void setParentControlId(String parentControlId) { this.parentControlId = parentControlId; }
+
+        public String getAttachedActionId() { return attachedActionId; }
+        public void setAttachedActionId(String attachedActionId) { this.attachedActionId = attachedActionId; }
+
+        public String getParentActionControlId() { return parentActionControlId; }
+        public void setParentActionControlId(String parentActionControlId) { this.parentActionControlId = parentActionControlId; }
     }
     
     /**

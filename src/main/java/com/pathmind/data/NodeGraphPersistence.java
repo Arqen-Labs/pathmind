@@ -58,12 +58,19 @@ public class NodeGraphPersistence {
                     paramDataList.add(paramData);
                 }
                 nodeData.setParameters(paramDataList);
-                
+                nodeData.setAttachedSensorId(node.getAttachedSensorId());
+                nodeData.setParentControlId(node.getParentControlId());
+                nodeData.setAttachedActionId(node.getAttachedActionId());
+                nodeData.setParentActionControlId(node.getParentActionControlId());
+
                 data.getNodes().add(nodeData);
             }
             
             // Convert connections
             for (NodeConnection connection : connections) {
+                if (connection.getOutputNode().isSensorNode() || connection.getInputNode().isSensorNode()) {
+                    continue;
+                }
                 NodeGraphData.ConnectionData connData = new NodeGraphData.ConnectionData();
                 connData.setOutputNodeId(connection.getOutputNode().getId());
                 connData.setInputNodeId(connection.getInputNode().getId());
@@ -141,17 +148,59 @@ public class NodeGraphPersistence {
             
             // Restore parameters (overwrite the default parameters with saved ones)
             node.getParameters().clear();
-            for (NodeGraphData.ParameterData paramData : nodeData.getParameters()) {
-                ParameterType paramType = ParameterType.valueOf(paramData.getType());
-                NodeParameter param = new NodeParameter(paramData.getName(), paramType, paramData.getValue());
-                node.getParameters().add(param);
+            if (nodeData.getParameters() != null) {
+                for (NodeGraphData.ParameterData paramData : nodeData.getParameters()) {
+                    ParameterType paramType = ParameterType.valueOf(paramData.getType());
+                    NodeParameter param = new NodeParameter(paramData.getName(), paramType, paramData.getValue());
+                    node.getParameters().add(param);
+                }
             }
             node.recalculateDimensions();
-            
+
             nodes.add(node);
             nodeMap.put(nodeData.getId(), node);
         }
-        
+
+        for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            if (nodeData.getAttachedSensorId() != null) {
+                Node control = nodeMap.get(nodeData.getId());
+                Node sensor = nodeMap.get(nodeData.getAttachedSensorId());
+                if (control != null && sensor != null) {
+                    control.attachSensor(sensor);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            if (nodeData.getParentControlId() != null) {
+                Node sensor = nodeMap.get(nodeData.getId());
+                Node control = nodeMap.get(nodeData.getParentControlId());
+                if (sensor != null && control != null && sensor.isSensorNode()) {
+                    control.attachSensor(sensor);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            if (nodeData.getAttachedActionId() != null) {
+                Node control = nodeMap.get(nodeData.getId());
+                Node child = nodeMap.get(nodeData.getAttachedActionId());
+                if (control != null && child != null) {
+                    control.attachActionNode(child);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            if (nodeData.getParentActionControlId() != null) {
+                Node child = nodeMap.get(nodeData.getId());
+                Node control = nodeMap.get(nodeData.getParentActionControlId());
+                if (child != null && control != null && control.canAcceptActionNode(child)) {
+                    control.attachActionNode(child);
+                }
+            }
+        }
+
         return nodes;
     }
     
@@ -166,10 +215,13 @@ public class NodeGraphPersistence {
             Node inputNode = nodeMap.get(connData.getInputNodeId());
             
             if (outputNode != null && inputNode != null) {
+                if (outputNode.isSensorNode() || inputNode.isSensorNode()) {
+                    continue;
+                }
                 NodeConnection connection = new NodeConnection(
-                    outputNode, 
-                    inputNode, 
-                    connData.getOutputSocket(), 
+                    outputNode,
+                    inputNode,
+                    connData.getOutputSocket(),
                     connData.getInputSocket()
                 );
                 connections.add(connection);

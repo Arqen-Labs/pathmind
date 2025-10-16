@@ -51,10 +51,12 @@ public class ExecutionManager {
             return;
         }
 
-        this.lastExecutedGraph = createGraphSnapshot(nodes, connections);
+        List<NodeConnection> filteredConnections = filterConnections(connections);
+
+        this.lastExecutedGraph = createGraphSnapshot(nodes, filteredConnections);
 
         startExecution(startNode);
-        executeNodesSequentially(startNode, new ArrayList<>(connections));
+        executeNodesSequentially(startNode, new ArrayList<>(filteredConnections));
     }
 
     public void replayLastGraph() {
@@ -82,10 +84,12 @@ public class ExecutionManager {
             }
 
             node.getParameters().clear();
-            for (NodeGraphData.ParameterData paramData : nodeData.getParameters()) {
-                ParameterType paramType = ParameterType.valueOf(paramData.getType());
-                NodeParameter param = new NodeParameter(paramData.getName(), paramType, paramData.getValue());
-                node.getParameters().add(param);
+            if (nodeData.getParameters() != null) {
+                for (NodeGraphData.ParameterData paramData : nodeData.getParameters()) {
+                    ParameterType paramType = ParameterType.valueOf(paramData.getType());
+                    NodeParameter param = new NodeParameter(paramData.getName(), paramType, paramData.getValue());
+                    node.getParameters().add(param);
+                }
             }
             node.recalculateDimensions();
 
@@ -93,11 +97,54 @@ public class ExecutionManager {
             nodeMap.put(nodeData.getId(), node);
         }
 
+        for (NodeGraphData.NodeData nodeData : lastExecutedGraph.getNodes()) {
+            if (nodeData.getAttachedSensorId() != null) {
+                Node control = nodeMap.get(nodeData.getId());
+                Node sensor = nodeMap.get(nodeData.getAttachedSensorId());
+                if (control != null && sensor != null) {
+                    control.attachSensor(sensor);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : lastExecutedGraph.getNodes()) {
+            if (nodeData.getParentControlId() != null) {
+                Node sensor = nodeMap.get(nodeData.getId());
+                Node control = nodeMap.get(nodeData.getParentControlId());
+                if (sensor != null && control != null && sensor.isSensorNode()) {
+                    control.attachSensor(sensor);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : lastExecutedGraph.getNodes()) {
+            if (nodeData.getAttachedActionId() != null) {
+                Node control = nodeMap.get(nodeData.getId());
+                Node child = nodeMap.get(nodeData.getAttachedActionId());
+                if (control != null && child != null) {
+                    control.attachActionNode(child);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : lastExecutedGraph.getNodes()) {
+            if (nodeData.getParentActionControlId() != null) {
+                Node child = nodeMap.get(nodeData.getId());
+                Node control = nodeMap.get(nodeData.getParentActionControlId());
+                if (child != null && control != null && control.canAcceptActionNode(child)) {
+                    control.attachActionNode(child);
+                }
+            }
+        }
+
         List<NodeConnection> connections = new ArrayList<>();
         for (NodeGraphData.ConnectionData connData : lastExecutedGraph.getConnections()) {
             Node outputNode = nodeMap.get(connData.getOutputNodeId());
             Node inputNode = nodeMap.get(connData.getInputNodeId());
             if (outputNode != null && inputNode != null) {
+                if (outputNode.isSensorNode() || inputNode.isSensorNode()) {
+                    continue;
+                }
                 connections.add(new NodeConnection(outputNode, inputNode, connData.getOutputSocket(), connData.getInputSocket()));
             }
         }
@@ -263,11 +310,15 @@ public class ExecutionManager {
                 parameterDataList.add(parameterData);
             }
             nodeData.setParameters(parameterDataList);
+            nodeData.setAttachedSensorId(node.getAttachedSensorId());
+            nodeData.setParentControlId(node.getParentControlId());
+            nodeData.setAttachedActionId(node.getAttachedActionId());
+            nodeData.setParentActionControlId(node.getParentActionControlId());
 
             snapshot.getNodes().add(nodeData);
         }
 
-        for (NodeConnection connection : connections) {
+        for (NodeConnection connection : filterConnections(connections)) {
             NodeGraphData.ConnectionData connectionData = new NodeGraphData.ConnectionData(
                     connection.getOutputNode().getId(),
                     connection.getInputNode().getId(),
@@ -278,5 +329,27 @@ public class ExecutionManager {
         }
 
         return snapshot;
+    }
+
+    private List<NodeConnection> filterConnections(List<NodeConnection> connections) {
+        List<NodeConnection> filtered = new ArrayList<>();
+        if (connections == null) {
+            return filtered;
+        }
+        for (NodeConnection connection : connections) {
+            if (connection == null) {
+                continue;
+            }
+            Node output = connection.getOutputNode();
+            Node input = connection.getInputNode();
+            if (output == null || input == null) {
+                continue;
+            }
+            if (output.isSensorNode() || input.isSensorNode()) {
+                continue;
+            }
+            filtered.add(connection);
+        }
+        return filtered;
     }
 }
