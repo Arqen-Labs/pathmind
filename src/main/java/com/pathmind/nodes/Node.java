@@ -65,7 +65,7 @@ public class Node {
     private static final int ACTION_SLOT_INNER_PADDING = 4;
     private static final int ACTION_SLOT_MIN_CONTENT_WIDTH = 80;
     private static final int ACTION_SLOT_MIN_CONTENT_HEIGHT = 32;
-    private static final int SLOT_AREA_PADDING_TOP = 4;
+    private static final int SLOT_AREA_PADDING_TOP = 0;
     private static final int SLOT_AREA_PADDING_BOTTOM = 6;
     private static final int SLOT_VERTICAL_SPACING = 6;
     private int width;
@@ -318,7 +318,13 @@ public class Node {
         if (isSensorNode()) {
             return 0;
         }
-        return type == NodeType.CONTROL_IF_ELSE ? 2 : 1;
+        if (type == NodeType.CONTROL_FOREVER) {
+            return 0;
+        }
+        if (type == NodeType.CONTROL_IF_ELSE) {
+            return 2;
+        }
+        return 1;
     }
 
     public int getOutputSocketColor(int socketIndex) {
@@ -707,13 +713,6 @@ public class Node {
             case MESSAGE:
                 parameters.add(new NodeParameter("Text", ParameterType.STRING, "Hello World"));
                 break;
-            case SET:
-                parameters.add(new NodeParameter("Setting", ParameterType.STRING, "allowBreak"));
-                parameters.add(new NodeParameter("Value", ParameterType.STRING, "true"));
-                break;
-            case GET:
-                parameters.add(new NodeParameter("Setting", ParameterType.STRING, "allowBreak"));
-                break;
             case HOTBAR:
                 parameters.add(new NodeParameter("Slot", ParameterType.INTEGER, "0"));
                 break;
@@ -1065,12 +1064,6 @@ public class Node {
                 break;
             case MESSAGE:
                 executeMessageCommand(future);
-                break;
-            case SET:
-                executeSetCommand(future);
-                break;
-            case GET:
-                executeGetCommand(future);
                 break;
             case HOTBAR:
                 executeHotbarCommand(future);
@@ -1567,43 +1560,14 @@ public class Node {
         if (textParam != null) {
             text = textParam.getStringValue();
         }
-        
-        String command = String.format("#message %s", text);
-        System.out.println("Executing command: " + command);
-        
-        executeCommand(command);
-        future.complete(null); // Message commands complete immediately
-    }
-    
-    private void executeSetCommand(CompletableFuture<Void> future) {
-        String setting = "allowBreak";
-        String value = "true";
-        
-        NodeParameter settingParam = getParameter("Setting");
-        NodeParameter valueParam = getParameter("Value");
-        
-        if (settingParam != null) setting = settingParam.getStringValue();
-        if (valueParam != null) value = valueParam.getStringValue();
-        
-        String command = String.format("#set %s %s", setting, value);
-        System.out.println("Executing command: " + command);
-        
-        executeCommand(command);
-        future.complete(null); // Set commands complete immediately
-    }
-    
-    private void executeGetCommand(CompletableFuture<Void> future) {
-        String setting = "allowBreak";
-        NodeParameter settingParam = getParameter("Setting");
-        if (settingParam != null) {
-            setting = settingParam.getStringValue();
+
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client != null && client.player != null && client.player.networkHandler != null) {
+            client.player.networkHandler.sendChatMessage(text);
+        } else {
+            System.err.println("Unable to send chat message: client or player not available");
         }
-        
-        String command = String.format("#get %s", setting);
-        System.out.println("Executing command: " + command);
-        
-        executeCommand(command);
-        future.complete(null); // Get commands complete immediately
+        future.complete(null); // Message commands complete immediately
     }
     
     private void executeGoalCommand(CompletableFuture<Void> future) {
@@ -2820,17 +2784,7 @@ public class Node {
             return false;
         }
         net.minecraft.item.Item item = Registries.ITEM.get(identifier);
-        for (ItemStack stack : client.player.getInventory().main) {
-            if (!stack.isEmpty() && stack.isOf(item)) {
-                return true;
-            }
-        }
-        for (ItemStack stack : client.player.getInventory().offHand) {
-            if (!stack.isEmpty() && stack.isOf(item)) {
-                return true;
-            }
-        }
-        return false;
+        return client.player.getInventory().count(item) > 0;
     }
 
     private boolean isSwimming() {

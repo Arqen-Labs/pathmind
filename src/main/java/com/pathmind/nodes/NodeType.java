@@ -92,9 +92,7 @@ public enum NodeType {
 
     // Utility Commands
     WAIT("Wait", 0xFF607D8B, "Waits for specified duration"),
-    MESSAGE("Message", 0xFF9E9E9E, "Sends a chat message"),
-    SET("Set", 0xFF795548, "Sets a Baritone configuration option"),
-    GET("Get", 0xFF795548, "Gets a Baritone configuration value");
+    MESSAGE("Message", 0xFF9E9E9E, "Sends a chat message");
 
     private final String displayName;
     private final String description;
@@ -212,8 +210,6 @@ public enum NodeType {
                 return NodeCategory.SENSORS;
             case WAIT:
             case MESSAGE:
-            case SET:
-            case GET:
                 return NodeCategory.UTILITY;
             default:
                 return NodeCategory.UTILITY;
@@ -237,8 +233,6 @@ public enum NodeType {
             case FOLLOW:
             case WAIT:
             case MESSAGE:
-            case SET:
-            case GET:
             case HOTBAR:
             case DROP_ITEM:
             case USE_ITEM:
