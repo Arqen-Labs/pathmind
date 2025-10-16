@@ -98,9 +98,6 @@ public class PathmindVisualEditorScreen extends Screen {
     @Override
     public void tick() {
         super.tick();
-        if (importExportField != null) {
-            importExportField.tick();
-        }
     }
 
     @Override
@@ -572,7 +569,7 @@ public class PathmindVisualEditorScreen extends Screen {
         }
 
         if (importExportPopupVisible) {
-            if (importExportField != null && importExportField.mouseScrolled(mouseX, mouseY, verticalAmount)) {
+            if (importExportField != null && importExportField.mouseScrolled(mouseX, mouseY, 0.0, verticalAmount)) {
                 return true;
             }
             return true;
