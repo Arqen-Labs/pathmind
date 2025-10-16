@@ -18,11 +18,14 @@ import java.util.Map;
  */
 public class Sidebar {
     // Outer sidebar dimensions
-    private static final int OUTER_SIDEBAR_WIDTH = 180;
+    private static final int OUTER_SIDEBAR_WIDTH = 220;
     private static final int INNER_SIDEBAR_WIDTH = 40;
-    private static final int TAB_SIZE = 24; // Original square tab size
-    private static final int TAB_SPACING = 8; // More spacing between tabs
-    private static final int TOP_PADDING = 8; // A tiny bit more padding above top category
+    private static final int TAB_SIZE = 12; // Original square tab size
+    private static final int TAB_SPACING = 4; // More spacing between tabs
+    private static final int TOP_PADDING = 4; // A tiny bit more padding above top category
+    private static final int TAB_COLUMNS = 2;
+    private static final int TAB_COLUMN_MARGIN = 8;
+    private static final int TAB_COLUMN_SPACING = 8;
     
     // Node display dimensions
     private static final int NODE_HEIGHT = 18;
@@ -35,7 +38,6 @@ public class Sidebar {
     private static final int WHITE_MUTED = 0xFFE0E0E0;
     private static final int GREY_LINE = 0xFF666666;
     private static final int HOVER_COLOR = 0xFF404040;
-    private static final int TAB_HOVER_COLOR = 0xFF505050;
     
     private final Map<NodeCategory, List<NodeType>> categoryNodes;
     private final Map<NodeCategory, Boolean> categoryExpanded;
@@ -54,13 +56,7 @@ public class Sidebar {
         for (NodeCategory category : NodeCategory.values()) {
             categoryExpanded.put(category, true);
         }
-        
-        // Set the first category as selected by default
-        NodeCategory[] categories = NodeCategory.values();
-        if (categories.length > 0) {
-            selectedCategory = categories[0];
-        }
-        
+
         // Organize nodes by category
         initializeCategoryNodes();
         calculateMaxScroll(400); // Default height for initialization
@@ -106,9 +102,12 @@ public class Sidebar {
         this.currentSidebarHeight = sidebarHeight;
         calculateMaxScroll(sidebarHeight);
         
+        int totalWidth = getWidth();
+        
         // Outer sidebar background
-        context.fill(0, sidebarStartY, OUTER_SIDEBAR_WIDTH, sidebarStartY + sidebarHeight, DARK_GREY_ALT);
-        context.drawVerticalLine(OUTER_SIDEBAR_WIDTH, sidebarStartY, sidebarStartY + sidebarHeight, GREY_LINE);
+        int outerColor = totalWidth > INNER_SIDEBAR_WIDTH ? DARK_GREY_ALT : DARKER_GREY;
+        context.fill(0, sidebarStartY, totalWidth, sidebarStartY + sidebarHeight, outerColor);
+        context.drawVerticalLine(totalWidth, sidebarStartY, sidebarStartY + sidebarHeight, GREY_LINE);
         
         // Inner sidebar background (for tabs)
         context.fill(0, sidebarStartY, INNER_SIDEBAR_WIDTH, sidebarStartY + sidebarHeight, DARKER_GREY);
@@ -118,6 +117,7 @@ public class Sidebar {
         int currentY = sidebarStartY + TOP_PADDING;
         
         // Render colored tabs
+        hoveredCategory = null;
         NodeCategory[] categories = NodeCategory.values();
         int visibleTabIndex = 0; // Track visible tabs separately from array index
         for (int i = 0; i < categories.length; i++) {
@@ -128,11 +128,11 @@ public class Sidebar {
                 continue;
             }
             
-            int tabY = currentY + visibleTabIndex * (TAB_SIZE + TAB_SPACING);
+            int row = visibleTabIndex / TAB_COLUMNS;
+            int column = visibleTabIndex % TAB_COLUMNS;
+            int tabY = currentY + row * (TAB_SIZE + TAB_SPACING);
+            int tabX = TAB_COLUMN_MARGIN + column * (TAB_SIZE + TAB_COLUMN_SPACING);
             visibleTabIndex++; // Increment only for visible tabs
-            
-            // Center the tab horizontally in the inner sidebar
-            int tabX = (INNER_SIDEBAR_WIDTH - TAB_SIZE) / 2;
             
             // Check if tab is hovered
             boolean tabHovered = mouseX >= tabX && mouseX <= tabX + TAB_SIZE && 
@@ -142,32 +142,28 @@ public class Sidebar {
             boolean tabSelected = category == selectedCategory;
             
             // Tab background color
-            int tabColor = category.getColor();
+            int baseColor = category.getColor();
+            int tabColor = baseColor;
             if (tabSelected) {
                 // Darken the category color for selected state
-                tabColor = darkenColor(category.getColor(), 0.7f);
+                tabColor = darkenColor(baseColor, 0.75f);
             } else if (tabHovered) {
-                tabColor = TAB_HOVER_COLOR;
+                tabColor = lightenColor(baseColor, 1.2f);
             }
             
             // Render square tab
             context.fill(tabX, tabY, tabX + TAB_SIZE, tabY + TAB_SIZE, tabColor);
             
-            // Tab border for selected state
-            if (tabSelected) {
-                context.drawBorder(tabX, tabY, TAB_SIZE, TAB_SIZE, category.getColor());
-            }
+            // Tab outline slightly darker than base color
+            int outlineColor = darkenColor(baseColor, 0.8f);
+            context.drawBorder(tabX, tabY, TAB_SIZE, TAB_SIZE, outlineColor);
             
             // Render centered icon with bigger appearance
             String icon = category.getIcon();
             int iconX = tabX + (TAB_SIZE - textRenderer.getWidth(icon)) / 2;
             int iconY = tabY + (TAB_SIZE - textRenderer.fontHeight) / 2 + 1;
             
-            // Draw the icon multiple times to make it appear bolder/larger
             context.drawTextWithShadow(textRenderer, icon, iconX, iconY, 0xFFFFFFFF);
-            context.drawTextWithShadow(textRenderer, icon, iconX + 1, iconY, 0xFFFFFFFF);
-            context.drawTextWithShadow(textRenderer, icon, iconX, iconY + 1, 0xFFFFFFFF);
-            context.drawTextWithShadow(textRenderer, icon, iconX + 1, iconY + 1, 0xFFFFFFFF);
             
             // Update hover state
             if (tabHovered) {
@@ -197,12 +193,12 @@ public class Sidebar {
                 for (NodeType nodeType : nodes) {
                     if (contentY >= sidebarStartY + sidebarHeight) break; // Don't render beyond sidebar
                     
-                    boolean nodeHovered = mouseX >= INNER_SIDEBAR_WIDTH && mouseX <= OUTER_SIDEBAR_WIDTH && 
+                    boolean nodeHovered = mouseX >= INNER_SIDEBAR_WIDTH && mouseX <= totalWidth && 
                                         mouseY >= contentY && mouseY < contentY + NODE_HEIGHT;
                     
                     if (nodeHovered) {
                         hoveredNodeType = nodeType;
-                        context.fill(INNER_SIDEBAR_WIDTH, contentY, OUTER_SIDEBAR_WIDTH, contentY + NODE_HEIGHT, HOVER_COLOR);
+                        context.fill(INNER_SIDEBAR_WIDTH, contentY, totalWidth, contentY + NODE_HEIGHT, HOVER_COLOR);
                     }
                     
                     // Node color indicator (using category color) - proper square/rectangle
@@ -227,22 +223,26 @@ public class Sidebar {
         }
         
         // Reset hover states if mouse is not in sidebar
-        if (mouseX < 0 || mouseX > OUTER_SIDEBAR_WIDTH) {
+        if (mouseX < 0 || mouseX > getWidth()) {
             hoveredNodeType = null;
             hoveredCategory = null;
         }
     }
     
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (mouseX < 0 || mouseX > OUTER_SIDEBAR_WIDTH) {
+        if (mouseX < 0 || mouseX > getWidth()) {
             return false;
         }
         
         if (button == 0) { // Left click
             // Check tab clicks
             if (mouseX >= 0 && mouseX <= INNER_SIDEBAR_WIDTH && hoveredCategory != null) {
-                selectedCategory = hoveredCategory;
-                // Clear any hovered node when switching categories
+                if (selectedCategory != null && hoveredCategory == selectedCategory) {
+                    selectedCategory = null;
+                } else {
+                    selectedCategory = hoveredCategory;
+                }
+                // Clear any hovered node when switching or collapsing categories
                 hoveredNodeType = null;
                 // Reset scroll to top when changing categories
                 scrollOffset = 0;
@@ -260,7 +260,7 @@ public class Sidebar {
     }
     
     public boolean mouseScrolled(double mouseX, double mouseY, double amount) {
-        if (mouseX >= 0 && mouseX <= OUTER_SIDEBAR_WIDTH) {
+        if (mouseX >= 0 && mouseX <= getWidth()) {
             scrollOffset += (int)(-amount * 20); // Scroll speed
             scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
             return true;
@@ -284,7 +284,7 @@ public class Sidebar {
     }
     
     public int getWidth() {
-        return OUTER_SIDEBAR_WIDTH;
+        return selectedCategory != null ? OUTER_SIDEBAR_WIDTH : INNER_SIDEBAR_WIDTH;
     }
     
     /**
@@ -295,6 +295,17 @@ public class Sidebar {
         int r = (int) (((color >> 16) & 0xFF) * factor);
         int g = (int) (((color >> 8) & 0xFF) * factor);
         int b = (int) ((color & 0xFF) * factor);
+        return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+    
+    /**
+     * Lightens a color by the specified factor
+     */
+    private int lightenColor(int color, float factor) {
+        int a = (color >> 24) & 0xFF;
+        int r = Math.min(255, (int) (((color >> 16) & 0xFF) * factor));
+        int g = Math.min(255, (int) (((color >> 8) & 0xFF) * factor));
+        int b = Math.min(255, (int) ((color & 0xFF) * factor));
         return (a << 24) | (r << 16) | (g << 8) | b;
     }
 }
