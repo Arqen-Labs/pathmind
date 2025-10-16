@@ -1,6 +1,7 @@
 package com.pathmind.screen;
 
 import com.pathmind.data.NodeGraphPersistence;
+import com.pathmind.data.PresetManager;
 import com.pathmind.nodes.Node;
 import com.pathmind.nodes.NodeType;
 import com.pathmind.ui.NodeGraph;
@@ -15,6 +16,9 @@ import org.lwjgl.glfw.GLFW;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
 
 /**
  * The main visual editor screen for Pathmind.
@@ -35,7 +39,13 @@ public class PathmindVisualEditorScreen extends Screen {
     private static final int BOTTOM_BUTTON_SIZE = 18;
     private static final int BOTTOM_BUTTON_MARGIN = 6;
     private static final int BOTTOM_BUTTON_SPACING = 6;
-    
+    private static final int PRESET_DROPDOWN_WIDTH = 160;
+    private static final int PRESET_DROPDOWN_HEIGHT = 18;
+    private static final int PRESET_DROPDOWN_MARGIN = 8;
+    private static final int PRESET_OPTION_HEIGHT = 18;
+    private static final int CREATE_PRESET_POPUP_WIDTH = 320;
+    private static final int CREATE_PRESET_POPUP_HEIGHT = 170;
+
     private NodeGraph nodeGraph;
     private Sidebar sidebar;
     private NodeParameterOverlay parameterOverlay;
@@ -51,19 +61,31 @@ public class PathmindVisualEditorScreen extends Screen {
     private String importExportStatus = "";
     private int importExportStatusColor = 0xFFCCCCCC;
     private TextFieldWidget importExportField;
-    
+
+    private boolean presetDropdownOpen = false;
+    private List<String> availablePresets = new ArrayList<>();
+    private String activePresetName = "";
+    private boolean createPresetPopupVisible = false;
+    private TextFieldWidget createPresetField;
+    private String createPresetStatus = "";
+    private int createPresetStatusColor = 0xFFCCCCCC;
+
     public PathmindVisualEditorScreen() {
         super(Text.translatable("screen.pathmind.visual_editor.title"));
         this.nodeGraph = new NodeGraph();
         this.sidebar = new Sidebar();
-        Path defaultPath = NodeGraphPersistence.getDefaultSavePath();
-        this.importExportPath = defaultPath != null ? defaultPath.toString() : "";
+        refreshAvailablePresets();
+        this.nodeGraph.setActivePreset(activePresetName);
+        updateImportExportPathFromPreset();
     }
 
     @Override
     protected void init() {
         super.init();
         // No buttons needed - just the title bar
+
+        refreshAvailablePresets();
+        nodeGraph.setActivePreset(activePresetName);
 
         if (importExportField == null) {
             importExportField = new TextFieldWidget(this.textRenderer, 0, 0, 200, 20, Text.literal("Import Path"));
@@ -79,7 +101,21 @@ public class PathmindVisualEditorScreen extends Screen {
             });
             this.addSelectableChild(importExportField);
         }
-        
+
+        if (createPresetField == null) {
+            createPresetField = new TextFieldWidget(this.textRenderer, 0, 0, 200, 20, Text.literal("Preset Name"));
+            createPresetField.setMaxLength(64);
+            createPresetField.setDrawsBackground(false);
+            createPresetField.setVisible(false);
+            createPresetField.setEditable(false);
+            createPresetField.setEditableColor(WHITE);
+            createPresetField.setUneditableColor(0xFF888888);
+            createPresetField.setChangedListener(value -> clearCreatePresetStatus());
+            this.addSelectableChild(createPresetField);
+        }
+
+        updateImportExportPathFromPreset();
+
         // Try to load saved node graph first
         if (nodeGraph.hasSavedGraph()) {
             System.out.println("Found saved node graph, loading...");
@@ -152,6 +188,10 @@ public class PathmindVisualEditorScreen extends Screen {
             renderImportExportPopup(context, mouseX, mouseY, delta);
         }
 
+        if (createPresetPopupVisible) {
+            renderCreatePresetPopup(context, mouseX, mouseY, delta);
+        }
+
         // Re-render title bar on top of everything to ensure it's always visible
         context.fill(0, 0, this.width, TITLE_BAR_HEIGHT, DARK_GREY_ALT);
         context.drawHorizontalLine(0, this.width, TITLE_BAR_HEIGHT, GREY_LINE);
@@ -162,6 +202,8 @@ public class PathmindVisualEditorScreen extends Screen {
                 (TITLE_BAR_HEIGHT - this.textRenderer.fontHeight) / 2 + 1,
                 WHITE
         );
+
+        renderPresetDropdown(context, mouseX, mouseY);
     }
     
     private void renderDraggingNode(DrawContext context, int mouseX, int mouseY) {
@@ -245,6 +287,16 @@ public class PathmindVisualEditorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (createPresetPopupVisible) {
+            if (createPresetField != null && createPresetField.mouseClicked(mouseX, mouseY, button)) {
+                return true;
+            }
+            if (handleCreatePresetPopupClick(mouseX, mouseY, button)) {
+                return true;
+            }
+            return true;
+        }
+
         if (clearPopupVisible) {
             if (handleClearPopupClick(mouseX, mouseY, button)) {
                 return true;
@@ -260,6 +312,21 @@ public class PathmindVisualEditorScreen extends Screen {
                 return true;
             }
             return true;
+        }
+
+        if (button == 0) {
+            if (isPointInRect((int)mouseX, (int)mouseY, getPresetDropdownX(), getPresetDropdownY(), PRESET_DROPDOWN_WIDTH, PRESET_DROPDOWN_HEIGHT)) {
+                presetDropdownOpen = !presetDropdownOpen;
+                return true;
+            }
+
+            if (presetDropdownOpen && handlePresetDropdownSelection(mouseX, mouseY)) {
+                return true;
+            }
+        }
+
+        if (presetDropdownOpen && !isPointInRect((int)mouseX, (int)mouseY, getPresetDropdownX(), getPresetDropdownY(), PRESET_DROPDOWN_WIDTH, PRESET_DROPDOWN_HEIGHT + getPresetDropdownOptionsHeight())) {
+            presetDropdownOpen = false;
         }
 
         // Handle parameter overlay clicks first
@@ -395,6 +462,10 @@ public class PathmindVisualEditorScreen extends Screen {
     
     @Override
     public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+        if (createPresetPopupVisible) {
+            return true;
+        }
+
         if (clearPopupVisible) {
             return true;
         }
@@ -428,6 +499,13 @@ public class PathmindVisualEditorScreen extends Screen {
     
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (createPresetPopupVisible) {
+            if (createPresetField != null) {
+                createPresetField.mouseReleased(mouseX, mouseY, button);
+            }
+            return true;
+        }
+
         if (clearPopupVisible) {
             return true;
         }
@@ -477,6 +555,24 @@ public class PathmindVisualEditorScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (createPresetPopupVisible) {
+            if (createPresetField != null && createPresetField.keyPressed(keyCode, scanCode, modifiers)) {
+                return true;
+            }
+
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+                closeCreatePresetPopup();
+                return true;
+            }
+
+            if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+                attemptCreatePreset();
+                return true;
+            }
+
+            return true;
+        }
+
         if (clearPopupVisible) {
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
                 clearPopupVisible = false;
@@ -514,6 +610,11 @@ public class PathmindVisualEditorScreen extends Screen {
             return true;
         }
 
+        if (presetDropdownOpen && keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            presetDropdownOpen = false;
+            return true;
+        }
+
         // Handle parameter overlay key presses first
         if (parameterOverlay != null && parameterOverlay.isVisible()) {
             if (parameterOverlay.keyPressed(keyCode, scanCode, modifiers)) {
@@ -541,6 +642,13 @@ public class PathmindVisualEditorScreen extends Screen {
     
     @Override
     public boolean charTyped(char chr, int modifiers) {
+        if (createPresetPopupVisible) {
+            if (createPresetField != null && createPresetField.charTyped(chr, modifiers)) {
+                return true;
+            }
+            return true;
+        }
+
         if (clearPopupVisible) {
             return true;
         }
@@ -564,6 +672,13 @@ public class PathmindVisualEditorScreen extends Screen {
     
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (createPresetPopupVisible) {
+            if (createPresetField != null && createPresetField.mouseScrolled(mouseX, mouseY, 0.0, verticalAmount)) {
+                return true;
+            }
+            return true;
+        }
+
         if (clearPopupVisible) {
             return true;
         }
@@ -572,6 +687,10 @@ public class PathmindVisualEditorScreen extends Screen {
             if (importExportField != null && importExportField.mouseScrolled(mouseX, mouseY, 0.0, verticalAmount)) {
                 return true;
             }
+            return true;
+        }
+
+        if (presetDropdownOpen) {
             return true;
         }
 
@@ -593,6 +712,8 @@ public class PathmindVisualEditorScreen extends Screen {
         } else {
             System.err.println("Failed to auto-save node graph");
         }
+
+        PresetManager.setActivePreset(activePresetName);
 
         super.close();
     }
@@ -816,6 +937,10 @@ public class PathmindVisualEditorScreen extends Screen {
     private void openClearPopup() {
         dismissParameterOverlay();
         closeImportExportPopup();
+        if (createPresetPopupVisible) {
+            closeCreatePresetPopup();
+        }
+        presetDropdownOpen = false;
         clearPopupVisible = true;
     }
 
@@ -827,6 +952,10 @@ public class PathmindVisualEditorScreen extends Screen {
     private void openImportExportPopup() {
         dismissParameterOverlay();
         clearPopupVisible = false;
+        if (createPresetPopupVisible) {
+            closeCreatePresetPopup();
+        }
+        presetDropdownOpen = false;
         importExportPopupVisible = true;
         clearImportExportStatus();
         if (importExportPath == null || importExportPath.isEmpty()) {
@@ -917,6 +1046,284 @@ public class PathmindVisualEditorScreen extends Screen {
             parameterOverlay.close();
         }
         parameterOverlay = null;
+    }
+
+    private void renderPresetDropdown(DrawContext context, int mouseX, int mouseY) {
+        int dropdownX = getPresetDropdownX();
+        int dropdownY = getPresetDropdownY();
+
+        boolean hovered = isPointInRect(mouseX, mouseY, dropdownX, dropdownY, PRESET_DROPDOWN_WIDTH, PRESET_DROPDOWN_HEIGHT);
+        int backgroundColor = (hovered || presetDropdownOpen) ? 0xFF3A3A3A : 0xFF2F2F2F;
+        context.fill(dropdownX, dropdownY, dropdownX + PRESET_DROPDOWN_WIDTH, dropdownY + PRESET_DROPDOWN_HEIGHT, backgroundColor);
+        int borderColor = presetDropdownOpen ? ACCENT_COLOR : GREY_LINE;
+        context.drawBorder(dropdownX, dropdownY, PRESET_DROPDOWN_WIDTH, PRESET_DROPDOWN_HEIGHT, borderColor);
+
+        String displayName = activePresetName == null || activePresetName.isEmpty() ? "Default" : activePresetName;
+        String trimmedName = this.textRenderer.trimToWidth(displayName, PRESET_DROPDOWN_WIDTH - 16);
+        context.drawTextWithShadow(this.textRenderer, Text.literal(trimmedName), dropdownX + 6, dropdownY + 5, WHITE);
+
+        int arrowCenterX = dropdownX + PRESET_DROPDOWN_WIDTH - 10;
+        int arrowCenterY = dropdownY + PRESET_DROPDOWN_HEIGHT / 2;
+        if (presetDropdownOpen) {
+            context.drawHorizontalLine(arrowCenterX - 3, arrowCenterX + 3, arrowCenterY - 2, WHITE);
+            context.drawHorizontalLine(arrowCenterX - 2, arrowCenterX + 2, arrowCenterY - 1, WHITE);
+            context.drawHorizontalLine(arrowCenterX - 1, arrowCenterX + 1, arrowCenterY, WHITE);
+        } else {
+            context.drawHorizontalLine(arrowCenterX - 3, arrowCenterX + 3, arrowCenterY + 1, WHITE);
+            context.drawHorizontalLine(arrowCenterX - 2, arrowCenterX + 2, arrowCenterY, WHITE);
+            context.drawHorizontalLine(arrowCenterX - 1, arrowCenterX + 1, arrowCenterY - 1, WHITE);
+        }
+
+        if (!presetDropdownOpen) {
+            return;
+        }
+
+        int optionStartY = dropdownY + PRESET_DROPDOWN_HEIGHT;
+        int optionsHeight = getPresetDropdownOptionsHeight();
+        context.fill(dropdownX, optionStartY, dropdownX + PRESET_DROPDOWN_WIDTH, optionStartY + optionsHeight, DARK_GREY_ALT);
+        context.drawBorder(dropdownX, optionStartY, PRESET_DROPDOWN_WIDTH, optionsHeight, GREY_LINE);
+
+        int optionY = optionStartY;
+        for (String preset : availablePresets) {
+            boolean optionHovered = isPointInRect(mouseX, mouseY, dropdownX + 1, optionY + 1, PRESET_DROPDOWN_WIDTH - 2, PRESET_OPTION_HEIGHT - 1);
+            int optionColor = optionHovered ? 0xFF3F3F3F : 0xFF2B2B2B;
+            context.fill(dropdownX + 1, optionY + 1, dropdownX + PRESET_DROPDOWN_WIDTH - 1, optionY + PRESET_OPTION_HEIGHT, optionColor);
+            int textColor = preset.equals(activePresetName) ? ACCENT_COLOR : WHITE;
+            String presetLabel = this.textRenderer.trimToWidth(preset, PRESET_DROPDOWN_WIDTH - 16);
+            context.drawTextWithShadow(this.textRenderer, Text.literal(presetLabel), dropdownX + 8, optionY + 5, textColor);
+            optionY += PRESET_OPTION_HEIGHT;
+        }
+
+        context.drawHorizontalLine(dropdownX + 1, dropdownX + PRESET_DROPDOWN_WIDTH - 2, optionY, GREY_LINE);
+
+        boolean createHovered = isPointInRect(mouseX, mouseY, dropdownX + 1, optionY + 1, PRESET_DROPDOWN_WIDTH - 2, PRESET_OPTION_HEIGHT - 1);
+        int createColor = createHovered ? 0xFF3F3F3F : 0xFF2B2B2B;
+        context.fill(dropdownX + 1, optionY + 1, dropdownX + PRESET_DROPDOWN_WIDTH - 1, optionY + PRESET_OPTION_HEIGHT, createColor);
+        String createLabel = this.textRenderer.trimToWidth("+ Create new preset", PRESET_DROPDOWN_WIDTH - 16);
+        context.drawTextWithShadow(this.textRenderer, Text.literal(createLabel), dropdownX + 8, optionY + 5, ACCENT_COLOR);
+    }
+
+    private int getPresetDropdownX() {
+        return this.width - PRESET_DROPDOWN_WIDTH - PRESET_DROPDOWN_MARGIN;
+    }
+
+    private int getPresetDropdownY() {
+        return TITLE_BAR_HEIGHT + PRESET_DROPDOWN_MARGIN;
+    }
+
+    private int getPresetDropdownOptionsHeight() {
+        return (availablePresets.size() + 1) * PRESET_OPTION_HEIGHT;
+    }
+
+    private boolean handlePresetDropdownSelection(double mouseX, double mouseY) {
+        int dropdownX = getPresetDropdownX();
+        int optionStartY = getPresetDropdownY() + PRESET_DROPDOWN_HEIGHT;
+        int optionsHeight = getPresetDropdownOptionsHeight();
+        if (!isPointInRect((int) mouseX, (int) mouseY, dropdownX, optionStartY, PRESET_DROPDOWN_WIDTH, optionsHeight)) {
+            return false;
+        }
+
+        int relativeY = (int) mouseY - optionStartY;
+        int presetAreaHeight = availablePresets.size() * PRESET_OPTION_HEIGHT;
+        if (relativeY < presetAreaHeight) {
+            int index = relativeY / PRESET_OPTION_HEIGHT;
+            if (index >= 0 && index < availablePresets.size()) {
+                String selectedPreset = availablePresets.get(index);
+                presetDropdownOpen = false;
+                if (!selectedPreset.equals(activePresetName)) {
+                    switchPreset(selectedPreset);
+                }
+                return true;
+            }
+        } else if (relativeY < presetAreaHeight + PRESET_OPTION_HEIGHT) {
+            presetDropdownOpen = false;
+            openCreatePresetPopup();
+            return true;
+        }
+
+        presetDropdownOpen = false;
+        return true;
+    }
+
+    private void openCreatePresetPopup() {
+        presetDropdownOpen = false;
+        clearCreatePresetStatus();
+        createPresetPopupVisible = true;
+        if (createPresetField != null) {
+            createPresetField.setText("");
+            createPresetField.setVisible(true);
+            createPresetField.setEditable(true);
+            createPresetField.setFocused(true);
+        }
+    }
+
+    private void closeCreatePresetPopup() {
+        createPresetPopupVisible = false;
+        clearCreatePresetStatus();
+        if (createPresetField != null) {
+            createPresetField.setFocused(false);
+            createPresetField.setVisible(false);
+            createPresetField.setEditable(false);
+        }
+    }
+
+    private boolean handleCreatePresetPopupClick(double mouseX, double mouseY, int button) {
+        if (button != 0) {
+            return false;
+        }
+
+        int popupX = (this.width - CREATE_PRESET_POPUP_WIDTH) / 2;
+        int popupY = (this.height - CREATE_PRESET_POPUP_HEIGHT) / 2;
+        int buttonWidth = 90;
+        int buttonHeight = 20;
+        int buttonY = popupY + CREATE_PRESET_POPUP_HEIGHT - buttonHeight - 16;
+        int cancelX = popupX + 20;
+        int createX = popupX + CREATE_PRESET_POPUP_WIDTH - buttonWidth - 20;
+
+        if (isPointInRect((int) mouseX, (int) mouseY, cancelX, buttonY, buttonWidth, buttonHeight)) {
+            closeCreatePresetPopup();
+            return true;
+        }
+
+        if (isPointInRect((int) mouseX, (int) mouseY, createX, buttonY, buttonWidth, buttonHeight)) {
+            attemptCreatePreset();
+            return true;
+        }
+
+        return false;
+    }
+
+    private void renderCreatePresetPopup(DrawContext context, int mouseX, int mouseY, float delta) {
+        context.fill(0, 0, this.width, this.height, OVERLAY_BACKGROUND);
+
+        int popupWidth = CREATE_PRESET_POPUP_WIDTH;
+        int popupHeight = CREATE_PRESET_POPUP_HEIGHT;
+        int popupX = (this.width - popupWidth) / 2;
+        int popupY = (this.height - popupHeight) / 2;
+
+        context.fill(popupX, popupY, popupX + popupWidth, popupY + popupHeight, DARK_GREY_ALT);
+        context.drawBorder(popupX, popupY, popupWidth, popupHeight, GREY_LINE);
+
+        context.drawCenteredTextWithShadow(
+            this.textRenderer,
+            Text.literal("Create workspace preset"),
+            popupX + popupWidth / 2,
+            popupY + 14,
+            WHITE
+        );
+
+        context.drawTextWithShadow(
+            this.textRenderer,
+            Text.literal("Enter a name for the new preset."),
+            popupX + 20,
+            popupY + 44,
+            0xFFCCCCCC
+        );
+
+        int fieldX = popupX + 20;
+        int fieldY = popupY + 74;
+        int fieldWidth = popupWidth - 40;
+        int fieldHeight = 20;
+
+        boolean fieldHovered = isPointInRect(mouseX, mouseY, fieldX, fieldY, fieldWidth, fieldHeight);
+        context.fill(fieldX, fieldY, fieldX + fieldWidth, fieldY + fieldHeight, 0xFF1F1F1F);
+        boolean focused = createPresetField != null && createPresetField.isFocused();
+        int borderColor = focused ? ACCENT_COLOR : (fieldHovered ? 0xFF888888 : 0xFF555555);
+        context.drawBorder(fieldX, fieldY, fieldWidth, fieldHeight, borderColor);
+
+        if (createPresetField != null) {
+            createPresetField.setVisible(true);
+            createPresetField.setEditable(true);
+            createPresetField.setPosition(fieldX + 4, fieldY + 2);
+            createPresetField.setWidth(fieldWidth - 8);
+            createPresetField.render(context, mouseX, mouseY, delta);
+        }
+
+        if (!createPresetStatus.isEmpty()) {
+            String status = this.textRenderer.trimToWidth(createPresetStatus, fieldWidth);
+            context.drawTextWithShadow(this.textRenderer, Text.literal(status), fieldX, fieldY + fieldHeight + 8, createPresetStatusColor);
+        }
+
+        int buttonWidth = 90;
+        int buttonHeight = 20;
+        int buttonY = popupY + popupHeight - buttonHeight - 16;
+        int cancelX = popupX + 20;
+        int createX = popupX + popupWidth - buttonWidth - 20;
+
+        boolean cancelHovered = isPointInRect(mouseX, mouseY, cancelX, buttonY, buttonWidth, buttonHeight);
+        boolean createHovered = isPointInRect(mouseX, mouseY, createX, buttonY, buttonWidth, buttonHeight);
+
+        drawPopupButton(context, cancelX, buttonY, buttonWidth, buttonHeight, cancelHovered, Text.literal("Cancel"), false);
+        drawPopupButton(context, createX, buttonY, buttonWidth, buttonHeight, createHovered, Text.literal("Create"), true);
+    }
+
+    private void attemptCreatePreset() {
+        if (createPresetField == null) {
+            return;
+        }
+
+        String desiredName = createPresetField.getText();
+        if (desiredName == null || desiredName.trim().isEmpty()) {
+            setCreatePresetStatus("Enter a preset name.", ERROR_COLOR);
+            return;
+        }
+
+        Optional<String> createdPreset = PresetManager.createPreset(desiredName);
+        if (createdPreset.isEmpty()) {
+            setCreatePresetStatus("Preset name already exists or is invalid.", ERROR_COLOR);
+            return;
+        }
+
+        switchPreset(createdPreset.get());
+        closeCreatePresetPopup();
+    }
+
+    private void setCreatePresetStatus(String message, int color) {
+        createPresetStatus = message != null ? message : "";
+        createPresetStatusColor = color;
+    }
+
+    private void clearCreatePresetStatus() {
+        createPresetStatus = "";
+        createPresetStatusColor = 0xFFCCCCCC;
+    }
+
+    private void refreshAvailablePresets() {
+        availablePresets = new ArrayList<>(PresetManager.getAvailablePresets());
+        activePresetName = PresetManager.getActivePreset();
+    }
+
+    private void updateImportExportPathFromPreset() {
+        Path defaultPath = NodeGraphPersistence.getDefaultSavePath();
+        this.importExportPath = defaultPath != null ? defaultPath.toString() : "";
+        if (importExportField != null) {
+            importExportField.setText(importExportPath);
+        }
+    }
+
+    private void switchPreset(String presetName) {
+        nodeGraph.save();
+        PresetManager.setActivePreset(presetName);
+        refreshAvailablePresets();
+        nodeGraph.setActivePreset(activePresetName);
+        dismissParameterOverlay();
+        isDraggingFromSidebar = false;
+        draggingNodeType = null;
+        if (importExportPopupVisible) {
+            closeImportExportPopup();
+        }
+        if (createPresetPopupVisible) {
+            closeCreatePresetPopup();
+        }
+        clearPopupVisible = false;
+        presetDropdownOpen = false;
+        clearImportExportStatus();
+
+        if (!nodeGraph.load()) {
+            nodeGraph.initializeWithScreenDimensions(this.width, this.height, sidebar.getWidth(), TITLE_BAR_HEIGHT);
+        }
+        nodeGraph.resetCamera();
+        updateImportExportPathFromPreset();
     }
 
     private void renderBottomButtons(DrawContext context, int mouseX, int mouseY) {

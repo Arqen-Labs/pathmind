@@ -1,12 +1,13 @@
 package com.pathmind.ui;
 
+import com.pathmind.data.NodeGraphData;
+import com.pathmind.data.NodeGraphPersistence;
+import com.pathmind.data.PresetManager;
 import com.pathmind.nodes.Node;
 import com.pathmind.nodes.NodeConnection;
-import com.pathmind.nodes.NodeType;
 import com.pathmind.nodes.NodeParameter;
+import com.pathmind.nodes.NodeType;
 import com.pathmind.nodes.ParameterType;
-import com.pathmind.data.NodeGraphPersistence;
-import com.pathmind.data.NodeGraphData;
 import com.pathmind.execution.ExecutionManager;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.font.TextRenderer;
@@ -62,12 +63,15 @@ public class NodeGraph {
     private static final long DOUBLE_CLICK_THRESHOLD = 300; // milliseconds
     private int sidebarWidthForRendering = 180;
 
+    private String activePreset;
+
     public NodeGraph() {
         this.nodes = new ArrayList<>();
         this.connections = new ArrayList<>();
         this.selectedNode = null;
         this.draggingNode = null;
-        
+        this.activePreset = PresetManager.getActivePreset();
+
         // Add preset nodes similar to Blender's shader editor
         // Will be initialized with proper centering when screen dimensions are available
     }
@@ -1043,14 +1047,14 @@ public class NodeGraph {
      * Save the current node graph to disk
      */
     public boolean save() {
-        return NodeGraphPersistence.saveNodeGraph(nodes, connections);
+        return NodeGraphPersistence.saveNodeGraphForPreset(activePreset, nodes, connections);
     }
-    
+
     /**
      * Load a node graph from disk, replacing the current one
      */
     public boolean load() {
-        NodeGraphData data = NodeGraphPersistence.loadNodeGraph();
+        NodeGraphData data = NodeGraphPersistence.loadNodeGraphForPreset(activePreset);
         if (data != null) {
             return applyLoadedData(data);
         }
@@ -1236,6 +1240,14 @@ public class NodeGraph {
      * Check if there's a saved node graph available
      */
     public boolean hasSavedGraph() {
-        return NodeGraphPersistence.hasSavedNodeGraph();
+        return NodeGraphPersistence.hasSavedNodeGraph(activePreset);
+    }
+
+    public void setActivePreset(String presetName) {
+        this.activePreset = presetName;
+    }
+
+    public String getActivePreset() {
+        return activePreset;
     }
 }

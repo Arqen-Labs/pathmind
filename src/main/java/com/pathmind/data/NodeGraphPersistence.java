@@ -4,16 +4,13 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.pathmind.nodes.Node;
 import com.pathmind.nodes.NodeConnection;
-import com.pathmind.nodes.NodeType;
 import com.pathmind.nodes.NodeParameter;
+import com.pathmind.nodes.NodeType;
 import com.pathmind.nodes.ParameterType;
-
-import net.minecraft.client.MinecraftClient;
 
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -23,7 +20,6 @@ import java.util.Map;
  * Handles saving and loading node graphs to/from disk.
  */
 public class NodeGraphPersistence {
-    private static final String SAVE_FILE_NAME = "pathmind_nodegraph.json";
     private static final Gson GSON = new GsonBuilder()
             .setPrettyPrinting()
             .registerTypeAdapter(NodeType.class, new NodeTypeAdapter())
@@ -33,7 +29,11 @@ public class NodeGraphPersistence {
      * Save the current node graph to disk
      */
     public static boolean saveNodeGraph(List<Node> nodes, List<NodeConnection> connections) {
-        return saveNodeGraphToPath(nodes, connections, getSavePath());
+        return saveNodeGraphForPreset(PresetManager.getActivePreset(), nodes, connections);
+    }
+
+    public static boolean saveNodeGraphForPreset(String presetName, List<Node> nodes, List<NodeConnection> connections) {
+        return saveNodeGraphToPath(nodes, connections, PresetManager.getPresetPath(presetName));
     }
 
     public static boolean saveNodeGraphToPath(List<Node> nodes, List<NodeConnection> connections, Path savePath) {
@@ -103,7 +103,11 @@ public class NodeGraphPersistence {
      * Load the node graph from disk
      */
     public static NodeGraphData loadNodeGraph() {
-        return loadNodeGraphFromPath(getSavePath());
+        return loadNodeGraphForPreset(PresetManager.getActivePreset());
+    }
+
+    public static NodeGraphData loadNodeGraphForPreset(String presetName) {
+        return loadNodeGraphFromPath(PresetManager.getPresetPath(presetName));
     }
 
     public static NodeGraphData loadNodeGraphFromPath(Path savePath) {
@@ -242,25 +246,18 @@ public class NodeGraphPersistence {
      * Get the save file path in the Minecraft saves directory
      */
     public static Path getDefaultSavePath() {
-        return getSavePath();
+        return PresetManager.getPresetPath(PresetManager.getActivePreset());
     }
 
-    private static Path getSavePath() {
-        MinecraftClient client = MinecraftClient.getInstance();
-        if (client != null && client.getServer() != null) {
-            // Server-side path
-            return Paths.get("saves", client.getServer().getSaveProperties().getLevelName(), SAVE_FILE_NAME);
-        } else {
-            // Client-side fallback
-            return Paths.get(System.getProperty("user.home"), ".minecraft", "saves", "pathmind", SAVE_FILE_NAME);
-        }
-    }
-    
     /**
      * Check if a saved node graph exists
      */
     public static boolean hasSavedNodeGraph() {
-        return Files.exists(getSavePath());
+        return hasSavedNodeGraph(PresetManager.getActivePreset());
+    }
+
+    public static boolean hasSavedNodeGraph(String presetName) {
+        return Files.exists(PresetManager.getPresetPath(presetName));
     }
 }
 

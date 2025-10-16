@@ -1,5 +1,6 @@
 package com.pathmind;
 
+import com.pathmind.data.PresetManager;
 import com.pathmind.execution.ExecutionManager;
 import com.pathmind.screen.PathmindVisualEditorScreen;
 import com.pathmind.ui.ActiveNodeOverlay;
@@ -22,7 +23,9 @@ public class PathmindClientMod implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         LOGGER.info("Initializing Pathmind client mod");
-        
+
+        PresetManager.initialize();
+
         // Initialize the active node overlay
         this.activeNodeOverlay = new ActiveNodeOverlay();
         
