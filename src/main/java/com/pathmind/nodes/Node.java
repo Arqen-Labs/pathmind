@@ -146,7 +146,16 @@ public class Node {
     }
 
     public int getOutputSocketCount() {
-        return type == NodeType.END ? 0 : 1;
+        if (type == NodeType.END) {
+            return 0;
+        }
+        if (type == NodeType.IF_ELSE) {
+            return 2; // True and False branches
+        }
+        if (type == NodeType.FOREVER) {
+            return 1; // Loop body only
+        }
+        return 1;
     }
 
     public int getSocketY(int socketIndex, boolean isInput) {
@@ -310,6 +319,9 @@ public class Node {
             case GET:
                 parameters.add(new NodeParameter("Setting", ParameterType.STRING, "allowBreak"));
                 break;
+            case IF_ELSE:
+                parameters.add(new NodeParameter("Condition", ParameterType.BOOLEAN, "true"));
+                break;
             default:
                 // No parameters needed
                 break;
@@ -439,7 +451,13 @@ public class Node {
             case GET:
                 executeGetCommand(future);
                 break;
-                
+            case IF_ELSE:
+            case FOREVER:
+                // Control flow nodes don't execute Baritone commands directly
+                System.out.println(type.getDisplayName() + " node - control flow handled by graph execution");
+                future.complete(null);
+                break;
+
             // Legacy nodes
             case PATH:
                 executePathCommand(future);
