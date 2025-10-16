@@ -34,11 +34,7 @@ public enum NodeType {
     WAIT("Wait", 0xFF607D8B, "Waits for specified duration"),
     MESSAGE("Message", 0xFF9E9E9E, "Sends a chat message"),
     SET("Set", 0xFF795548, "Sets a Baritone configuration option"),
-    GET("Get", 0xFF795548, "Gets a Baritone configuration value"),
-
-    // Control Flow Nodes
-    IF_ELSE("If/Else", 0xFFFFC107, "Branches execution based on a condition"),
-    FOREVER("Forever", 0xFFFFA000, "Repeats the connected sequence indefinitely");
+    GET("Get", 0xFF795548, "Gets a Baritone configuration value");
 
     private final String displayName;
     private final String description;
@@ -108,8 +104,6 @@ public enum NodeType {
             case MESSAGE:
             case SET:
             case GET:
-            case IF_ELSE:
-            case FOREVER:
                 return NodeCategory.UTILITY;
             default:
                 return NodeCategory.UTILITY;
@@ -133,7 +127,6 @@ public enum NodeType {
             case MESSAGE:
             case SET:
             case GET:
-            case IF_ELSE:
                 return true;
             case PATH:
             case STOP:
@@ -144,7 +137,6 @@ public enum NodeType {
             case FARM:
             case START:
             case END:
-            case FOREVER:
                 return false;
             default:
                 return false;
