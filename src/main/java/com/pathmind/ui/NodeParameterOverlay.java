@@ -15,12 +15,26 @@ import java.util.List;
  * Appears on top of the existing GUI without replacing it.
  */
 public class NodeParameterOverlay {
+    private static final int CONTENT_START_OFFSET = 32;
+    private static final int LABEL_TO_FIELD_OFFSET = 18;
+    private static final int FIELD_HEIGHT = 20;
+    private static final int SECTION_SPACING = 16;
+    private static final int BUTTON_TOP_MARGIN = 12;
+    private static final int BOTTOM_PADDING = 20;
+    private static final int BUTTON_WIDTH = 80;
+    private static final int BUTTON_HEIGHT = 20;
+    private static final int MIN_POPUP_HEIGHT = 180;
+    private static final int DROPDOWN_OPTION_HEIGHT = 20;
+    private static final int MIN_POPUP_WIDTH = 300;
+    private static final int APPROX_CHAR_WIDTH = 6;
+
     private final Node node;
     private final List<String> parameterValues;
     private final List<Boolean> fieldFocused;
-    private final int popupWidth = 300;
+    private int popupWidth = MIN_POPUP_WIDTH;
     private final int screenWidth;
     private final int screenHeight;
+    private final int topBarHeight;
     private int popupHeight;
     private int popupX;
     private int popupY;
@@ -33,15 +47,17 @@ public class NodeParameterOverlay {
     // Mode selection fields
     private NodeMode selectedMode;
     private final List<NodeMode> availableModes;
-    private int modeDropdownOpen = -1; // -1 = closed, 0+ = open with selected index
+    private boolean modeDropdownOpen = false;
+    private int modeDropdownHoverIndex = -1;
 
-    public NodeParameterOverlay(Node node, int screenWidth, int screenHeight, Runnable onClose) {
+    public NodeParameterOverlay(Node node, int screenWidth, int screenHeight, int topBarHeight, Runnable onClose) {
         this.node = node;
         this.onClose = onClose;
         this.parameterValues = new ArrayList<>();
         this.fieldFocused = new ArrayList<>();
         this.screenWidth = screenWidth;
         this.screenHeight = screenHeight;
+        this.topBarHeight = topBarHeight;
         
         // Initialize mode selection
         this.availableModes = new ArrayList<>();
@@ -82,28 +98,28 @@ public class NodeParameterOverlay {
         );
         
         // Render mode selector if applicable
-        int labelY = popupY + 45;
+        int sectionY = popupY + CONTENT_START_OFFSET;
         if (hasModeSelection()) {
             // Mode selector label
             context.drawTextWithShadow(
                 textRenderer,
                 Text.literal("Mode:"),
                 popupX + 20,
-                labelY + 5,
+                sectionY + 4,
                 0xFFE0E0E0
             );
             
             // Mode dropdown button
             int modeButtonX = popupX + 20;
-            int modeButtonY = labelY + 20;
+            int modeButtonY = sectionY + LABEL_TO_FIELD_OFFSET;
             int modeButtonWidth = popupWidth - 40;
-            int modeButtonHeight = 20;
+            int modeButtonHeight = FIELD_HEIGHT;
             
             // Check if mode dropdown is clicked
             boolean modeButtonHovered = mouseX >= modeButtonX && mouseX <= modeButtonX + modeButtonWidth &&
                                       mouseY >= modeButtonY && mouseY <= modeButtonY + modeButtonHeight;
             
-            int modeBgColor = modeButtonHovered ? 0xFF2A2A2A : 0xFF1A1A1A;
+            int modeBgColor = modeButtonHovered ? adjustColorBrightness(0xFF1A1A1A, 1.1f) : 0xFF1A1A1A;
             int modeBorderColor = modeButtonHovered ? 0xFF87CEEB : 0xFF666666;
             
             context.fill(modeButtonX, modeButtonY, modeButtonX + modeButtonWidth, modeButtonY + modeButtonHeight, modeBgColor);
@@ -128,9 +144,8 @@ public class NodeParameterOverlay {
                 0xFFE0E0E0
             );
             
-            // Note: Dropdown rendering moved to end of method for proper z-order
-            
-            labelY += 50; // Move down for mode selector
+            // Advance section position
+            sectionY = modeButtonY + modeButtonHeight + SECTION_SPACING;
         }
         
         // Render parameter labels and fields
@@ -140,15 +155,15 @@ public class NodeParameterOverlay {
                 textRenderer,
                 Text.literal(param.getName() + " (" + param.getType().getDisplayName() + "):"),
                 popupX + 20,
-                labelY + 5, // Moved down from -5 to +5 for more space from previous field
+                sectionY + 4,
                 0xFFE0E0E0
             );
             
             // Render field background and border
             int fieldX = popupX + 20;
-            int fieldY = labelY + 20; // Increased from +8 to +20 for more space between label and field
+            int fieldY = sectionY + LABEL_TO_FIELD_OFFSET;
             int fieldWidth = popupWidth - 40;
-            int fieldHeight = 20;
+            int fieldHeight = FIELD_HEIGHT;
             
             boolean isFocused = i == focusedFieldIndex;
             int bgColor = isFocused ? 0xFF2A2A2A : 0xFF1A1A1A;
@@ -190,7 +205,7 @@ public class NodeParameterOverlay {
                 }
             }
             
-            labelY += 45;
+            sectionY = fieldY + fieldHeight + SECTION_SPACING;
         }
         
         // Render buttons
@@ -198,15 +213,23 @@ public class NodeParameterOverlay {
         renderButton(context, textRenderer, cancelButton, mouseX, mouseY);
         
         // Render mode dropdown on top of everything else (proper z-order)
-        if (hasModeSelection() && modeDropdownOpen >= 0) {
-            int dropdownLabelY = popupY + 45;
+        if (hasModeSelection() && modeDropdownOpen) {
             int modeButtonX = popupX + 20;
-            int modeButtonY = dropdownLabelY + 20;
+            int modeButtonY = popupY + CONTENT_START_OFFSET + LABEL_TO_FIELD_OFFSET;
             int modeButtonWidth = popupWidth - 40;
-            int modeButtonHeight = 20;
+            int modeButtonHeight = FIELD_HEIGHT;
             
             int dropdownY = modeButtonY + modeButtonHeight;
-            int dropdownHeight = availableModes.size() * 20;
+            int dropdownHeight = availableModes.size() * DROPDOWN_OPTION_HEIGHT;
+            
+            modeDropdownHoverIndex = -1;
+            if (mouseX >= modeButtonX && mouseX <= modeButtonX + modeButtonWidth &&
+                mouseY >= dropdownY && mouseY <= dropdownY + dropdownHeight) {
+                int hoverIndex = (mouseY - dropdownY) / DROPDOWN_OPTION_HEIGHT;
+                if (hoverIndex >= 0 && hoverIndex < availableModes.size()) {
+                    modeDropdownHoverIndex = hoverIndex;
+                }
+            }
             
             // Dropdown background with higher z-order
             context.fill(modeButtonX, dropdownY, modeButtonX + modeButtonWidth, dropdownY + dropdownHeight, 0xFF1A1A1A);
@@ -215,12 +238,15 @@ public class NodeParameterOverlay {
             // Render mode options
             for (int i = 0; i < availableModes.size(); i++) {
                 NodeMode mode = availableModes.get(i);
-                int optionY = dropdownY + i * 20;
+                int optionY = dropdownY + i * DROPDOWN_OPTION_HEIGHT;
                 
-                // Highlight selected option
-                if (i == modeDropdownOpen) {
-                    context.fill(modeButtonX, optionY, modeButtonX + modeButtonWidth, optionY + 20, 0xFF404040);
+                boolean isSelected = selectedMode == mode;
+                boolean isHovered = i == modeDropdownHoverIndex;
+                int optionColor = isSelected ? adjustColorBrightness(0xFF1A1A1A, 0.9f) : 0xFF1A1A1A;
+                if (isHovered) {
+                    optionColor = adjustColorBrightness(optionColor, 1.2f);
                 }
+                context.fill(modeButtonX, optionY, modeButtonX + modeButtonWidth, optionY + DROPDOWN_OPTION_HEIGHT, optionColor);
                 
                 context.drawTextWithShadow(
                     textRenderer,
@@ -269,33 +295,30 @@ public class NodeParameterOverlay {
         }
         
         // Check mode selector click
-        int labelY = popupY + 45;
+        int labelY = popupY + CONTENT_START_OFFSET;
         if (hasModeSelection()) {
             int modeButtonX = popupX + 20;
-            int modeButtonY = labelY + 20;
+            int modeButtonY = labelY + LABEL_TO_FIELD_OFFSET;
             int modeButtonWidth = popupWidth - 40;
-            int modeButtonHeight = 20;
+            int modeButtonHeight = FIELD_HEIGHT;
             
             if (mouseX >= modeButtonX && mouseX <= modeButtonX + modeButtonWidth &&
                 mouseY >= modeButtonY && mouseY <= modeButtonY + modeButtonHeight) {
                 // Toggle dropdown
-                if (modeDropdownOpen >= 0) {
-                    modeDropdownOpen = -1; // Close dropdown
-                } else {
-                    modeDropdownOpen = 0; // Open dropdown
-                }
+                modeDropdownOpen = !modeDropdownOpen;
+                modeDropdownHoverIndex = -1;
                 return true;
             }
             
             // Check dropdown option clicks
-            if (modeDropdownOpen >= 0) {
+            if (modeDropdownOpen) {
                 int dropdownY = modeButtonY + modeButtonHeight;
-                int dropdownHeight = availableModes.size() * 20;
+                int dropdownHeight = availableModes.size() * DROPDOWN_OPTION_HEIGHT;
                 
                 if (mouseX >= modeButtonX && mouseX <= modeButtonX + modeButtonWidth &&
                     mouseY >= dropdownY && mouseY <= dropdownY + dropdownHeight) {
                     // Calculate which option was clicked
-                    int optionIndex = (int) ((mouseY - dropdownY) / 20);
+                    int optionIndex = (int) ((mouseY - dropdownY) / DROPDOWN_OPTION_HEIGHT);
                     if (optionIndex >= 0 && optionIndex < availableModes.size()) {
                         selectedMode = availableModes.get(optionIndex);
                         // Update node mode and reinitialize parameters
@@ -304,20 +327,21 @@ public class NodeParameterOverlay {
                         updatePopupDimensions();
                         recreateButtons();
                     }
-                    modeDropdownOpen = -1; // Close dropdown
+                    modeDropdownOpen = false; // Close dropdown
+                    modeDropdownHoverIndex = -1;
                     return true;
                 }
             }
             
-            labelY += 50; // Move down for mode selector
+            labelY += LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT + SECTION_SPACING;
         }
         
         // Check field clicks
         for (int i = 0; i < node.getParameters().size(); i++) {
             int fieldX = popupX + 20;
-            int fieldY = labelY + 20; // Match the rendering position
+            int fieldY = labelY + LABEL_TO_FIELD_OFFSET; // Match the rendering position
             int fieldWidth = popupWidth - 40;
-            int fieldHeight = 20;
+            int fieldHeight = FIELD_HEIGHT;
             
             if (mouseX >= fieldX && mouseX <= fieldX + fieldWidth &&
                 mouseY >= fieldY && mouseY <= fieldY + fieldHeight) {
@@ -325,23 +349,24 @@ public class NodeParameterOverlay {
                 return true;
             }
             
-            labelY += 45;
+            labelY += LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT + SECTION_SPACING;
         }
         
         // Close dropdown if clicking outside of it
-        if (hasModeSelection() && modeDropdownOpen >= 0) {
-            int closeLabelY = popupY + 45;
+        if (hasModeSelection() && modeDropdownOpen) {
+            int closeLabelY = popupY + CONTENT_START_OFFSET;
             int modeButtonX = popupX + 20;
-            int modeButtonY = closeLabelY + 20;
+            int modeButtonY = closeLabelY + LABEL_TO_FIELD_OFFSET;
             int modeButtonWidth = popupWidth - 40;
-            int modeButtonHeight = 20;
+            int modeButtonHeight = FIELD_HEIGHT;
             int dropdownY = modeButtonY + modeButtonHeight;
-            int dropdownHeight = availableModes.size() * 20;
+            int dropdownHeight = availableModes.size() * DROPDOWN_OPTION_HEIGHT;
             
             // Check if click is outside dropdown area
             if (!(mouseX >= modeButtonX && mouseX <= modeButtonX + modeButtonWidth &&
                   mouseY >= modeButtonY && mouseY <= dropdownY + dropdownHeight)) {
-                modeDropdownOpen = -1; // Close dropdown
+                modeDropdownOpen = false; // Close dropdown
+                modeDropdownHoverIndex = -1;
             }
         }
         
@@ -422,11 +447,15 @@ public class NodeParameterOverlay {
             param.setStringValue(value);
         }
         
+        node.recalculateDimensions();
+        
         close();
     }
 
     public void close() {
         visible = false;
+        modeDropdownOpen = false;
+        modeDropdownHoverIndex = -1;
         if (onClose != null) {
             onClose.run();
         }
@@ -435,6 +464,8 @@ public class NodeParameterOverlay {
     public void show() {
         visible = true;
         focusedFieldIndex = -1;
+        modeDropdownOpen = false;
+        modeDropdownHoverIndex = -1;
     }
 
     public boolean isVisible() {
@@ -452,28 +483,79 @@ public class NodeParameterOverlay {
     }
     
     private void updatePopupDimensions() {
-        int parameterCount = node.getParameters().size();
-        int modeHeight = hasModeSelection() ? 30 : 0;
-        this.popupHeight = Math.max(150, parameterCount * 45 + 100 + modeHeight);
+        int longestLineLength = ("Edit Parameters: " + node.getType().getDisplayName()).length();
+
+        if (hasModeSelection()) {
+            longestLineLength = Math.max(longestLineLength, "Mode:".length());
+            String modeText = selectedMode != null ? selectedMode.getDisplayName() : "Select Mode";
+            longestLineLength = Math.max(longestLineLength, modeText.length());
+        }
+
+        for (NodeParameter param : node.getParameters()) {
+            String label = param.getName() + " (" + param.getType().getDisplayName() + "):";
+            longestLineLength = Math.max(longestLineLength, label.length());
+            String value = param.getStringValue();
+            if (value != null) {
+                longestLineLength = Math.max(longestLineLength, value.length());
+            }
+        }
+
+        for (String value : parameterValues) {
+            if (value != null) {
+                longestLineLength = Math.max(longestLineLength, value.length());
+            }
+        }
+
+        int computedWidth = longestLineLength * APPROX_CHAR_WIDTH + 64; // Padding for margins and borders
+        int maxAllowedWidth = Math.max(MIN_POPUP_WIDTH, screenWidth - 40);
+        this.popupWidth = Math.min(Math.max(MIN_POPUP_WIDTH, computedWidth), maxAllowedWidth);
+
+        int contentHeight = CONTENT_START_OFFSET;
+        if (hasModeSelection()) {
+            contentHeight += LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT + SECTION_SPACING;
+        }
+        contentHeight += node.getParameters().size() * (LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT + SECTION_SPACING);
+        contentHeight += BUTTON_TOP_MARGIN + BUTTON_HEIGHT + BOTTOM_PADDING;
+        
+        this.popupHeight = Math.max(MIN_POPUP_HEIGHT, contentHeight);
         this.popupX = (screenWidth - popupWidth) / 2;
-        this.popupY = (screenHeight - popupHeight) / 2;
+        int availableHeight = Math.max(0, screenHeight - topBarHeight);
+        int centeredOffset = Math.max(0, (availableHeight - popupHeight) / 2);
+        this.popupY = topBarHeight + centeredOffset;
     }
     
     private void recreateButtons() {
-        int buttonY = popupY + popupHeight - 40;
+        int buttonY = computeButtonY();
         
         this.saveButton = ButtonWidget.builder(
             Text.literal("Save"),
             b -> saveParameters()
-        ).dimensions(popupX + 20, buttonY, 80, 20).build();
+        ).dimensions(popupX + 20, buttonY, BUTTON_WIDTH, BUTTON_HEIGHT).build();
         
         this.cancelButton = ButtonWidget.builder(
             Text.literal("Cancel"),
             b -> close()
-        ).dimensions(popupX + popupWidth - 100, buttonY, 80, 20).build();
+        ).dimensions(popupX + popupWidth - (BUTTON_WIDTH + 20), buttonY, BUTTON_WIDTH, BUTTON_HEIGHT).build();
     }
     
     private boolean hasModeSelection() {
         return !availableModes.isEmpty();
+    }
+    
+    private int computeButtonY() {
+        int offset = CONTENT_START_OFFSET;
+        if (hasModeSelection()) {
+            offset += LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT + SECTION_SPACING;
+        }
+        offset += node.getParameters().size() * (LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT + SECTION_SPACING);
+        return popupY + offset + BUTTON_TOP_MARGIN;
+    }
+    
+    private int adjustColorBrightness(int color, float factor) {
+        int a = (color >> 24) & 0xFF;
+        int r = Math.min(255, Math.max(0, Math.round(((color >> 16) & 0xFF) * factor)));
+        int g = Math.min(255, Math.max(0, Math.round(((color >> 8) & 0xFF) * factor)));
+        int b = Math.min(255, Math.max(0, Math.round((color & 0xFF) * factor)));
+        return (a << 24) | (r << 16) | (g << 8) | b;
     }
 }

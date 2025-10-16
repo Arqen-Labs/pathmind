@@ -1,5 +1,6 @@
 package com.pathmind;
 
+import com.pathmind.execution.ExecutionManager;
 import com.pathmind.screen.PathmindVisualEditorScreen;
 import com.pathmind.ui.ActiveNodeOverlay;
 import net.fabricmc.api.ClientModInitializer;
@@ -28,6 +29,7 @@ public class PathmindClientMod implements ClientModInitializer {
         // Register keybindings
         PathmindKeybinds.registerKeybinds();
         KeyBindingHelper.registerKeyBinding(PathmindKeybinds.OPEN_VISUAL_EDITOR);
+        KeyBindingHelper.registerKeyBinding(PathmindKeybinds.PLAY_LAST_GRAPH);
         
         // Register client tick events for keybind handling
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -57,6 +59,10 @@ public class PathmindClientMod implements ClientModInitializer {
                 client.setScreen(new PathmindVisualEditorScreen());
             }
             // If screen is already open, do nothing (don't close it)
+        }
+
+        while (PathmindKeybinds.PLAY_LAST_GRAPH.wasPressed()) {
+            ExecutionManager.getInstance().replayLastGraph();
         }
     }
 }

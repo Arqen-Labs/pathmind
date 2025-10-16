@@ -3,6 +3,7 @@ package com.pathmind.nodes;
 import net.minecraft.text.Text;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
@@ -13,6 +14,30 @@ import baritone.api.process.IFollowProcess;
 import baritone.api.process.IFarmProcess;
 import baritone.api.pathing.goals.GoalBlock;
 import com.pathmind.execution.PreciseCompletionTracker;
+import net.minecraft.component.DataComponentTypes;
+import net.minecraft.entity.EquipmentSlot;
+import net.minecraft.entity.player.PlayerInventory;
+import net.minecraft.item.ItemStack;
+import net.minecraft.block.Block;
+import net.minecraft.entity.Entity;
+import net.minecraft.entity.EntityType;
+import net.minecraft.registry.Registries;
+import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
+import net.minecraft.network.packet.c2s.play.HandSwingC2SPacket;
+import net.minecraft.network.packet.c2s.play.PlayerActionC2SPacket;
+import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
+import net.minecraft.util.ActionResult;
+import net.minecraft.util.Hand;
+import net.minecraft.item.PotionItem;
+import net.minecraft.item.Items;
+import net.minecraft.util.Identifier;
+import net.minecraft.util.hit.BlockHitResult;
+import net.minecraft.util.hit.EntityHitResult;
+import net.minecraft.util.hit.HitResult;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
+import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.math.Box;
 
 /**
  * Represents a single node in the Pathmind visual editor.
@@ -23,8 +48,21 @@ public class Node {
     private final NodeType type;
     private NodeMode mode;
     private int x, y;
-    private final int width = 80;
-    private final int height = 100;
+    private static final int MIN_WIDTH = 92;
+    private static final int MIN_HEIGHT = 44;
+    private static final int CHAR_PIXEL_WIDTH = 6;
+    private static final int HEADER_HEIGHT = 18;
+    private static final int PARAM_LINE_HEIGHT = 12;
+    private static final int PARAM_PADDING_TOP = 4;
+    private static final int PARAM_PADDING_BOTTOM = 6;
+    private static final int BODY_PADDING_NO_PARAMS = 12;
+    private static final int START_END_SIZE = 36;
+    private int width;
+    private int height;
+    private int nextOutputSocket = 0;
+    private int repeatRemainingIterations = 0;
+    private boolean repeatActive = false;
+    private boolean lastSensorResult = false;
     private boolean selected = false;
     private boolean dragging = false;
     private int dragOffsetX, dragOffsetY;
@@ -38,6 +76,8 @@ public class Node {
         this.y = y;
         this.parameters = new ArrayList<>();
         initializeParameters();
+        recalculateDimensions();
+        resetControlState();
     }
 
     /**
@@ -70,6 +110,8 @@ public class Node {
         // Reinitialize parameters when mode changes
         parameters.clear();
         initializeParameters();
+        recalculateDimensions();
+        resetControlState();
     }
 
     public int getX() {
@@ -86,18 +128,10 @@ public class Node {
     }
 
     public int getWidth() {
-        // START and END nodes are square, others are rectangular
-        if (type == NodeType.START || type == NodeType.END) {
-            return 30; // Even smaller square size
-        }
         return width;
     }
 
     public int getHeight() {
-        // START and END nodes are square, others are rectangular
-        if (type == NodeType.START || type == NodeType.END) {
-            return 30; // Even smaller square size
-        }
         return height;
     }
 
@@ -146,7 +180,22 @@ public class Node {
     }
 
     public int getOutputSocketCount() {
-        return type == NodeType.END ? 0 : 1;
+        if (type == NodeType.END) {
+            return 0;
+        }
+        switch (type) {
+            case CONTROL_IF:
+            case CONTROL_IF_ELSE:
+            case CONTROL_REPEAT:
+            case CONTROL_REPEAT_UNTIL:
+                return 2;
+            case SENSOR_TOUCHING_BLOCK:
+            case SENSOR_TOUCHING_ENTITY:
+            case SENSOR_AT_COORDINATES:
+                return 2;
+            default:
+                return 1;
+        }
     }
 
     public int getSocketY(int socketIndex, boolean isInput) {
@@ -163,6 +212,16 @@ public class Node {
     
     public int getSocketX(boolean isInput) {
         return isInput ? x - 4 : x + getWidth() + 4;
+    }
+    
+    public void setNextOutputSocket(int socketIndex) {
+        this.nextOutputSocket = Math.max(0, socketIndex);
+    }
+    
+    public int consumeNextOutputSocket() {
+        int value = this.nextOutputSocket;
+        this.nextOutputSocket = 0;
+        return value;
     }
     
     public boolean isSocketClicked(int mouseX, int mouseY, int socketIndex, boolean isInput) {
@@ -196,11 +255,6 @@ public class Node {
                 case GOTO_BLOCK:
                     parameters.add(new NodeParameter("Block", ParameterType.STRING, "stone"));
                     break;
-                case GOTO_PORTAL:
-                case GOTO_ENDER_CHEST:
-                    // No parameters needed
-                    break;
-                    
                 // GOAL modes
                 case GOAL_XYZ:
                     parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
@@ -310,6 +364,110 @@ public class Node {
             case GET:
                 parameters.add(new NodeParameter("Setting", ParameterType.STRING, "allowBreak"));
                 break;
+            case HOTBAR:
+                parameters.add(new NodeParameter("Slot", ParameterType.INTEGER, "0"));
+                break;
+            case DROP_ITEM:
+                parameters.add(new NodeParameter("All", ParameterType.BOOLEAN, "false"));
+                break;
+            case DROP_SLOT:
+                parameters.add(new NodeParameter("Slot", ParameterType.INTEGER, "0"));
+                parameters.add(new NodeParameter("Count", ParameterType.INTEGER, "0"));
+                parameters.add(new NodeParameter("EntireStack", ParameterType.BOOLEAN, "true"));
+                break;
+            case MOVE_ITEM:
+                parameters.add(new NodeParameter("SourceSlot", ParameterType.INTEGER, "0"));
+                parameters.add(new NodeParameter("TargetSlot", ParameterType.INTEGER, "9"));
+                parameters.add(new NodeParameter("Count", ParameterType.INTEGER, "0"));
+                break;
+            case SWAP_SLOTS:
+                parameters.add(new NodeParameter("FirstSlot", ParameterType.INTEGER, "0"));
+                parameters.add(new NodeParameter("SecondSlot", ParameterType.INTEGER, "9"));
+                break;
+            case CLEAR_SLOT:
+                parameters.add(new NodeParameter("Slot", ParameterType.INTEGER, "0"));
+                parameters.add(new NodeParameter("DropItems", ParameterType.BOOLEAN, "false"));
+                break;
+            case EQUIP_ARMOR:
+                parameters.add(new NodeParameter("SourceSlot", ParameterType.INTEGER, "0"));
+                parameters.add(new NodeParameter("ArmorSlot", ParameterType.STRING, "head"));
+                break;
+            case UNEQUIP_ARMOR:
+                parameters.add(new NodeParameter("ArmorSlot", ParameterType.STRING, "head"));
+                parameters.add(new NodeParameter("TargetSlot", ParameterType.INTEGER, "0"));
+                parameters.add(new NodeParameter("DropIfFull", ParameterType.BOOLEAN, "true"));
+                break;
+            case EQUIP_HAND:
+                parameters.add(new NodeParameter("SourceSlot", ParameterType.INTEGER, "0"));
+                parameters.add(new NodeParameter("Hand", ParameterType.STRING, "main"));
+                break;
+            case UNEQUIP_HAND:
+                parameters.add(new NodeParameter("Hand", ParameterType.STRING, "main"));
+                parameters.add(new NodeParameter("TargetSlot", ParameterType.INTEGER, "0"));
+                parameters.add(new NodeParameter("DropIfFull", ParameterType.BOOLEAN, "true"));
+                break;
+            case USE_ITEM:
+            case INTERACT:
+            case PLACE_HAND:
+            case SWING:
+                parameters.add(new NodeParameter("Hand", ParameterType.STRING, "main"));
+                break;
+            case ATTACK:
+                parameters.add(new NodeParameter("Hand", ParameterType.STRING, "main"));
+                parameters.add(new NodeParameter("SwingOnly", ParameterType.BOOLEAN, "false"));
+                break;
+            case LOOK:
+                parameters.add(new NodeParameter("Yaw", ParameterType.DOUBLE, "0.0"));
+                parameters.add(new NodeParameter("Pitch", ParameterType.DOUBLE, "0.0"));
+                break;
+            case TURN:
+                parameters.add(new NodeParameter("YawOffset", ParameterType.DOUBLE, "0.0"));
+                parameters.add(new NodeParameter("PitchOffset", ParameterType.DOUBLE, "0.0"));
+                break;
+            case JUMP:
+                parameters.add(new NodeParameter("Count", ParameterType.INTEGER, "1"));
+                break;
+            case CROUCH:
+                parameters.add(new NodeParameter("Active", ParameterType.BOOLEAN, "true"));
+                break;
+            case SPRINT:
+                parameters.add(new NodeParameter("Active", ParameterType.BOOLEAN, "true"));
+                break;
+            case EAT:
+            case DRINK:
+                parameters.add(new NodeParameter("Hand", ParameterType.STRING, "main"));
+                break;
+            case CONTROL_REPEAT:
+                parameters.add(new NodeParameter("Count", ParameterType.INTEGER, "10"));
+                break;
+            case CONTROL_REPEAT_UNTIL:
+                parameters.add(new NodeParameter("Condition", ParameterType.STRING, "Touching Block"));
+                parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, "minecraft:stone"));
+                parameters.add(new NodeParameter("Entity", ParameterType.ENTITY_TYPE, "minecraft:zombie"));
+                parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
+                parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "64"));
+                parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
+                break;
+            case CONTROL_IF:
+            case CONTROL_IF_ELSE:
+                parameters.add(new NodeParameter("Condition", ParameterType.STRING, "Touching Block"));
+                parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, "minecraft:stone"));
+                parameters.add(new NodeParameter("Entity", ParameterType.ENTITY_TYPE, "minecraft:zombie"));
+                parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
+                parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "64"));
+                parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
+                break;
+            case SENSOR_TOUCHING_BLOCK:
+                parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, "minecraft:stone"));
+                break;
+            case SENSOR_TOUCHING_ENTITY:
+                parameters.add(new NodeParameter("Entity", ParameterType.ENTITY_TYPE, "minecraft:zombie"));
+                break;
+            case SENSOR_AT_COORDINATES:
+                parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
+                parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "64"));
+                parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
+                break;
             default:
                 // No parameters needed
                 break;
@@ -343,13 +501,43 @@ public class Node {
     }
 
     /**
+     * Recalculate node dimensions based on current content
+     */
+    public void recalculateDimensions() {
+        if (type == NodeType.START || type == NodeType.END) {
+            this.width = START_END_SIZE;
+            this.height = START_END_SIZE;
+            return;
+        }
+
+        int maxTextLength = Math.max(type.getDisplayName().length(), 1);
+        for (NodeParameter param : parameters) {
+            String paramText = param.getName() + ": " + param.getDisplayValue();
+            if (paramText.length() > maxTextLength) {
+                maxTextLength = paramText.length();
+            }
+        }
+
+        int computedWidth = maxTextLength * CHAR_PIXEL_WIDTH + 24; // padding and border allowance
+        this.width = Math.max(MIN_WIDTH, computedWidth);
+
+        if (hasParameters()) {
+            int contentHeight = HEADER_HEIGHT + PARAM_PADDING_TOP + (parameters.size() * PARAM_LINE_HEIGHT) + PARAM_PADDING_BOTTOM;
+            this.height = Math.max(MIN_HEIGHT, contentHeight);
+        } else {
+            int contentHeight = HEADER_HEIGHT + BODY_PADDING_NO_PARAMS;
+            this.height = Math.max(MIN_HEIGHT, contentHeight);
+        }
+    }
+
+    /**
      * Get the height needed to display parameters
      */
     public int getParameterDisplayHeight() {
         if (!hasParameters()) {
             return 0;
         }
-        return parameters.size() * 12 + 8; // 12px per parameter + padding
+        return PARAM_PADDING_TOP + parameters.size() * PARAM_LINE_HEIGHT + PARAM_PADDING_BOTTOM;
     }
 
     /**
@@ -415,6 +603,21 @@ public class Node {
             case FOLLOW:
                 executeFollowCommand(future);
                 break;
+            case CONTROL_REPEAT:
+                executeControlRepeat(future);
+                break;
+            case CONTROL_REPEAT_UNTIL:
+                executeControlRepeatUntil(future);
+                break;
+            case CONTROL_FOREVER:
+                executeControlForever(future);
+                break;
+            case CONTROL_IF:
+                executeControlIf(future, false);
+                break;
+            case CONTROL_IF_ELSE:
+                executeControlIf(future, true);
+                break;
             case FARM:
                 executeFarmCommand(future);
                 break;
@@ -439,7 +642,85 @@ public class Node {
             case GET:
                 executeGetCommand(future);
                 break;
-                
+            case HOTBAR:
+                executeHotbarCommand(future);
+                break;
+            case DROP_ITEM:
+                executeDropItemCommand(future);
+                break;
+            case DROP_SLOT:
+                executeDropSlotCommand(future);
+                break;
+            case MOVE_ITEM:
+                executeMoveItemCommand(future);
+                break;
+            case SWAP_SLOTS:
+                executeSwapSlotsCommand(future);
+                break;
+            case CLEAR_SLOT:
+                executeClearSlotCommand(future);
+                break;
+            case USE_ITEM:
+                executeUseItemCommand(future);
+                break;
+            case PLACE_HAND:
+                executePlaceHandCommand(future);
+                break;
+            case LOOK:
+                executeLookCommand(future);
+                break;
+            case TURN:
+                executeTurnCommand(future);
+                break;
+            case JUMP:
+                executeJumpCommand(future);
+                break;
+            case CROUCH:
+                executeCrouchCommand(future);
+                break;
+            case SPRINT:
+                executeSprintCommand(future);
+                break;
+            case INTERACT:
+                executeInteractCommand(future);
+                break;
+            case ATTACK:
+                executeAttackCommand(future);
+                break;
+            case SWING:
+                executeSwingCommand(future);
+                break;
+            case SWAP_HANDS:
+                executeSwapHandsCommand(future);
+                break;
+            case EQUIP_ARMOR:
+                executeEquipArmorCommand(future);
+                break;
+            case UNEQUIP_ARMOR:
+                executeUnequipArmorCommand(future);
+                break;
+            case EQUIP_HAND:
+                executeEquipHandCommand(future);
+                break;
+            case UNEQUIP_HAND:
+                executeUnequipHandCommand(future);
+                break;
+            case EAT:
+                executeEatCommand(future);
+                break;
+            case DRINK:
+                executeDrinkCommand(future);
+                break;
+            case SENSOR_TOUCHING_BLOCK:
+                executeSensorTouchingBlock(future);
+                break;
+            case SENSOR_TOUCHING_ENTITY:
+                executeSensorTouchingEntity(future);
+                break;
+            case SENSOR_AT_COORDINATES:
+                executeSensorAtCoordinates(future);
+                break;
+            
             // Legacy nodes
             case PATH:
                 executePathCommand(future);
@@ -539,20 +820,6 @@ public class Node {
                 PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
                 // Use Baritone's block goal - need to find the block first
                 executeCommand("#goto " + block);
-                break;
-                
-            case GOTO_PORTAL:
-                System.out.println("Executing goto to nearest portal");
-                PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
-                // Use Baritone's portal goal
-                executeCommand("#goto portal");
-                break;
-                
-            case GOTO_ENDER_CHEST:
-                System.out.println("Executing goto to nearest ender chest");
-                PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
-                // Use Baritone's ender chest goal
-                executeCommand("#goto ender_chest");
                 break;
                 
             default:
@@ -811,6 +1078,48 @@ public class Node {
                 future.completeExceptionally(e);
             }
         }).start();
+    }
+    
+    private void executeControlRepeat(CompletableFuture<Void> future) {
+        int count = Math.max(0, getIntParameter("Count", 1));
+        if (!repeatActive) {
+            repeatRemainingIterations = count;
+            repeatActive = true;
+        }
+        if (repeatRemainingIterations > 0) {
+            repeatRemainingIterations--;
+            setNextOutputSocket(0);
+        } else {
+            repeatRemainingIterations = 0;
+            repeatActive = false;
+            setNextOutputSocket(1);
+        }
+        future.complete(null);
+    }
+    
+    private void executeControlRepeatUntil(CompletableFuture<Void> future) {
+        boolean conditionMet = evaluateConditionFromParameters();
+        if (conditionMet) {
+            repeatRemainingIterations = 0;
+            repeatActive = false;
+            setNextOutputSocket(1);
+        } else {
+            repeatActive = true;
+            setNextOutputSocket(0);
+        }
+        future.complete(null);
+    }
+    
+    private void executeControlForever(CompletableFuture<Void> future) {
+        repeatActive = true;
+        setNextOutputSocket(0);
+        future.complete(null);
+    }
+    
+    private void executeControlIf(CompletableFuture<Void> future, boolean hasElseBranch) {
+        boolean condition = evaluateConditionFromParameters();
+        setNextOutputSocket(condition ? 0 : 1);
+        future.complete(null);
     }
     
     private void executeMessageCommand(CompletableFuture<Void> future) {
@@ -1093,6 +1402,805 @@ public class Node {
                 future.completeExceptionally(new RuntimeException("Unknown FARM mode: " + mode));
                 return;
         }
+    }
+    
+    private void executeHotbarCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || client.player.networkHandler == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        int slot = MathHelper.clamp(getIntParameter("Slot", 0), 0, 8);
+        client.player.getInventory().setSelectedSlot(slot);
+        client.player.networkHandler.sendPacket(new UpdateSelectedSlotC2SPacket(slot));
+        future.complete(null);
+    }
+    
+    private void executeDropItemCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        boolean dropAll = getBooleanParameter("All", false);
+        client.player.dropSelectedItem(dropAll);
+        client.player.getInventory().markDirty();
+        client.player.playerScreenHandler.sendContentUpdates();
+        future.complete(null);
+    }
+    
+    private void executeDropSlotCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        PlayerInventory inventory = client.player.getInventory();
+        int slot = clampInventorySlot(inventory, getIntParameter("Slot", 0));
+        boolean entireStack = getBooleanParameter("EntireStack", true);
+        int requestedCount = getIntParameter("Count", 0);
+        
+        ItemStack stack = inventory.getStack(slot);
+        if (stack.isEmpty()) {
+            future.complete(null);
+            return;
+        }
+        
+        ItemStack removed;
+        if (entireStack || requestedCount <= 0 || requestedCount >= stack.getCount()) {
+            removed = inventory.removeStack(slot);
+        } else {
+            removed = inventory.removeStack(slot, requestedCount);
+        }
+        
+        if (!removed.isEmpty()) {
+            client.player.dropItem(removed, true);
+        }
+        
+        inventory.markDirty();
+        client.player.playerScreenHandler.sendContentUpdates();
+        future.complete(null);
+    }
+    
+    private void executeMoveItemCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        PlayerInventory inventory = client.player.getInventory();
+        int sourceSlot = clampInventorySlot(inventory, getIntParameter("SourceSlot", 0));
+        int targetSlot = clampInventorySlot(inventory, getIntParameter("TargetSlot", 0));
+        int requestedCount = getIntParameter("Count", 0);
+        
+        if (sourceSlot == targetSlot) {
+            future.complete(null);
+            return;
+        }
+        
+        ItemStack sourceStack = inventory.getStack(sourceSlot);
+        if (sourceStack.isEmpty()) {
+            future.complete(null);
+            return;
+        }
+        
+        ItemStack movingStack;
+        if (requestedCount <= 0 || requestedCount >= sourceStack.getCount()) {
+            movingStack = sourceStack.copy();
+            inventory.setStack(sourceSlot, ItemStack.EMPTY);
+        } else {
+            movingStack = sourceStack.copy();
+            movingStack.setCount(requestedCount);
+            sourceStack.decrement(requestedCount);
+            inventory.setStack(sourceSlot, sourceStack.isEmpty() ? ItemStack.EMPTY : sourceStack);
+        }
+        
+        ItemStack targetStack = inventory.getStack(targetSlot);
+        if (targetStack.isEmpty()) {
+            inventory.setStack(targetSlot, movingStack);
+        } else if (canStacksCombine(targetStack, movingStack)) {
+            int transferable = Math.min(targetStack.getMaxCount() - targetStack.getCount(), movingStack.getCount());
+            if (transferable > 0) {
+                targetStack.increment(transferable);
+                movingStack.decrement(transferable);
+            }
+            if (!movingStack.isEmpty()) {
+                if (inventory.getStack(sourceSlot).isEmpty()) {
+                    inventory.setStack(sourceSlot, movingStack);
+                } else {
+                    client.player.dropItem(movingStack, true);
+                }
+            }
+        } else {
+            inventory.setStack(targetSlot, movingStack);
+            if (inventory.getStack(sourceSlot).isEmpty()) {
+                inventory.setStack(sourceSlot, targetStack);
+            } else {
+                client.player.dropItem(targetStack, true);
+            }
+        }
+        
+        inventory.markDirty();
+        client.player.playerScreenHandler.sendContentUpdates();
+        future.complete(null);
+    }
+    
+    private void executeSwapSlotsCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        PlayerInventory inventory = client.player.getInventory();
+        int firstSlot = clampInventorySlot(inventory, getIntParameter("FirstSlot", 0));
+        int secondSlot = clampInventorySlot(inventory, getIntParameter("SecondSlot", 0));
+        
+        if (firstSlot == secondSlot) {
+            future.complete(null);
+            return;
+        }
+        
+        ItemStack first = inventory.getStack(firstSlot);
+        ItemStack second = inventory.getStack(secondSlot);
+        inventory.setStack(firstSlot, second);
+        inventory.setStack(secondSlot, first);
+        
+        inventory.markDirty();
+        client.player.playerScreenHandler.sendContentUpdates();
+        future.complete(null);
+    }
+    
+    private void executeClearSlotCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        PlayerInventory inventory = client.player.getInventory();
+        int slot = clampInventorySlot(inventory, getIntParameter("Slot", 0));
+        boolean dropItems = getBooleanParameter("DropItems", false);
+        
+        ItemStack removed = inventory.removeStack(slot);
+        if (!removed.isEmpty() && dropItems) {
+            client.player.dropItem(removed, true);
+        }
+        
+        inventory.markDirty();
+        client.player.playerScreenHandler.sendContentUpdates();
+        future.complete(null);
+    }
+    
+    private void executeUseItemCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || client.interactionManager == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        Hand hand = resolveHand(getParameter("Hand"), Hand.MAIN_HAND);
+        ActionResult result = client.interactionManager.interactItem(client.player, hand);
+        if (result == ActionResult.FAIL) {
+            // Attempt block interaction if right click failed
+            HitResult target = client.crosshairTarget;
+            if (target instanceof BlockHitResult blockHit) {
+                result = client.interactionManager.interactBlock(client.player, hand, blockHit);
+            }
+        }
+        client.player.swingHand(hand);
+        if (client.player.networkHandler != null) {
+            client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
+        }
+        future.complete(null);
+    }
+
+    private void executePlaceHandCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || client.interactionManager == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        Hand hand = resolveHand(getParameter("Hand"), Hand.MAIN_HAND);
+        HitResult target = client.crosshairTarget;
+        if (target instanceof BlockHitResult blockHit) {
+            ActionResult result = client.interactionManager.interactBlock(client.player, hand, blockHit);
+            if (result.isAccepted()) {
+                client.player.swingHand(hand);
+                if (client.player.networkHandler != null) {
+                    client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
+                }
+            }
+        }
+        future.complete(null);
+    }
+    
+    private void executeLookCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        float yaw = (float) getDoubleParameter("Yaw", client.player.getYaw());
+        float pitch = MathHelper.clamp((float) getDoubleParameter("Pitch", client.player.getPitch()), -90.0F, 90.0F);
+        client.player.setYaw(yaw);
+        client.player.setPitch(pitch);
+        client.player.setHeadYaw(yaw);
+        future.complete(null);
+    }
+
+    private void executeTurnCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+
+        float yawOffset = (float) getDoubleParameter("YawOffset", 0.0D);
+        float pitchOffset = (float) getDoubleParameter("PitchOffset", 0.0D);
+        float newYaw = client.player.getYaw() + yawOffset;
+        float newPitch = MathHelper.clamp(client.player.getPitch() + pitchOffset, -90.0F, 90.0F);
+        client.player.setYaw(newYaw);
+        client.player.setPitch(newPitch);
+        client.player.setHeadYaw(newYaw);
+        future.complete(null);
+    }
+    
+    private void executeJumpCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        int count = Math.max(1, getIntParameter("Count", 1));
+        for (int i = 0; i < count; i++) {
+            client.player.jump();
+        }
+        future.complete(null);
+    }
+    
+    private void executeCrouchCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        boolean active = getBooleanParameter("Active", true);
+        client.player.setSneaking(active);
+        if (client.options != null && client.options.sneakKey != null) {
+            client.options.sneakKey.setPressed(active);
+        }
+        future.complete(null);
+    }
+    
+    private void executeSprintCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        boolean active = getBooleanParameter("Active", true);
+        client.player.setSprinting(active);
+        if (client.player.networkHandler != null) {
+            ClientCommandC2SPacket.Mode mode = active ? ClientCommandC2SPacket.Mode.START_SPRINTING : ClientCommandC2SPacket.Mode.STOP_SPRINTING;
+            client.player.networkHandler.sendPacket(new ClientCommandC2SPacket(client.player, mode));
+        }
+        future.complete(null);
+    }
+    
+    private void executeInteractCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || client.interactionManager == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        Hand hand = resolveHand(getParameter("Hand"), Hand.MAIN_HAND);
+        HitResult target = client.crosshairTarget;
+        ActionResult result = ActionResult.PASS;
+        
+        if (target instanceof EntityHitResult entityHit) {
+            result = client.interactionManager.interactEntity(client.player, entityHit.getEntity(), hand);
+        } else if (target instanceof BlockHitResult blockHit) {
+            result = client.interactionManager.interactBlock(client.player, hand, blockHit);
+        }
+        
+        if (!result.isAccepted()) {
+            result = client.interactionManager.interactItem(client.player, hand);
+        }
+        
+        if (result.isAccepted() || result == ActionResult.PASS) {
+            client.player.swingHand(hand);
+            if (client.player.networkHandler != null) {
+                client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
+            }
+        }
+        
+        future.complete(null);
+    }
+    
+    private void executeAttackCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || client.interactionManager == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        Hand hand = resolveHand(getParameter("Hand"), Hand.MAIN_HAND);
+        boolean swingOnly = getBooleanParameter("SwingOnly", false);
+        HitResult target = client.crosshairTarget;
+        boolean attacked = false;
+        
+        if (!swingOnly && target instanceof EntityHitResult entityHit) {
+            client.interactionManager.attackEntity(client.player, entityHit.getEntity());
+            attacked = true;
+        } else if (!swingOnly && target instanceof BlockHitResult blockHit) {
+            client.interactionManager.attackBlock(blockHit.getBlockPos(), blockHit.getSide());
+            attacked = true;
+        }
+        
+        client.player.swingHand(hand);
+        if (client.player.networkHandler != null) {
+            client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
+        }
+        future.complete(null);
+    }
+
+    private void executeSwingCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+
+        Hand hand = resolveHand(getParameter("Hand"), Hand.MAIN_HAND);
+        client.player.swingHand(hand);
+        if (client.player.networkHandler != null) {
+            client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
+        }
+        future.complete(null);
+    }
+    
+    private void executeSwapHandsCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || client.player.networkHandler == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        PlayerInventory inventory = client.player.getInventory();
+        int selectedSlot = inventory.getSelectedSlot();
+        ItemStack mainStack = inventory.getStack(selectedSlot).copy();
+        ItemStack offStack = inventory.getStack(PlayerInventory.OFF_HAND_SLOT).copy();
+        inventory.setStack(selectedSlot, offStack);
+        inventory.setStack(PlayerInventory.OFF_HAND_SLOT, mainStack);
+        inventory.markDirty();
+        client.player.playerScreenHandler.sendContentUpdates();
+        if (client.player.networkHandler != null) {
+            client.player.networkHandler.sendPacket(new PlayerActionC2SPacket(PlayerActionC2SPacket.Action.SWAP_ITEM_WITH_OFFHAND, BlockPos.ORIGIN, Direction.DOWN));
+        }
+        future.complete(null);
+    }
+    
+    private void executeEquipArmorCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        PlayerInventory inventory = client.player.getInventory();
+        int sourceSlot = clampInventorySlot(inventory, getIntParameter("SourceSlot", 0));
+        EquipmentSlot equipmentSlot = parseEquipmentSlot(getParameter("ArmorSlot"), EquipmentSlot.HEAD);
+        
+        ItemStack sourceStack = inventory.getStack(sourceSlot);
+        if (sourceStack.isEmpty()) {
+            future.complete(null);
+            return;
+        }
+        
+        ItemStack current = client.player.getEquippedStack(equipmentSlot);
+        inventory.setStack(sourceSlot, current);
+        client.player.equipStack(equipmentSlot, sourceStack);
+        inventory.markDirty();
+        client.player.playerScreenHandler.sendContentUpdates();
+        future.complete(null);
+    }
+    
+    private void executeUnequipArmorCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        PlayerInventory inventory = client.player.getInventory();
+        EquipmentSlot equipmentSlot = parseEquipmentSlot(getParameter("ArmorSlot"), EquipmentSlot.HEAD);
+        int targetSlot = clampInventorySlot(inventory, getIntParameter("TargetSlot", 0));
+        boolean dropIfFull = getBooleanParameter("DropIfFull", true);
+        
+        ItemStack equipped = client.player.getEquippedStack(equipmentSlot);
+        if (equipped.isEmpty()) {
+            future.complete(null);
+            return;
+        }
+        
+        ItemStack targetStack = inventory.getStack(targetSlot);
+        if (targetStack.isEmpty()) {
+            inventory.setStack(targetSlot, equipped);
+            client.player.equipStack(equipmentSlot, ItemStack.EMPTY);
+        } else if (dropIfFull) {
+            client.player.dropItem(equipped.copy(), true);
+            client.player.equipStack(equipmentSlot, ItemStack.EMPTY);
+        } else {
+            client.player.equipStack(equipmentSlot, targetStack);
+            inventory.setStack(targetSlot, equipped);
+        }
+        
+        inventory.markDirty();
+        client.player.playerScreenHandler.sendContentUpdates();
+        future.complete(null);
+    }
+    
+    private void executeEquipHandCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        PlayerInventory inventory = client.player.getInventory();
+        int sourceSlot = clampInventorySlot(inventory, getIntParameter("SourceSlot", 0));
+        Hand hand = resolveHand(getParameter("Hand"), Hand.MAIN_HAND);
+        
+        ItemStack sourceStack = inventory.getStack(sourceSlot);
+        if (sourceStack.isEmpty()) {
+            future.complete(null);
+            return;
+        }
+        
+        ItemStack handStack = client.player.getStackInHand(hand);
+        client.player.setStackInHand(hand, sourceStack);
+        inventory.setStack(sourceSlot, handStack);
+        inventory.markDirty();
+        client.player.playerScreenHandler.sendContentUpdates();
+        future.complete(null);
+    }
+    
+    private void executeUnequipHandCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        PlayerInventory inventory = client.player.getInventory();
+        Hand hand = resolveHand(getParameter("Hand"), Hand.MAIN_HAND);
+        int targetSlot = clampInventorySlot(inventory, getIntParameter("TargetSlot", 0));
+        boolean dropIfFull = getBooleanParameter("DropIfFull", true);
+        
+        ItemStack handStack = client.player.getStackInHand(hand);
+        if (handStack.isEmpty()) {
+            future.complete(null);
+            return;
+        }
+        
+        ItemStack targetStack = inventory.getStack(targetSlot);
+        if (targetStack.isEmpty()) {
+            inventory.setStack(targetSlot, handStack);
+        } else if (dropIfFull) {
+            client.player.dropItem(handStack.copy(), true);
+        } else {
+            inventory.setStack(targetSlot, handStack);
+            client.player.setStackInHand(hand, targetStack);
+            inventory.markDirty();
+            client.player.playerScreenHandler.sendContentUpdates();
+            future.complete(null);
+            return;
+        }
+        
+        client.player.setStackInHand(hand, ItemStack.EMPTY);
+        inventory.markDirty();
+        client.player.playerScreenHandler.sendContentUpdates();
+        future.complete(null);
+    }
+    
+    private void executeEatCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || client.interactionManager == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        Hand hand = resolveHand(getParameter("Hand"), Hand.MAIN_HAND);
+        ItemStack stack = client.player.getStackInHand(hand);
+        if (stack.isEmpty() || !stack.getComponents().contains(DataComponentTypes.FOOD)) {
+            future.complete(null);
+            return;
+        }
+        
+        client.interactionManager.interactItem(client.player, hand);
+        client.player.swingHand(hand);
+        if (client.player.networkHandler != null) {
+            client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
+        }
+        future.complete(null);
+    }
+    
+    private void executeDrinkCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || client.interactionManager == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+        
+        Hand hand = resolveHand(getParameter("Hand"), Hand.MAIN_HAND);
+        ItemStack stack = client.player.getStackInHand(hand);
+        boolean isDrink = stack.getItem() instanceof PotionItem || stack.isOf(Items.MILK_BUCKET) || stack.isOf(Items.HONEY_BOTTLE);
+        if (stack.isEmpty() || !isDrink) {
+            future.complete(null);
+            return;
+        }
+        
+        client.interactionManager.interactItem(client.player, hand);
+        client.player.swingHand(hand);
+        if (client.player.networkHandler != null) {
+            client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
+        }
+        future.complete(null);
+    }
+    
+    private void executeSensorTouchingBlock(CompletableFuture<Void> future) {
+        String blockId = getStringParameter("Block", "minecraft:stone");
+        boolean result = evaluateSensorCondition(SensorConditionType.TOUCHING_BLOCK, blockId, null, 0, 0, 0);
+        lastSensorResult = result;
+        setNextOutputSocket(result ? 0 : 1);
+        future.complete(null);
+    }
+    
+    private void executeSensorTouchingEntity(CompletableFuture<Void> future) {
+        String entityId = getStringParameter("Entity", "minecraft:zombie");
+        boolean result = evaluateSensorCondition(SensorConditionType.TOUCHING_ENTITY, null, entityId, 0, 0, 0);
+        lastSensorResult = result;
+        setNextOutputSocket(result ? 0 : 1);
+        future.complete(null);
+    }
+    
+    private void executeSensorAtCoordinates(CompletableFuture<Void> future) {
+        int x = getIntParameter("X", 0);
+        int y = getIntParameter("Y", 64);
+        int z = getIntParameter("Z", 0);
+        boolean result = evaluateSensorCondition(SensorConditionType.AT_COORDINATES, null, null, x, y, z);
+        lastSensorResult = result;
+        setNextOutputSocket(result ? 0 : 1);
+        future.complete(null);
+    }
+
+    private boolean canStacksCombine(ItemStack first, ItemStack second) {
+        if (first.isEmpty() || second.isEmpty()) {
+            return false;
+        }
+        if (!ItemStack.areItemsEqual(first, second)) {
+            return false;
+        }
+        return first.getComponents().equals(second.getComponents());
+    }
+
+    private int clampInventorySlot(PlayerInventory inventory, int slot) {
+        return MathHelper.clamp(slot, 0, inventory.size() - 1);
+    }
+
+    private EquipmentSlot parseEquipmentSlot(NodeParameter parameter, EquipmentSlot defaultSlot) {
+        if (parameter == null || parameter.getStringValue() == null) {
+            return defaultSlot;
+        }
+        String value = parameter.getStringValue().trim().toLowerCase(Locale.ROOT);
+        switch (value) {
+            case "head":
+            case "helmet":
+                return EquipmentSlot.HEAD;
+            case "chest":
+            case "chestplate":
+                return EquipmentSlot.CHEST;
+            case "legs":
+            case "leggings":
+                return EquipmentSlot.LEGS;
+            case "feet":
+            case "boots":
+                return EquipmentSlot.FEET;
+            default:
+                return defaultSlot;
+        }
+    }
+
+    private int getIntParameter(String name, int defaultValue) {
+        NodeParameter param = getParameter(name);
+        if (param == null) {
+            return defaultValue;
+        }
+        if (param.getType() == ParameterType.INTEGER) {
+            return param.getIntValue();
+        }
+        try {
+            return Integer.parseInt(param.getStringValue());
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+    
+    private String getStringParameter(String name, String defaultValue) {
+        NodeParameter param = getParameter(name);
+        if (param == null) {
+            return defaultValue;
+        }
+        String value = param.getStringValue();
+        return value != null ? value : defaultValue;
+    }
+    
+    private double getDoubleParameter(String name, double defaultValue) {
+        NodeParameter param = getParameter(name);
+        if (param == null) {
+            return defaultValue;
+        }
+        if (param.getType() == ParameterType.DOUBLE) {
+            return param.getDoubleValue();
+        }
+        try {
+            return Double.parseDouble(param.getStringValue());
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+    
+    private boolean getBooleanParameter(String name, boolean defaultValue) {
+        NodeParameter param = getParameter(name);
+        if (param == null) {
+            return defaultValue;
+        }
+        if (param.getType() == ParameterType.BOOLEAN) {
+            return param.getBoolValue();
+        }
+        String value = param.getStringValue();
+        if (value == null) {
+            return defaultValue;
+        }
+        return Boolean.parseBoolean(value);
+    }
+    
+    private Hand resolveHand(NodeParameter parameter, Hand defaultHand) {
+        if (parameter == null || parameter.getStringValue() == null) {
+            return defaultHand;
+        }
+        String value = parameter.getStringValue().trim().toLowerCase(Locale.ROOT);
+        if (value.equals("off") || value.equals("offhand") || value.equals("off_hand") || value.equals("off-hand")) {
+            return Hand.OFF_HAND;
+        }
+        return Hand.MAIN_HAND;
+    }
+
+    private void resetControlState() {
+        this.repeatRemainingIterations = 0;
+        this.repeatActive = false;
+        this.lastSensorResult = false;
+        this.nextOutputSocket = 0;
+    }
+    
+    private enum SensorConditionType {
+        TOUCHING_BLOCK("Touching Block"),
+        TOUCHING_ENTITY("Touching Entity"),
+        AT_COORDINATES("At Coordinates");
+
+        private final String label;
+
+        SensorConditionType(String label) {
+            this.label = label;
+        }
+
+        static SensorConditionType fromLabel(String label) {
+            if (label == null) {
+                return TOUCHING_BLOCK;
+            }
+            String trimmed = label.trim();
+            for (SensorConditionType type : values()) {
+                if (type.label.equalsIgnoreCase(trimmed)) {
+                    return type;
+                }
+            }
+            return TOUCHING_BLOCK;
+        }
+    }
+
+    private boolean evaluateConditionFromParameters() {
+        String condition = getStringParameter("Condition", "Touching Block");
+        String blockId = getStringParameter("Block", "minecraft:stone");
+        String entityId = getStringParameter("Entity", "minecraft:zombie");
+        int x = getIntParameter("X", 0);
+        int y = getIntParameter("Y", 64);
+        int z = getIntParameter("Z", 0);
+        return evaluateSensorCondition(SensorConditionType.fromLabel(condition), blockId, entityId, x, y, z);
+    }
+    
+    private boolean evaluateSensorCondition(SensorConditionType type, String blockId, String entityId, int x, int y, int z) {
+        if (type == null) {
+            type = SensorConditionType.TOUCHING_BLOCK;
+        }
+        switch (type) {
+            case TOUCHING_BLOCK:
+                return isTouchingBlock(blockId);
+            case TOUCHING_ENTITY:
+                return isTouchingEntity(entityId);
+            case AT_COORDINATES:
+                return isAtCoordinates(x, y, z);
+            default:
+                return false;
+        }
+    }
+    
+    private boolean isTouchingBlock(String blockId) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || blockId == null || blockId.isEmpty()) {
+            return false;
+        }
+        Identifier identifier = Identifier.tryParse(blockId);
+        if (identifier == null || !Registries.BLOCK.containsId(identifier)) {
+            return false;
+        }
+        Block block = Registries.BLOCK.get(identifier);
+        Box box = client.player.getBoundingBox().expand(0.05);
+        int minX = MathHelper.floor(box.minX);
+        int maxX = MathHelper.floor(box.maxX);
+        int minY = MathHelper.floor(box.minY);
+        int maxY = MathHelper.floor(box.maxY);
+        int minZ = MathHelper.floor(box.minZ);
+        int maxZ = MathHelper.floor(box.maxZ);
+        BlockPos.Mutable mutable = new BlockPos.Mutable();
+        for (int bx = minX; bx <= maxX; bx++) {
+            for (int by = minY; by <= maxY; by++) {
+                for (int bz = minZ; bz <= maxZ; bz++) {
+                    mutable.set(bx, by, bz);
+                    if (client.player.getWorld().getBlockState(mutable).isOf(block)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+    
+    private boolean isTouchingEntity(String entityId) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || entityId == null || entityId.isEmpty()) {
+            return false;
+        }
+        Identifier identifier = Identifier.tryParse(entityId);
+        if (identifier == null || !Registries.ENTITY_TYPE.containsId(identifier)) {
+            return false;
+        }
+        EntityType<?> entityType = Registries.ENTITY_TYPE.get(identifier);
+        List<Entity> entities = client.player.getWorld().getOtherEntities(
+            client.player,
+            client.player.getBoundingBox().expand(0.15),
+            entity -> entity.getType() == entityType
+        );
+        return !entities.isEmpty();
+    }
+    
+    private boolean isAtCoordinates(int x, int y, int z) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            return false;
+        }
+        BlockPos playerPos = client.player.getBlockPos();
+        return playerPos.getX() == x && playerPos.getY() == y && playerPos.getZ() == z;
     }
     
     private void executeCommand(String command) {

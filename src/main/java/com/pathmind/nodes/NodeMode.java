@@ -10,8 +10,6 @@ public enum NodeMode {
     GOTO_XZ("Go to XZ", "Go to X, Z coordinates (Y defaults to surface)"),
     GOTO_Y("Go to Y", "Go to specific Y level"),
     GOTO_BLOCK("Go to Block", "Go to nearest block of specified type"),
-    GOTO_PORTAL("Go to Portal", "Go to nearest portal"),
-    GOTO_ENDER_CHEST("Go to Ender Chest", "Go to nearest ender chest"),
     
     // GOAL modes
     GOAL_XYZ("Set Goal XYZ", "Set goal to specific X, Y, Z coordinates"),
@@ -71,7 +69,7 @@ public enum NodeMode {
         switch (nodeType) {
             case GOTO:
                 return new NodeMode[]{
-                    GOTO_XYZ, GOTO_XZ, GOTO_Y, GOTO_BLOCK, GOTO_PORTAL, GOTO_ENDER_CHEST
+                    GOTO_XYZ, GOTO_XZ, GOTO_Y, GOTO_BLOCK
                 };
             case GOAL:
                 return new NodeMode[]{

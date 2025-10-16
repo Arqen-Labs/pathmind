@@ -18,11 +18,11 @@ import java.util.Map;
  */
 public class Sidebar {
     // Outer sidebar dimensions
-    private static final int OUTER_SIDEBAR_WIDTH = 220;
-    private static final int INNER_SIDEBAR_WIDTH = 40;
-    private static final int TAB_SIZE = 12; // Original square tab size
-    private static final int TAB_SPACING = 4; // More spacing between tabs
-    private static final int TOP_PADDING = 4; // A tiny bit more padding above top category
+    private static final int OUTER_SIDEBAR_WIDTH = 180;
+    private static final int INNER_SIDEBAR_WIDTH =60;
+    private static final int TAB_SIZE = 20;
+    private static final int TAB_SPACING = 8;
+    private static final int TOP_PADDING = 8;
     private static final int TAB_COLUMNS = 2;
     private static final int TAB_COLUMN_MARGIN = 8;
     private static final int TAB_COLUMN_SPACING = 8;

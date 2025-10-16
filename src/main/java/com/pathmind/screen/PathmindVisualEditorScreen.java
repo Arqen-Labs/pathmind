@@ -77,6 +77,7 @@ public class PathmindVisualEditorScreen extends Screen {
         
         // Update mouse hover for socket highlighting
         nodeGraph.updateMouseHover(mouseX, mouseY);
+        nodeGraph.setSidebarWidth(sidebar.getWidth());
         
         // Render node graph (stationary nodes only)
         renderNodeGraph(context, mouseX, mouseY, delta, false);
@@ -277,9 +278,10 @@ public class PathmindVisualEditorScreen extends Screen {
                     clickedNode.hasParameters()) {
                     // Open parameter overlay
                     parameterOverlay = new NodeParameterOverlay(
-                        clickedNode, 
-                        this.width, 
-                        this.height, 
+                        clickedNode,
+                        this.width,
+                        this.height,
+                        TITLE_BAR_HEIGHT,
                         () -> parameterOverlay = null // Clear reference on close
                     );
                     parameterOverlay.init();

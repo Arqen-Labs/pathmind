@@ -146,6 +146,7 @@ public class NodeGraphPersistence {
                 NodeParameter param = new NodeParameter(paramData.getName(), paramType, paramData.getValue());
                 node.getParameters().add(param);
             }
+            node.recalculateDimensions();
             
             nodes.add(node);
             nodeMap.put(nodeData.getId(), node);

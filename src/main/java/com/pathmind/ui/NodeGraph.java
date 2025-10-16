@@ -55,6 +55,7 @@ public class NodeGraph {
     private long lastClickTime = 0;
     private Node lastClickedNode = null;
     private static final long DOUBLE_CLICK_THRESHOLD = 300; // milliseconds
+    private int sidebarWidthForRendering = 180;
 
     public NodeGraph() {
         this.nodes = new ArrayList<>();
@@ -489,7 +490,7 @@ public class NodeGraph {
 
         // Check if node is being dragged over sidebar (grey-out effect)
         // Use screen coordinates (with camera offset) for this check
-        boolean isOverSidebar = node.isDragging() && isNodeOverSidebar(node, 140, x, width); // 140 is sidebar width
+        boolean isOverSidebar = node.isDragging() && isNodeOverSidebar(node, sidebarWidthForRendering, x, width);
 
         // Node background
         int bgColor = node.isSelected() ? 0xFF404040 : 0xFF2A2A2A;
@@ -610,16 +611,10 @@ public class NodeGraph {
                 // Render parameters
                 int paramY = y + 18;
                 List<NodeParameter> parameters = node.getParameters();
-                int maxParams = Math.min(parameters.size(), 6); // Show max 6 parameters
                 
-                for (int i = 0; i < maxParams; i++) {
-                    NodeParameter param = parameters.get(i);
+                for (NodeParameter param : parameters) {
                     String displayText = param.getName() + ": " + param.getDisplayValue();
-                    
-                    // Truncate text if too long
-                    if (displayText.length() > 12) {
-                        displayText = displayText.substring(0, 9) + "...";
-                    }
+                    displayText = trimTextToWidth(displayText, textRenderer, width - 10);
                     
                     int paramTextColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0; // Grey text when over sidebar
                     context.drawTextWithShadow(
@@ -631,20 +626,26 @@ public class NodeGraph {
                     );
                     paramY += 12;
                 }
-                
-                // Show "..." if there are more parameters
-                if (parameters.size() > 6) {
-                    int paramTextColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0;
-                    context.drawTextWithShadow(
-                        textRenderer,
-                        "...",
-                        x + 5,
-                        paramY,
-                        paramTextColor
-                    );
-                }
             }
         }
+    }
+
+    private String trimTextToWidth(String text, TextRenderer renderer, int maxWidth) {
+        if (renderer.getWidth(text) <= maxWidth) {
+            return text;
+        }
+
+        String ellipsis = "...";
+        int ellipsisWidth = renderer.getWidth(ellipsis);
+        if (ellipsisWidth >= maxWidth) {
+            return ellipsis;
+        }
+
+        StringBuilder builder = new StringBuilder(text);
+        while (builder.length() > 0 && renderer.getWidth(builder.toString()) + ellipsisWidth > maxWidth) {
+            builder.setLength(builder.length() - 1);
+        }
+        return builder.append(ellipsis).toString();
     }
 
     private void renderSocket(DrawContext context, int x, int y, boolean isInput, int color) {
@@ -722,6 +723,10 @@ public class NodeGraph {
         return cameraY;
     }
     
+    public void setSidebarWidth(int sidebarWidth) {
+        this.sidebarWidthForRendering = sidebarWidth;
+    }
+    
     /**
      * Handle node click and detect double-clicks for parameter editing
      * Returns true if a double-click was detected and the popup should open
@@ -763,81 +768,8 @@ public class NodeGraph {
     
     public boolean handleStartButtonClick() {
         // Execute the node graph
-        executeNodeGraph();
+        ExecutionManager.getInstance().executeGraph(nodes, connections);
         return true; // Signal that the click was handled
-    }
-    
-    private void executeNodeGraph() {
-        // Find the START node
-        Node startNode = null;
-        for (Node node : nodes) {
-            if (node.getType() == NodeType.START) {
-                startNode = node;
-                break;
-            }
-        }
-        
-        if (startNode == null) {
-            System.out.println("No START node found!");
-            return;
-        }
-        
-        // Start execution and notify the execution manager
-        ExecutionManager.getInstance().startExecution(startNode);
-        System.out.println("Executing node graph...");
-        
-        // Execute nodes sequentially using CompletableFuture
-        executeNodesSequentially(startNode);
-    }
-    
-    private void executeNodesSequentially(Node startNode) {
-        // Execute nodes sequentially, waiting for each to complete before starting the next
-        executeNodeAndContinue(startNode);
-    }
-    
-    private void executeNodeAndContinue(Node currentNode) {
-        System.out.println("Executing node: " + currentNode.getType().getDisplayName());
-        
-        // Update the execution manager with the current active node
-        ExecutionManager.getInstance().setActiveNode(currentNode);
-        
-        // Execute the node and wait for completion
-        currentNode.execute().thenRun(() -> {
-            System.out.println("Node completed: " + currentNode.getType());
-            
-            // Check if this was the END node
-            if (currentNode.getType() == NodeType.END) {
-                System.out.println("Node graph execution complete!");
-                ExecutionManager.getInstance().stopExecution();
-                return;
-            }
-            
-            // Find the next connected node
-            Node nextNode = getNextConnectedNode(currentNode);
-            
-            if (nextNode != null) {
-                System.out.println("Proceeding to next node: " + nextNode.getType());
-                // Execute the next node
-                executeNodeAndContinue(nextNode);
-            } else {
-                System.out.println("No next node found - stopping execution");
-                ExecutionManager.getInstance().stopExecution();
-            }
-        }).exceptionally(throwable -> {
-            System.err.println("Error executing node " + currentNode.getType() + ": " + throwable.getMessage());
-            throwable.printStackTrace();
-            ExecutionManager.getInstance().stopExecution();
-            return null;
-        });
-    }
-    
-    private Node getNextConnectedNode(Node currentNode) {
-        for (NodeConnection connection : connections) {
-            if (connection.getOutputNode() == currentNode && connection.getOutputSocket() == 0) {
-                return connection.getInputNode();
-            }
-        }
-        return null;
     }
     
     
@@ -893,6 +825,7 @@ public class NodeGraph {
                     NodeParameter param = new NodeParameter(paramData.getName(), paramType, paramData.getValue());
                     node.getParameters().add(param);
                 }
+                node.recalculateDimensions();
                 
                 nodes.add(node);
                 nodeMap.put(nodeData.getId(), node);
@@ -929,4 +862,3 @@ public class NodeGraph {
         return NodeGraphPersistence.hasSavedNodeGraph();
     }
 }
-
