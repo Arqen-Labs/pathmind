@@ -289,30 +289,31 @@ public class NodeGraph {
     }
 
     public void updateDrag(int mouseX, int mouseY) {
+        int worldMouseX = mouseX + cameraX;
+        int worldMouseY = mouseY + cameraY;
+
         if (draggingNode != null) {
-            int newX = mouseX + cameraX - draggingNode.getDragOffsetX();
-            int newY = mouseY + cameraY - draggingNode.getDragOffsetY();
+            int newX = worldMouseX - draggingNode.getDragOffsetX();
+            int newY = worldMouseY - draggingNode.getDragOffsetY();
             draggingNode.setPosition(newX, newY);
 
+            boolean hideSockets = false;
             if (draggingNode.isSensorNode()) {
                 sensorDropTarget = null;
                 actionDropTarget = null;
-                int worldMouseX = mouseX + cameraX;
-                int worldMouseY = mouseY + cameraY;
                 for (Node node : nodes) {
                     if (!node.canAcceptSensor() || node == draggingNode) {
                         continue;
                     }
                     if (node.isPointInsideSensorSlot(worldMouseX, worldMouseY)) {
                         sensorDropTarget = node;
+                        hideSockets = true;
                         break;
                     }
                 }
             } else {
                 sensorDropTarget = null;
                 actionDropTarget = null;
-                int worldMouseX = mouseX + cameraX;
-                int worldMouseY = mouseY + cameraY;
                 for (Node node : nodes) {
                     if (!node.canAcceptActionNode() || node == draggingNode) {
                         continue;
@@ -322,26 +323,29 @@ public class NodeGraph {
                     }
                     if (node.isPointInsideActionSlot(worldMouseX, worldMouseY)) {
                         actionDropTarget = node;
+                        hideSockets = true;
                         break;
                     }
                 }
             }
+            draggingNode.setSocketsHidden(hideSockets);
         }
         if (isDraggingConnection) {
-            connectionDragX = mouseX + cameraX;
-            connectionDragY = mouseY + cameraY;
+            connectionDragX = worldMouseX;
+            connectionDragY = worldMouseY;
 
             // Check for socket snapping
             hoveredNode = null;
             hoveredSocket = -1;
-            
+
             for (Node node : nodes) {
                 if (node == connectionSourceNode) continue;
-                
+                if (!node.shouldRenderSockets()) continue;
+
                 // Check input sockets if dragging from output
                 if (isOutputSocket) {
                     for (int i = 0; i < node.getInputSocketCount(); i++) {
-                        if (node.isSocketClicked(mouseX + cameraX, mouseY + cameraY, i, true)) {
+                        if (node.isSocketClicked(worldMouseX, worldMouseY, i, true)) {
                             hoveredNode = node;
                             hoveredSocket = i;
                             hoveredSocketIsInput = true;
@@ -351,7 +355,7 @@ public class NodeGraph {
                 } else {
                     // Check output sockets if dragging from input
                     for (int i = 0; i < node.getOutputSocketCount(); i++) {
-                        if (node.isSocketClicked(mouseX + cameraX, mouseY + cameraY, i, false)) {
+                        if (node.isSocketClicked(worldMouseX, worldMouseY, i, false)) {
                             hoveredNode = node;
                             hoveredSocket = i;
                             hoveredSocketIsInput = false;
@@ -383,22 +387,28 @@ public class NodeGraph {
         if (isDraggingConnection) {
             return;
         }
-        
+
+        int worldMouseX = mouseX + cameraX;
+        int worldMouseY = mouseY + cameraY;
+
         // Check for socket hover
         for (Node node : nodes) {
+            if (!node.shouldRenderSockets()) {
+                continue;
+            }
             // Check input sockets
             for (int i = 0; i < node.getInputSocketCount(); i++) {
-                if (node.isSocketClicked(mouseX, mouseY, i, true)) {
+                if (node.isSocketClicked(worldMouseX, worldMouseY, i, true)) {
                     hoveredSocketNode = node;
                     hoveredSocketIndex = i;
                     hoveredSocketIsInput = true;
                     return;
                 }
             }
-            
+
             // Check output sockets
             for (int i = 0; i < node.getOutputSocketCount(); i++) {
-                if (node.isSocketClicked(mouseX, mouseY, i, false)) {
+                if (node.isSocketClicked(worldMouseX, worldMouseY, i, false)) {
                     hoveredSocketNode = node;
                     hoveredSocketIndex = i;
                     hoveredSocketIsInput = false;
@@ -410,18 +420,22 @@ public class NodeGraph {
 
     public void stopDragging() {
         if (draggingNode != null) {
-            if (draggingNode.isSensorNode() && sensorDropTarget != null) {
+            Node node = draggingNode;
+            if (node.isSensorNode() && sensorDropTarget != null) {
                 Node target = sensorDropTarget;
-                Node sensor = draggingNode;
-                sensor.setDragging(false);
-                target.attachSensor(sensor);
-            } else if (!draggingNode.isSensorNode() && actionDropTarget != null) {
-                Node target = actionDropTarget;
-                Node node = draggingNode;
                 node.setDragging(false);
-                target.attachActionNode(node);
+                if (!target.attachSensor(node)) {
+                    node.setSocketsHidden(false);
+                }
+            } else if (!node.isSensorNode() && actionDropTarget != null) {
+                Node target = actionDropTarget;
+                node.setDragging(false);
+                if (!target.attachActionNode(node)) {
+                    node.setSocketsHidden(false);
+                }
             } else {
-                draggingNode.setDragging(false);
+                node.setDragging(false);
+                node.setSocketsHidden(false);
             }
             draggingNode = null;
         }
@@ -556,6 +570,9 @@ public class NodeGraph {
     
     public boolean tryConnectToSocket(Node targetNode, int targetSocket, boolean isInput) {
         if (isDraggingConnection && connectionSourceNode != null) {
+            if (!targetNode.shouldRenderSockets()) {
+                return false;
+            }
             // Validate connection (output can only connect to input)
             if (isInput && connectionSourceNode != targetNode) {
                 // Create new connection
@@ -568,21 +585,23 @@ public class NodeGraph {
     }
     
     public NodeConnection getConnectionAt(int mouseX, int mouseY) {
+        int worldX = screenToWorldX(mouseX);
+        int worldY = screenToWorldY(mouseY);
         for (NodeConnection connection : connections) {
             // Simple check - could be improved with better line collision detection
             Node outputNode = connection.getOutputNode();
             Node inputNode = connection.getInputNode();
-            
+
             int outputX = outputNode.getSocketX(false);
             int outputY = outputNode.getSocketY(connection.getOutputSocket(), false);
             int inputX = inputNode.getSocketX(true);
             int inputY = inputNode.getSocketY(connection.getInputSocket(), true);
-            
+
             // Check if mouse is near the connection line (simplified)
-            if (Math.abs(mouseY - (outputY + inputY) / 2) < 10) {
+            if (Math.abs(worldY - (outputY + inputY) / 2) < 10) {
                 int minX = Math.min(outputX, inputX);
                 int maxX = Math.max(outputX, inputX);
-                if (mouseX >= minX && mouseX <= maxX) {
+                if (worldX >= minX && worldX <= maxX) {
                     return connection;
                 }
             }
@@ -683,26 +702,28 @@ public class NodeGraph {
             );
         }
         
-        // Render input sockets
-        for (int i = 0; i < node.getInputSocketCount(); i++) {
-            boolean isHovered = (hoveredSocketNode == node && hoveredSocketIndex == i && hoveredSocketIsInput);
-            int socketColor = isHovered ? 0xFF87CEEB : node.getType().getColor(); // Light blue when hovered
-            if (isOverSidebar) {
-                socketColor = 0xFF666666; // Grey sockets when over sidebar
+        if (node.shouldRenderSockets()) {
+            // Render input sockets
+            for (int i = 0; i < node.getInputSocketCount(); i++) {
+                boolean isHovered = (hoveredSocketNode == node && hoveredSocketIndex == i && hoveredSocketIsInput);
+                int socketColor = isHovered ? 0xFF87CEEB : node.getType().getColor(); // Light blue when hovered
+                if (isOverSidebar) {
+                    socketColor = 0xFF666666; // Grey sockets when over sidebar
+                }
+                renderSocket(context, node.getSocketX(true) - cameraX, node.getSocketY(i, true) - cameraY, true, socketColor);
             }
-            renderSocket(context, node.getSocketX(true) - cameraX, node.getSocketY(i, true) - cameraY, true, socketColor);
+
+            // Render output sockets
+            for (int i = 0; i < node.getOutputSocketCount(); i++) {
+                boolean isHovered = (hoveredSocketNode == node && hoveredSocketIndex == i && !hoveredSocketIsInput);
+                int socketColor = isHovered ? 0xFF87CEEB : node.getOutputSocketColor(i);
+                if (isOverSidebar) {
+                    socketColor = 0xFF666666; // Grey sockets when over sidebar
+                }
+                renderSocket(context, node.getSocketX(false) - cameraX, node.getSocketY(i, false) - cameraY, false, socketColor);
+            }
         }
 
-        // Render output sockets
-        for (int i = 0; i < node.getOutputSocketCount(); i++) {
-            boolean isHovered = (hoveredSocketNode == node && hoveredSocketIndex == i && !hoveredSocketIsInput);
-            int socketColor = isHovered ? 0xFF87CEEB : node.getOutputSocketColor(i);
-            if (isOverSidebar) {
-                socketColor = 0xFF666666; // Grey sockets when over sidebar
-            }
-            renderSocket(context, node.getSocketX(false) - cameraX, node.getSocketY(i, false) - cameraY, false, socketColor);
-        }
-        
         // Render node content based on type
         if (node.getType() == NodeType.START) {
             // START node - green square with play button
@@ -877,7 +898,11 @@ public class NodeGraph {
         for (NodeConnection connection : connections) {
             Node outputNode = connection.getOutputNode();
             Node inputNode = connection.getInputNode();
-            
+
+            if (!outputNode.shouldRenderSockets() || !inputNode.shouldRenderSockets()) {
+                continue;
+            }
+
             int outputX = outputNode.getSocketX(false) - cameraX;
             int outputY = outputNode.getSocketY(connection.getOutputSocket(), false) - cameraY;
             int inputX = inputNode.getSocketX(true) - cameraX;

@@ -244,21 +244,26 @@ public class PathmindVisualEditorScreen extends Screen {
     
     
     private boolean handleNodeGraphClick(double mouseX, double mouseY, int button) {
+        int worldMouseX = nodeGraph.screenToWorldX((int) mouseX);
+        int worldMouseY = nodeGraph.screenToWorldY((int) mouseY);
         // FIRST check if clicking on ANY socket (before checking node body)
         for (Node node : nodeGraph.getNodes()) {
+            if (!node.shouldRenderSockets()) {
+                continue;
+            }
             // Check input sockets
             for (int i = 0; i < node.getInputSocketCount(); i++) {
-                if (node.isSocketClicked((int)mouseX, (int)mouseY, i, true)) {
+                if (node.isSocketClicked(worldMouseX, worldMouseY, i, true)) {
                     if (button == 0) { // Left click - start dragging connection from input
                         nodeGraph.startDraggingConnection(node, i, false, (int)mouseX, (int)mouseY);
                         return true;
                     }
                 }
             }
-            
+
             // Check output sockets
             for (int i = 0; i < node.getOutputSocketCount(); i++) {
-                if (node.isSocketClicked((int)mouseX, (int)mouseY, i, false)) {
+                if (node.isSocketClicked(worldMouseX, worldMouseY, i, false)) {
                     if (button == 0) { // Left click - start dragging connection from output
                         nodeGraph.startDraggingConnection(node, i, true, (int)mouseX, (int)mouseY);
                         return true;
@@ -342,9 +347,11 @@ public class PathmindVisualEditorScreen extends Screen {
                     Node tempNode = new Node(draggingNodeType, 0, 0);
                     int width = tempNode.getWidth();
                     int height = tempNode.getHeight();
-                    int nodeX = (int)mouseX - width / 2;
-                    int nodeY = (int)mouseY - height / 2;
-                    
+                    int worldMouseX = nodeGraph.screenToWorldX((int) mouseX);
+                    int worldMouseY = nodeGraph.screenToWorldY((int) mouseY);
+                    int nodeX = worldMouseX - width / 2;
+                    int nodeY = worldMouseY - height / 2;
+
                     Node newNode = new Node(draggingNodeType, nodeX, nodeY);
                     nodeGraph.addNode(newNode);
                     nodeGraph.selectNode(newNode);

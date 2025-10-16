@@ -82,6 +82,7 @@ public class Node {
     private Node parentControl;
     private Node attachedActionNode;
     private Node parentActionControl;
+    private boolean socketsHidden;
 
     public Node(NodeType type, int x, int y) {
         this.id = java.util.UUID.randomUUID().toString();
@@ -94,6 +95,7 @@ public class Node {
         this.parentControl = null;
         this.attachedActionNode = null;
         this.parentActionControl = null;
+        this.socketsHidden = false;
         initializeParameters();
         recalculateDimensions();
         resetControlState();
@@ -349,6 +351,9 @@ public class Node {
     }
     
     public boolean isSocketClicked(int mouseX, int mouseY, int socketIndex, boolean isInput) {
+        if (socketsHidden) {
+            return false;
+        }
         int socketX = getSocketX(isInput);
         int socketY = getSocketY(socketIndex, isInput);
         int socketRadius = 6; // Smaller size for more space
@@ -544,6 +549,7 @@ public class Node {
         node.parentActionControl = this;
         node.setDragging(false);
         node.setSelected(false);
+        node.setSocketsHidden(true);
 
         recalculateDimensions();
         updateAttachedActionPosition();
@@ -554,9 +560,18 @@ public class Node {
         if (attachedActionNode != null) {
             Node node = attachedActionNode;
             node.parentActionControl = null;
+            node.setSocketsHidden(false);
             attachedActionNode = null;
             recalculateDimensions();
         }
+    }
+
+    public void setSocketsHidden(boolean hidden) {
+        this.socketsHidden = hidden;
+    }
+
+    public boolean shouldRenderSockets() {
+        return !socketsHidden;
     }
 
     /**
