@@ -23,6 +23,21 @@ repositories {
     // for more information about repositories.
 }
 
+val baritoneApiJar: File by extra {
+    val candidates = listOfNotNull(
+        System.getenv("BARITONE_API_JAR"),
+        project.findProperty("baritoneApiPath") as? String,
+        "libs/baritone-api-fabric-1.15.0.jar",
+        "run/mods/baritone-api-fabric-1.15.0.jar",
+        "/Users/holdenthomas/Documents/baritone/dist/baritone-api-fabric-1.15.0.jar"
+    ).map { file(it) }
+
+    candidates.firstOrNull { it.exists() }
+        ?: throw org.gradle.api.GradleException(
+            "Baritone API jar not found. Set BARITONE_API_JAR, provide -PbaritoneApiPath, or place the jar in libs/."
+        )
+}
+
 dependencies {
     // To change the versions see the gradle.properties file
     minecraft("com.mojang:minecraft:${project.property("minecraft_version")}")
@@ -31,10 +46,10 @@ dependencies {
 
     // Fabric API. This is technically optional, but you probably want it anyway.
     modImplementation("net.fabricmc.fabric-api:fabric-api:${project.property("fabric_api_version")}")
-    
+
     // Baritone API dependency
-    modImplementation(files("/Users/holdenthomas/Documents/baritone/dist/baritone-api-fabric-1.15.0.jar"))
-    
+    modImplementation(files(baritoneApiJar))
+
     // Gson for JSON serialization
     implementation("com.google.code.gson:gson:2.10.1")
 }
