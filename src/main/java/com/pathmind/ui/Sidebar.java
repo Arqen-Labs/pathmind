@@ -119,17 +119,29 @@ public class Sidebar {
         // Render colored tabs
         hoveredCategory = null;
         NodeCategory[] categories = NodeCategory.values();
+        int totalVisibleTabs = 0;
+        for (NodeCategory category : categories) {
+            if (!categoryNodes.get(category).isEmpty()) {
+                totalVisibleTabs++;
+            }
+        }
+
+        int availableTabHeight = Math.max(TAB_SIZE, sidebarHeight - TOP_PADDING * 2);
+        int rowsFromHeight = Math.max(1, (availableTabHeight + TAB_SPACING) / (TAB_SIZE + TAB_SPACING));
+        int minRowsNeeded = totalVisibleTabs > 0 ? (int) Math.ceil(totalVisibleTabs / (double) TAB_COLUMNS) : 1;
+        int rowsPerColumn = Math.max(rowsFromHeight, minRowsNeeded);
+
         int visibleTabIndex = 0; // Track visible tabs separately from array index
         for (int i = 0; i < categories.length; i++) {
             NodeCategory category = categories[i];
-            
+
             // Skip if category has no nodes
             if (categoryNodes.get(category).isEmpty()) {
                 continue;
             }
-            
-            int row = visibleTabIndex / TAB_COLUMNS;
-            int column = visibleTabIndex % TAB_COLUMNS;
+
+            int column = visibleTabIndex / rowsPerColumn;
+            int row = visibleTabIndex % rowsPerColumn;
             int tabY = currentY + row * (TAB_SIZE + TAB_SPACING);
             int tabX = TAB_COLUMN_MARGIN + column * (TAB_SIZE + TAB_COLUMN_SPACING);
             visibleTabIndex++; // Increment only for visible tabs

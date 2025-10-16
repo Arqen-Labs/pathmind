@@ -18,12 +18,12 @@ public class NodeParameterOverlay {
     private static final int CONTENT_START_OFFSET = 32;
     private static final int LABEL_TO_FIELD_OFFSET = 18;
     private static final int FIELD_HEIGHT = 20;
-    private static final int SECTION_SPACING = 16;
-    private static final int BUTTON_TOP_MARGIN = 12;
-    private static final int BOTTOM_PADDING = 20;
+    private static final int SECTION_SPACING = 12;
+    private static final int BUTTON_TOP_MARGIN = 8;
+    private static final int BOTTOM_PADDING = 12;
     private static final int BUTTON_WIDTH = 80;
     private static final int BUTTON_HEIGHT = 20;
-    private static final int MIN_POPUP_HEIGHT = 180;
+    private static final int MIN_POPUP_HEIGHT = 140;
     private static final int DROPDOWN_OPTION_HEIGHT = 20;
     private static final int MIN_POPUP_WIDTH = 300;
     private static final int APPROX_CHAR_WIDTH = 6;
@@ -512,11 +512,22 @@ public class NodeParameterOverlay {
 
         int contentHeight = CONTENT_START_OFFSET;
         if (hasModeSelection()) {
-            contentHeight += LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT + SECTION_SPACING;
+            contentHeight += LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT;
+            if (!node.getParameters().isEmpty()) {
+                contentHeight += SECTION_SPACING;
+            }
         }
-        contentHeight += node.getParameters().size() * (LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT + SECTION_SPACING);
+
+        int paramCount = node.getParameters().size();
+        for (int i = 0; i < paramCount; i++) {
+            contentHeight += LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT;
+            if (i < paramCount - 1) {
+                contentHeight += SECTION_SPACING;
+            }
+        }
+
         contentHeight += BUTTON_TOP_MARGIN + BUTTON_HEIGHT + BOTTOM_PADDING;
-        
+
         this.popupHeight = Math.max(MIN_POPUP_HEIGHT, contentHeight);
         this.popupX = (screenWidth - popupWidth) / 2;
         int availableHeight = Math.max(0, screenHeight - topBarHeight);
