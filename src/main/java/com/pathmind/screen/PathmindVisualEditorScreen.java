@@ -43,6 +43,11 @@ public class PathmindVisualEditorScreen extends Screen {
     private static final int PRESET_DROPDOWN_HEIGHT = 18;
     private static final int PRESET_DROPDOWN_MARGIN = 8;
     private static final int PRESET_OPTION_HEIGHT = 18;
+    private static final int PRESET_TEXT_LEFT_PADDING = 6;
+    private static final int PRESET_DELETE_ICON_SIZE = 8;
+    private static final int PRESET_DELETE_ICON_MARGIN = 6;
+    private static final int PRESET_DELETE_ICON_HITBOX_PADDING = 2;
+    private static final int PRESET_TEXT_ICON_GAP = 4;
     private static final int CREATE_PRESET_POPUP_WIDTH = 320;
     private static final int CREATE_PRESET_POPUP_HEIGHT = 170;
 
@@ -1058,9 +1063,13 @@ public class PathmindVisualEditorScreen extends Screen {
         int borderColor = presetDropdownOpen ? ACCENT_COLOR : GREY_LINE;
         context.drawBorder(dropdownX, dropdownY, PRESET_DROPDOWN_WIDTH, PRESET_DROPDOWN_HEIGHT, borderColor);
 
-        String displayName = activePresetName == null || activePresetName.isEmpty() ? "Default" : activePresetName;
-        String trimmedName = this.textRenderer.trimToWidth(displayName, PRESET_DROPDOWN_WIDTH - 16);
-        context.drawTextWithShadow(this.textRenderer, Text.literal(trimmedName), dropdownX + 6, dropdownY + 5, WHITE);
+        String displayName = activePresetName == null || activePresetName.isEmpty()
+                ? PresetManager.getDefaultPresetName()
+                : activePresetName;
+        int activeTextX = dropdownX + PRESET_TEXT_LEFT_PADDING;
+        int activeTextWidth = PRESET_DROPDOWN_WIDTH - PRESET_TEXT_LEFT_PADDING * 2;
+        String trimmedName = this.textRenderer.trimToWidth(displayName, activeTextWidth);
+        context.drawTextWithShadow(this.textRenderer, Text.literal(trimmedName), activeTextX, dropdownY + 5, WHITE);
 
         int arrowCenterX = dropdownX + PRESET_DROPDOWN_WIDTH - 10;
         int arrowCenterY = dropdownY + PRESET_DROPDOWN_HEIGHT / 2;
@@ -1081,7 +1090,6 @@ public class PathmindVisualEditorScreen extends Screen {
         int optionStartY = dropdownY + PRESET_DROPDOWN_HEIGHT;
         int optionsHeight = getPresetDropdownOptionsHeight();
         context.fill(dropdownX, optionStartY, dropdownX + PRESET_DROPDOWN_WIDTH, optionStartY + optionsHeight, DARK_GREY_ALT);
-        context.drawBorder(dropdownX, optionStartY, PRESET_DROPDOWN_WIDTH, optionsHeight, GREY_LINE);
 
         int optionY = optionStartY;
         for (String preset : availablePresets) {
@@ -1089,8 +1097,36 @@ public class PathmindVisualEditorScreen extends Screen {
             int optionColor = optionHovered ? 0xFF3F3F3F : 0xFF2B2B2B;
             context.fill(dropdownX + 1, optionY + 1, dropdownX + PRESET_DROPDOWN_WIDTH - 1, optionY + PRESET_OPTION_HEIGHT, optionColor);
             int textColor = preset.equals(activePresetName) ? ACCENT_COLOR : WHITE;
-            String presetLabel = this.textRenderer.trimToWidth(preset, PRESET_DROPDOWN_WIDTH - 16);
-            context.drawTextWithShadow(this.textRenderer, Text.literal(presetLabel), dropdownX + 8, optionY + 5, textColor);
+            int textX = dropdownX + PRESET_TEXT_LEFT_PADDING;
+            int textMaxWidth = PRESET_DROPDOWN_WIDTH
+                    - PRESET_TEXT_LEFT_PADDING
+                    - PRESET_DELETE_ICON_SIZE
+                    - PRESET_DELETE_ICON_MARGIN
+                    - PRESET_TEXT_ICON_GAP;
+            String presetLabel = this.textRenderer.trimToWidth(preset, textMaxWidth);
+            context.drawTextWithShadow(this.textRenderer, Text.literal(presetLabel), textX, optionY + 5, textColor);
+
+            boolean deleteDisabled = isPresetDeleteDisabled(preset);
+            int iconLeft = getPresetDeleteIconLeft(dropdownX);
+            int iconTop = getPresetDeleteIconTop(optionY);
+            boolean iconHovered = !deleteDisabled && isPointInPresetDeleteIcon(mouseX, mouseY, optionY, dropdownX);
+            if (iconHovered) {
+                context.fill(iconLeft - PRESET_DELETE_ICON_HITBOX_PADDING,
+                        iconTop - PRESET_DELETE_ICON_HITBOX_PADDING,
+                        iconLeft + PRESET_DELETE_ICON_SIZE + PRESET_DELETE_ICON_HITBOX_PADDING,
+                        iconTop + PRESET_DELETE_ICON_SIZE + PRESET_DELETE_ICON_HITBOX_PADDING,
+                        0x33555555);
+            }
+
+            int iconColor;
+            if (deleteDisabled) {
+                iconColor = 0xFF555555;
+            } else if (iconHovered) {
+                iconColor = ACCENT_COLOR;
+            } else {
+                iconColor = 0xFFCCCCCC;
+            }
+            drawTrashIcon(context, iconLeft, iconTop, iconColor);
             optionY += PRESET_OPTION_HEIGHT;
         }
 
@@ -1099,8 +1135,11 @@ public class PathmindVisualEditorScreen extends Screen {
         boolean createHovered = isPointInRect(mouseX, mouseY, dropdownX + 1, optionY + 1, PRESET_DROPDOWN_WIDTH - 2, PRESET_OPTION_HEIGHT - 1);
         int createColor = createHovered ? 0xFF3F3F3F : 0xFF2B2B2B;
         context.fill(dropdownX + 1, optionY + 1, dropdownX + PRESET_DROPDOWN_WIDTH - 1, optionY + PRESET_OPTION_HEIGHT, createColor);
-        String createLabel = this.textRenderer.trimToWidth("+ Create new preset", PRESET_DROPDOWN_WIDTH - 16);
-        context.drawTextWithShadow(this.textRenderer, Text.literal(createLabel), dropdownX + 8, optionY + 5, ACCENT_COLOR);
+        int createTextWidth = PRESET_DROPDOWN_WIDTH - PRESET_TEXT_LEFT_PADDING * 2;
+        String createLabel = this.textRenderer.trimToWidth("+ Create new preset", createTextWidth);
+        context.drawTextWithShadow(this.textRenderer, Text.literal(createLabel), dropdownX + PRESET_TEXT_LEFT_PADDING, optionY + 5, ACCENT_COLOR);
+
+        context.drawBorder(dropdownX, optionStartY, PRESET_DROPDOWN_WIDTH, optionsHeight, GREY_LINE);
     }
 
     private int getPresetDropdownX() {
@@ -1113,6 +1152,28 @@ public class PathmindVisualEditorScreen extends Screen {
 
     private int getPresetDropdownOptionsHeight() {
         return (availablePresets.size() + 1) * PRESET_OPTION_HEIGHT;
+    }
+
+    private int getPresetDeleteIconLeft(int dropdownX) {
+        return dropdownX + PRESET_DROPDOWN_WIDTH - PRESET_DELETE_ICON_MARGIN - PRESET_DELETE_ICON_SIZE;
+    }
+
+    private int getPresetDeleteIconTop(int optionTop) {
+        return optionTop + (PRESET_OPTION_HEIGHT - PRESET_DELETE_ICON_SIZE) / 2;
+    }
+
+    private boolean isPointInPresetDeleteIcon(int mouseX, int mouseY, int optionTop, int dropdownX) {
+        int iconLeft = getPresetDeleteIconLeft(dropdownX);
+        int iconTop = getPresetDeleteIconTop(optionTop);
+        int hitboxSize = PRESET_DELETE_ICON_SIZE + PRESET_DELETE_ICON_HITBOX_PADDING * 2;
+        return isPointInRect(mouseX, mouseY, iconLeft - PRESET_DELETE_ICON_HITBOX_PADDING, iconTop - PRESET_DELETE_ICON_HITBOX_PADDING, hitboxSize, hitboxSize);
+    }
+
+    private boolean isPresetDeleteDisabled(String presetName) {
+        if (presetName == null) {
+            return true;
+        }
+        return presetName.equalsIgnoreCase(PresetManager.getDefaultPresetName());
     }
 
     private boolean handlePresetDropdownSelection(double mouseX, double mouseY) {
@@ -1129,6 +1190,13 @@ public class PathmindVisualEditorScreen extends Screen {
             int index = relativeY / PRESET_OPTION_HEIGHT;
             if (index >= 0 && index < availablePresets.size()) {
                 String selectedPreset = availablePresets.get(index);
+                int optionTop = optionStartY + index * PRESET_OPTION_HEIGHT;
+                if (isPointInPresetDeleteIcon((int) mouseX, (int) mouseY, optionTop, dropdownX)) {
+                    if (!isPresetDeleteDisabled(selectedPreset)) {
+                        attemptDeletePreset(selectedPreset);
+                    }
+                    return true;
+                }
                 presetDropdownOpen = false;
                 if (!selectedPreset.equals(activePresetName)) {
                     switchPreset(selectedPreset);
@@ -1276,6 +1344,51 @@ public class PathmindVisualEditorScreen extends Screen {
 
         switchPreset(createdPreset.get());
         closeCreatePresetPopup();
+    }
+
+    private void attemptDeletePreset(String presetName) {
+        if (presetName == null || presetName.isEmpty()) {
+            return;
+        }
+
+        if (isPresetDeleteDisabled(presetName)) {
+            return;
+        }
+
+        boolean deletingActive = presetName.equals(activePresetName);
+        String defaultPreset = PresetManager.getDefaultPresetName();
+        String fallbackPreset = availablePresets.stream()
+                .filter(name -> !name.equalsIgnoreCase(presetName))
+                .findFirst()
+                .orElse(defaultPreset);
+
+        if (!PresetManager.deletePreset(presetName)) {
+            return;
+        }
+
+        presetDropdownOpen = false;
+        closeCreatePresetPopup();
+
+        if (deletingActive) {
+            PresetManager.setActivePreset(fallbackPreset);
+        }
+
+        refreshAvailablePresets();
+        nodeGraph.setActivePreset(activePresetName);
+
+        if (deletingActive) {
+            dismissParameterOverlay();
+            isDraggingFromSidebar = false;
+            draggingNodeType = null;
+            clearPopupVisible = false;
+            clearImportExportStatus();
+
+            if (!nodeGraph.load()) {
+                nodeGraph.initializeWithScreenDimensions(this.width, this.height, sidebar.getWidth(), TITLE_BAR_HEIGHT);
+            }
+            nodeGraph.resetCamera();
+            updateImportExportPathFromPreset();
+        }
     }
 
     private void setCreatePresetStatus(String message, int color) {
@@ -1437,6 +1550,19 @@ public class PathmindVisualEditorScreen extends Screen {
         int buttonX = getImportExportButtonX();
         int buttonY = getBottomButtonY();
         return isPointInRect(mouseX, mouseY, buttonX, buttonY, BOTTOM_BUTTON_SIZE, BOTTOM_BUTTON_SIZE);
+    }
+
+    private void drawTrashIcon(DrawContext context, int x, int y, int color) {
+        int handleWidth = Math.max(2, PRESET_DELETE_ICON_SIZE / 2);
+        int handleLeft = x + (PRESET_DELETE_ICON_SIZE - handleWidth) / 2;
+        context.fill(handleLeft, y, handleLeft + handleWidth, y + 1, color);
+
+        context.fill(x, y + 1, x + PRESET_DELETE_ICON_SIZE, y + 3, color);
+        context.fill(x + 1, y + 3, x + PRESET_DELETE_ICON_SIZE - 1, y + PRESET_DELETE_ICON_SIZE, color);
+
+        int slatColor = (color & 0x00FFFFFF) | 0x66000000;
+        context.fill(x + 2, y + 4, x + 3, y + PRESET_DELETE_ICON_SIZE - 1, slatColor);
+        context.fill(x + PRESET_DELETE_ICON_SIZE - 3, y + 4, x + PRESET_DELETE_ICON_SIZE - 2, y + PRESET_DELETE_ICON_SIZE - 1, slatColor);
     }
 
     private boolean isPointInRect(int mouseX, int mouseY, int x, int y, int width, int height) {

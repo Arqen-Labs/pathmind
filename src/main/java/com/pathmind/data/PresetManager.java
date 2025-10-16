@@ -137,6 +137,40 @@ public final class PresetManager {
     }
 
     /**
+     * Delete the preset file with the provided name.
+     *
+     * @param presetName name of the preset to delete
+     * @return {@code true} if the preset file was removed
+     */
+    public static boolean deletePreset(String presetName) {
+        String sanitized = sanitizePresetName(presetName);
+        if (sanitized.isEmpty() || sanitized.equalsIgnoreCase(DEFAULT_PRESET_NAME)) {
+            return false;
+        }
+
+        initialize();
+        Path presetPath = getPresetsDirectory().resolve(sanitized + ".json");
+        if (!Files.exists(presetPath)) {
+            return false;
+        }
+
+        try {
+            Files.delete(presetPath);
+            return true;
+        } catch (IOException e) {
+            System.err.println("Failed to delete preset: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Expose the display name of the default preset.
+     */
+    public static String getDefaultPresetName() {
+        return DEFAULT_PRESET_NAME;
+    }
+
+    /**
      * Resolve the save path for a preset.
      */
     public static Path getPresetPath(String presetName) {
