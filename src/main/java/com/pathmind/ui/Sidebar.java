@@ -5,7 +5,6 @@ import com.pathmind.nodes.NodeCategory;
 import com.pathmind.nodes.NodeType;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.text.Text;
 
 import java.util.ArrayList;
@@ -181,12 +180,11 @@ public class Sidebar {
             float iconX = tabX + (tabSize - scaledWidth) / 2.0f;
             float iconY = tabY + (tabSize - scaledHeight) / 2.0f + 1.0f;
 
-            MatrixStack matrices = context.getMatrices();
-            matrices.push();
-            matrices.translate(iconX, iconY, 0.0f);
-            matrices.scale(TAB_ICON_SCALE, TAB_ICON_SCALE, 1.0f);
+            context.getMatrices().push();
+            context.getMatrices().translate(iconX, iconY, 0.0f);
+            context.getMatrices().scale(TAB_ICON_SCALE, TAB_ICON_SCALE, 1.0f);
             context.drawTextWithShadow(textRenderer, Text.literal(icon), 0, 0, 0xFFFFFFFF);
-            matrices.pop();
+            context.getMatrices().pop();
             
             // Update hover state
             if (tabHovered) {
