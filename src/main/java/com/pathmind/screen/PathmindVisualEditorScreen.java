@@ -11,7 +11,10 @@ import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
+import org.lwjgl.PointerBuffer;
 import org.lwjgl.glfw.GLFW;
+import org.lwjgl.system.MemoryStack;
+import org.lwjgl.util.tinyfd.TinyFileDialogs;
 
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
@@ -62,10 +65,9 @@ public class PathmindVisualEditorScreen extends Screen {
     // Workspace dialogs
     private boolean clearPopupVisible = false;
     private boolean importExportPopupVisible = false;
-    private String importExportPath = "";
+    private Path lastImportExportPath;
     private String importExportStatus = "";
     private int importExportStatusColor = 0xFFCCCCCC;
-    private TextFieldWidget importExportField;
 
     private boolean presetDropdownOpen = false;
     private List<String> availablePresets = new ArrayList<>();
@@ -91,21 +93,6 @@ public class PathmindVisualEditorScreen extends Screen {
 
         refreshAvailablePresets();
         nodeGraph.setActivePreset(activePresetName);
-
-        if (importExportField == null) {
-            importExportField = new TextFieldWidget(this.textRenderer, 0, 0, 200, 20, Text.literal("Import Path"));
-            importExportField.setMaxLength(260);
-            importExportField.setDrawsBackground(false);
-            importExportField.setVisible(false);
-            importExportField.setEditable(false);
-            importExportField.setEditableColor(WHITE);
-            importExportField.setUneditableColor(0xFF888888);
-            importExportField.setChangedListener(value -> {
-                importExportPath = value;
-                clearImportExportStatus();
-            });
-            this.addSelectableChild(importExportField);
-        }
 
         if (createPresetField == null) {
             createPresetField = new TextFieldWidget(this.textRenderer, 0, 0, 200, 20, Text.literal("Preset Name"));
@@ -310,9 +297,6 @@ public class PathmindVisualEditorScreen extends Screen {
         }
 
         if (importExportPopupVisible) {
-            if (importExportField != null && importExportField.mouseClicked(mouseX, mouseY, button)) {
-                return true;
-            }
             if (handleImportExportPopupClick(mouseX, mouseY, button)) {
                 return true;
             }
@@ -476,9 +460,6 @@ public class PathmindVisualEditorScreen extends Screen {
         }
 
         if (importExportPopupVisible) {
-            if (importExportField != null) {
-                importExportField.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
-            }
             return true;
         }
 
@@ -516,9 +497,6 @@ public class PathmindVisualEditorScreen extends Screen {
         }
 
         if (importExportPopupVisible) {
-            if (importExportField != null) {
-                importExportField.mouseReleased(mouseX, mouseY, button);
-            }
             return true;
         }
 
@@ -591,19 +569,8 @@ public class PathmindVisualEditorScreen extends Screen {
         }
 
         if (importExportPopupVisible) {
-            if (importExportField != null && importExportField.keyPressed(keyCode, scanCode, modifiers)) {
-                return true;
-            }
-
             if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
                 closeImportExportPopup();
-                return true;
-            }
-
-            if (keyCode == GLFW.GLFW_KEY_TAB) {
-                if (importExportField != null) {
-                    importExportField.setFocused(!importExportField.isFocused());
-                }
                 return true;
             }
 
@@ -659,9 +626,6 @@ public class PathmindVisualEditorScreen extends Screen {
         }
 
         if (importExportPopupVisible) {
-            if (importExportField != null && importExportField.charTyped(chr, modifiers)) {
-                return true;
-            }
             return true;
         }
 
@@ -689,9 +653,6 @@ public class PathmindVisualEditorScreen extends Screen {
         }
 
         if (importExportPopupVisible) {
-            if (importExportField != null && importExportField.mouseScrolled(mouseX, mouseY, 0.0, verticalAmount)) {
-                return true;
-            }
             return true;
         }
 
@@ -782,52 +743,45 @@ public class PathmindVisualEditorScreen extends Screen {
             WHITE
         );
 
+        int infoY = popupY + 44;
+        String importInfo = "Click Import to load a saved workspace.";
         context.drawTextWithShadow(
             this.textRenderer,
-            Text.literal("Choose a file path to import or export the current layout."),
+            Text.literal(importInfo),
             popupX + 20,
-            popupY + 44,
+            infoY,
+            0xFFCCCCCC
+        );
+
+        String exportInfo = "Click Export to choose where to save the current workspace.";
+        context.drawTextWithShadow(
+            this.textRenderer,
+            Text.literal(exportInfo),
+            popupX + 20,
+            infoY + 14,
             0xFFCCCCCC
         );
 
         Path defaultPath = NodeGraphPersistence.getDefaultSavePath();
         if (defaultPath != null) {
-            String defaultLabel = "Default: " + defaultPath.toString();
+            String defaultLabel = "Default save: " + defaultPath.toString();
             String trimmedDefault = this.textRenderer.trimToWidth(defaultLabel, popupWidth - 40);
             context.drawTextWithShadow(
                 this.textRenderer,
                 Text.literal(trimmedDefault),
                 popupX + 20,
-                popupY + 60,
+                infoY + 30,
                 0xFF888888
             );
         }
 
-        int fieldX = popupX + 20;
-        int fieldY = popupY + 82;
-        int fieldWidth = popupWidth - 40;
-        int fieldHeight = 20;
-        boolean fieldHovered = isPointInRect(mouseX, mouseY, fieldX, fieldY, fieldWidth, fieldHeight);
-
-        context.fill(fieldX, fieldY, fieldX + fieldWidth, fieldY + fieldHeight, 0xFF1F1F1F);
-        boolean focused = importExportField != null && importExportField.isFocused();
-        int borderColor = focused ? ACCENT_COLOR : (fieldHovered ? 0xFF888888 : 0xFF555555);
-        context.drawBorder(fieldX, fieldY, fieldWidth, fieldHeight, borderColor);
-
-        if (importExportField != null) {
-            importExportField.setVisible(true);
-            importExportField.setEditable(true);
-            importExportField.setPosition(fieldX + 4, fieldY + 2);
-            importExportField.setWidth(fieldWidth - 8);
-            importExportField.render(context, mouseX, mouseY, delta);
-        }
-
         if (!importExportStatus.isEmpty()) {
-            String statusText = this.textRenderer.trimToWidth(importExportStatus, fieldWidth);
+            int textAreaWidth = popupWidth - 40;
+            String statusText = this.textRenderer.trimToWidth(importExportStatus, textAreaWidth);
             context.drawTextWithShadow(
                 this.textRenderer,
                 Text.literal(statusText),
-                fieldX,
+                popupX + 20,
                 popupY + popupHeight - 56,
                 importExportStatusColor
             );
@@ -889,11 +843,6 @@ public class PathmindVisualEditorScreen extends Screen {
         int popupHeight = 210;
         int popupX = (this.width - popupWidth) / 2;
         int popupY = (this.height - popupHeight) / 2;
-        int fieldX = popupX + 20;
-        int fieldY = popupY + 82;
-        int fieldWidth = popupWidth - 40;
-        int fieldHeight = 20;
-
         int buttonWidth = 100;
         int buttonHeight = 20;
         int buttonY = popupY + popupHeight - buttonHeight - 16;
@@ -919,9 +868,6 @@ public class PathmindVisualEditorScreen extends Screen {
             return true;
         }
 
-        if (importExportField != null && !importExportField.isMouseOver(mouseX, mouseY)) {
-            importExportField.setFocused(false);
-        }
         return true;
     }
 
@@ -963,41 +909,46 @@ public class PathmindVisualEditorScreen extends Screen {
         presetDropdownOpen = false;
         importExportPopupVisible = true;
         clearImportExportStatus();
-        if (importExportPath == null || importExportPath.isEmpty()) {
-            Path defaultPath = NodeGraphPersistence.getDefaultSavePath();
-            importExportPath = defaultPath != null ? defaultPath.toString() : "";
-        }
-        if (importExportField != null) {
-            importExportField.setVisible(true);
-            importExportField.setEditable(true);
-            importExportField.setText(importExportPath != null ? importExportPath : "");
-            importExportField.setFocused(true);
-            importExportField.setSelectionStart(0);
-            importExportField.setSelectionEnd(importExportField.getText().length());
+        if (lastImportExportPath == null) {
+            lastImportExportPath = NodeGraphPersistence.getDefaultSavePath();
         }
     }
 
     private void closeImportExportPopup() {
         importExportPopupVisible = false;
-        if (importExportField != null) {
-            importExportPath = importExportField.getText();
-            importExportField.setFocused(false);
-            importExportField.setVisible(false);
-            importExportField.setEditable(false);
-        }
     }
 
     private void attemptImport() {
-        String pathText = getCurrentImportExportPath();
-        if (pathText == null || pathText.trim().isEmpty()) {
-            setImportExportStatus("Enter a file path to import.", ERROR_COLOR);
+        String defaultPath = lastImportExportPath != null
+                ? lastImportExportPath.toString()
+                : Optional.ofNullable(NodeGraphPersistence.getDefaultSavePath())
+                    .map(Path::toString)
+                    .orElse("");
+
+        String selection;
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            PointerBuffer filters = stack.mallocPointer(1);
+            filters.put(stack.UTF8("*.json"));
+            filters.flip();
+            selection = TinyFileDialogs.tinyfd_openFileDialog(
+                    "Import Workspace",
+                    defaultPath,
+                    filters,
+                    "JSON Files",
+                    false
+            );
+        }
+
+        if (selection == null) {
+            setImportExportStatus("Import cancelled.", 0xFFCCCCCC);
             return;
         }
 
         try {
-            Path path = Paths.get(pathText.trim());
+            Path path = Paths.get(selection.trim());
             boolean success = nodeGraph.importFromPath(path);
             if (success) {
+                lastImportExportPath = path;
                 Path fileName = path.getFileName();
                 setImportExportStatus("Imported workspace from " + (fileName != null ? fileName.toString() : path.toString()), SUCCESS_COLOR);
             } else {
@@ -1009,16 +960,33 @@ public class PathmindVisualEditorScreen extends Screen {
     }
 
     private void attemptExport() {
-        String pathText = getCurrentImportExportPath();
-        if (pathText == null || pathText.trim().isEmpty()) {
-            setImportExportStatus("Enter a file path to export.", ERROR_COLOR);
+        Path defaultSavePath = Optional.ofNullable(lastImportExportPath)
+                .orElseGet(NodeGraphPersistence::getDefaultSavePath);
+        String defaultPathString = defaultSavePath != null ? defaultSavePath.toString() : "workspace.json";
+
+        String selection;
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            PointerBuffer filters = stack.mallocPointer(1);
+            filters.put(stack.UTF8("*.json"));
+            filters.flip();
+            selection = TinyFileDialogs.tinyfd_saveFileDialog(
+                    "Export Workspace",
+                    defaultPathString,
+                    filters,
+                    "JSON Files"
+            );
+        }
+
+        if (selection == null) {
+            setImportExportStatus("Export cancelled.", 0xFFCCCCCC);
             return;
         }
 
         try {
-            Path path = Paths.get(pathText.trim());
+            Path path = Paths.get(selection.trim());
             boolean success = nodeGraph.exportToPath(path);
             if (success) {
+                lastImportExportPath = path;
                 Path fileName = path.getFileName();
                 setImportExportStatus("Exported workspace to " + (fileName != null ? fileName.toString() : path.toString()), SUCCESS_COLOR);
             } else {
@@ -1037,13 +1005,6 @@ public class PathmindVisualEditorScreen extends Screen {
     private void clearImportExportStatus() {
         importExportStatus = "";
         importExportStatusColor = 0xFFCCCCCC;
-    }
-
-    private String getCurrentImportExportPath() {
-        if (importExportField != null) {
-            return importExportField.getText();
-        }
-        return importExportPath;
     }
 
     private void dismissParameterOverlay() {
@@ -1407,11 +1368,7 @@ public class PathmindVisualEditorScreen extends Screen {
     }
 
     private void updateImportExportPathFromPreset() {
-        Path defaultPath = NodeGraphPersistence.getDefaultSavePath();
-        this.importExportPath = defaultPath != null ? defaultPath.toString() : "";
-        if (importExportField != null) {
-            importExportField.setText(importExportPath);
-        }
+        lastImportExportPath = NodeGraphPersistence.getDefaultSavePath();
     }
 
     private void switchPreset(String presetName) {
