@@ -175,13 +175,16 @@ public class NodeParameterOverlay {
             // Render field text
             String text = parameterValues.get(i);
             if (text != null && !text.isEmpty()) {
-                // Truncate text if it's too long to fit in the field
-                String displayText = text;
-                int maxChars = (fieldWidth - 8) / 6; // Approximate characters that fit
-                if (text.length() > maxChars) {
-                    displayText = text.substring(0, Math.max(0, maxChars - 3)) + "...";
+                int availableWidth = fieldWidth - 8;
+                String displayText = textRenderer.trimToWidth(text, availableWidth);
+
+                if (!displayText.equals(text)) {
+                    int ellipsisWidth = textRenderer.getWidth("...");
+                    int trimmedWidth = Math.max(0, availableWidth - ellipsisWidth);
+                    String trimmed = textRenderer.trimToWidth(text, trimmedWidth);
+                    displayText = trimmed + "...";
                 }
-                
+
                 context.drawTextWithShadow(
                     textRenderer,
                     Text.literal(displayText),
@@ -190,19 +193,13 @@ public class NodeParameterOverlay {
                     0xFFFFFFFF
                 );
             }
-            
+
             // Render cursor if focused
             if (isFocused && (System.currentTimeMillis() / 500) % 2 == 0) {
-                String displayText = text != null ? text : "";
-                int maxChars = (fieldWidth - 8) / 6;
-                if (displayText.length() > maxChars) {
-                    displayText = displayText.substring(0, Math.max(0, maxChars - 3)) + "...";
-                }
-                int cursorX = fieldX + 4 + (displayText.length() * 6);
-                // Make sure cursor doesn't go outside the field
-                if (cursorX < fieldX + fieldWidth - 2) {
-                    context.fill(cursorX, fieldY + 4, cursorX + 1, fieldY + 16, 0xFFFFFFFF);
-                }
+                String value = text != null ? text : "";
+                int cursorX = fieldX + 4 + textRenderer.getWidth(value);
+                cursorX = Math.min(cursorX, fieldX + fieldWidth - 2);
+                context.fill(cursorX, fieldY + 4, cursorX + 1, fieldY + 16, 0xFFFFFFFF);
             }
             
             sectionY = fieldY + fieldHeight + SECTION_SPACING;
