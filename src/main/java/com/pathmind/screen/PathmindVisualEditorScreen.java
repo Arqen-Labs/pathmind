@@ -53,6 +53,21 @@ public class PathmindVisualEditorScreen extends Screen {
     private static final int PRESET_TEXT_ICON_GAP = 4;
     private static final int CREATE_PRESET_POPUP_WIDTH = 320;
     private static final int CREATE_PRESET_POPUP_HEIGHT = 170;
+    private static final int POPUP_SIDE_PADDING = 20;
+    private static final int POPUP_BOTTOM_PADDING = 16;
+    private static final int POPUP_BUTTON_VERTICAL_MARGIN = 16;
+    private static final int POPUP_BUTTON_HEIGHT = 20;
+    private static final int CLEAR_POPUP_WIDTH = 280;
+    private static final int CLEAR_POPUP_BUTTON_WIDTH = 90;
+    private static final int CLEAR_POPUP_TITLE_BASELINE = 14;
+    private static final int CLEAR_POPUP_MESSAGE_BASELINE = 48;
+    private static final int IMPORT_EXPORT_POPUP_WIDTH = 360;
+    private static final int IMPORT_EXPORT_BUTTON_WIDTH = 100;
+    private static final int IMPORT_EXPORT_TITLE_BASELINE = 14;
+    private static final int IMPORT_EXPORT_BODY_BASELINE = 44;
+    private static final int IMPORT_EXPORT_LINE_SPACING = 14;
+    private static final int IMPORT_EXPORT_DEFAULT_SPACING = 16;
+    private static final int IMPORT_EXPORT_STATUS_MARGIN = 12;
 
     private NodeGraph nodeGraph;
     private Sidebar sidebar;
@@ -684,38 +699,98 @@ public class PathmindVisualEditorScreen extends Screen {
         super.close();
     }
 
+    private ClearPopupLayout computeClearPopupLayout() {
+        ClearPopupLayout layout = new ClearPopupLayout();
+        layout.width = CLEAR_POPUP_WIDTH;
+        layout.buttonWidth = CLEAR_POPUP_BUTTON_WIDTH;
+        layout.buttonHeight = POPUP_BUTTON_HEIGHT;
+
+        int messageBaseline = CLEAR_POPUP_MESSAGE_BASELINE;
+        int textBottom = messageBaseline + this.textRenderer.fontHeight;
+        int buttonTop = textBottom + POPUP_BUTTON_VERTICAL_MARGIN;
+
+        layout.height = buttonTop + layout.buttonHeight + POPUP_BOTTOM_PADDING;
+        layout.x = (this.width - layout.width) / 2;
+        layout.y = (this.height - layout.height) / 2;
+        layout.titleBaseline = layout.y + CLEAR_POPUP_TITLE_BASELINE;
+        layout.messageBaseline = layout.y + messageBaseline;
+        layout.buttonY = layout.y + buttonTop;
+        layout.cancelButtonX = layout.x + POPUP_SIDE_PADDING;
+        layout.confirmButtonX = layout.x + layout.width - layout.buttonWidth - POPUP_SIDE_PADDING;
+        return layout;
+    }
+
+    private ImportExportPopupLayout computeImportExportPopupLayout(Path defaultPath) {
+        ImportExportPopupLayout layout = new ImportExportPopupLayout();
+        layout.width = IMPORT_EXPORT_POPUP_WIDTH;
+        layout.buttonWidth = IMPORT_EXPORT_BUTTON_WIDTH;
+        layout.buttonHeight = POPUP_BUTTON_HEIGHT;
+
+        int importBaseline = IMPORT_EXPORT_BODY_BASELINE;
+        int exportBaseline = importBaseline + IMPORT_EXPORT_LINE_SPACING;
+        int lastBaseline = exportBaseline;
+
+        int defaultPathBaseline = -1;
+        if (defaultPath != null) {
+            defaultPathBaseline = exportBaseline + IMPORT_EXPORT_DEFAULT_SPACING;
+            lastBaseline = defaultPathBaseline;
+        }
+
+        int textBottom = lastBaseline + this.textRenderer.fontHeight;
+
+        int statusBaseline = -1;
+        if (!importExportStatus.isEmpty()) {
+            statusBaseline = textBottom + IMPORT_EXPORT_STATUS_MARGIN;
+            textBottom = statusBaseline + this.textRenderer.fontHeight;
+        }
+
+        int buttonTop = textBottom + POPUP_BUTTON_VERTICAL_MARGIN;
+
+        layout.height = buttonTop + layout.buttonHeight + POPUP_BOTTOM_PADDING;
+        layout.x = (this.width - layout.width) / 2;
+        layout.y = (this.height - layout.height) / 2;
+        layout.titleBaseline = layout.y + IMPORT_EXPORT_TITLE_BASELINE;
+        layout.importInfoBaseline = layout.y + importBaseline;
+        layout.exportInfoBaseline = layout.y + exportBaseline;
+        layout.defaultPathBaseline = defaultPathBaseline >= 0 ? layout.y + defaultPathBaseline : -1;
+        layout.statusBaseline = statusBaseline >= 0 ? layout.y + statusBaseline : -1;
+        layout.buttonY = layout.y + buttonTop;
+        layout.importButtonX = layout.x + POPUP_SIDE_PADDING;
+        layout.exportButtonX = layout.importButtonX + layout.buttonWidth + 8;
+        layout.cancelButtonX = layout.x + layout.width - layout.buttonWidth - POPUP_SIDE_PADDING;
+        layout.textWidth = layout.width - POPUP_SIDE_PADDING * 2;
+        return layout;
+    }
+
     private void renderClearConfirmationPopup(DrawContext context, int mouseX, int mouseY) {
         context.fill(0, 0, this.width, this.height, OVERLAY_BACKGROUND);
 
-        int popupWidth = 280;
-        int popupHeight = 150;
-        int popupX = (this.width - popupWidth) / 2;
-        int popupY = (this.height - popupHeight) / 2;
+        ClearPopupLayout layout = computeClearPopupLayout();
 
-        context.fill(popupX, popupY, popupX + popupWidth, popupY + popupHeight, DARK_GREY_ALT);
-        context.drawBorder(popupX, popupY, popupWidth, popupHeight, GREY_LINE);
+        context.fill(layout.x, layout.y, layout.x + layout.width, layout.y + layout.height, DARK_GREY_ALT);
+        context.drawBorder(layout.x, layout.y, layout.width, layout.height, GREY_LINE);
 
         context.drawCenteredTextWithShadow(
             this.textRenderer,
             Text.literal("Clear workspace?"),
-            popupX + popupWidth / 2,
-            popupY + 14,
+            layout.x + layout.width / 2,
+            layout.titleBaseline,
             WHITE
         );
 
         context.drawTextWithShadow(
             this.textRenderer,
             Text.literal("This will remove all nodes from the workspace."),
-            popupX + 20,
-            popupY + 48,
+            layout.x + POPUP_SIDE_PADDING,
+            layout.messageBaseline,
             0xFFCCCCCC
         );
 
-        int buttonWidth = 90;
-        int buttonHeight = 20;
-        int buttonY = popupY + popupHeight - buttonHeight - 16;
-        int cancelX = popupX + 20;
-        int confirmX = popupX + popupWidth - buttonWidth - 20;
+        int buttonWidth = layout.buttonWidth;
+        int buttonHeight = layout.buttonHeight;
+        int buttonY = layout.buttonY;
+        int cancelX = layout.cancelButtonX;
+        int confirmX = layout.confirmButtonX;
 
         boolean cancelHovered = isPointInRect(mouseX, mouseY, cancelX, buttonY, buttonWidth, buttonHeight);
         boolean confirmHovered = isPointInRect(mouseX, mouseY, confirmX, buttonY, buttonWidth, buttonHeight);
@@ -727,72 +802,66 @@ public class PathmindVisualEditorScreen extends Screen {
     private void renderImportExportPopup(DrawContext context, int mouseX, int mouseY, float delta) {
         context.fill(0, 0, this.width, this.height, OVERLAY_BACKGROUND);
 
-        int popupWidth = 360;
-        int popupHeight = 210;
-        int popupX = (this.width - popupWidth) / 2;
-        int popupY = (this.height - popupHeight) / 2;
+        Path defaultPath = NodeGraphPersistence.getDefaultSavePath();
+        ImportExportPopupLayout layout = computeImportExportPopupLayout(defaultPath);
 
-        context.fill(popupX, popupY, popupX + popupWidth, popupY + popupHeight, DARK_GREY_ALT);
-        context.drawBorder(popupX, popupY, popupWidth, popupHeight, GREY_LINE);
+        context.fill(layout.x, layout.y, layout.x + layout.width, layout.y + layout.height, DARK_GREY_ALT);
+        context.drawBorder(layout.x, layout.y, layout.width, layout.height, GREY_LINE);
 
         context.drawCenteredTextWithShadow(
             this.textRenderer,
             Text.literal("Import / Export Workspace"),
-            popupX + popupWidth / 2,
-            popupY + 14,
+            layout.x + layout.width / 2,
+            layout.titleBaseline,
             WHITE
         );
 
-        int infoY = popupY + 44;
-        String importInfo = "Click Import to load a saved workspace.";
+        int textX = layout.x + POPUP_SIDE_PADDING;
         context.drawTextWithShadow(
             this.textRenderer,
-            Text.literal(importInfo),
-            popupX + 20,
-            infoY,
+            Text.literal("Click Import to load a saved workspace."),
+            textX,
+            layout.importInfoBaseline,
             0xFFCCCCCC
         );
 
-        String exportInfo = "Click Export to choose where to save the current workspace.";
         context.drawTextWithShadow(
             this.textRenderer,
-            Text.literal(exportInfo),
-            popupX + 20,
-            infoY + 14,
+            Text.literal("Click Export to choose where to save the current workspace."),
+            textX,
+            layout.exportInfoBaseline,
             0xFFCCCCCC
         );
 
-        Path defaultPath = NodeGraphPersistence.getDefaultSavePath();
         if (defaultPath != null) {
             String defaultLabel = "Default save: " + defaultPath.toString();
-            String trimmedDefault = this.textRenderer.trimToWidth(defaultLabel, popupWidth - 40);
+            String trimmedDefault = this.textRenderer.trimToWidth(defaultLabel, layout.textWidth);
             context.drawTextWithShadow(
                 this.textRenderer,
                 Text.literal(trimmedDefault),
-                popupX + 20,
-                infoY + 30,
+                textX,
+                layout.defaultPathBaseline,
                 0xFF888888
             );
         }
 
-        if (!importExportStatus.isEmpty()) {
-            int textAreaWidth = popupWidth - 40;
-            String statusText = this.textRenderer.trimToWidth(importExportStatus, textAreaWidth);
+        if (!importExportStatus.isEmpty() && layout.statusBaseline >= 0) {
+            String statusText = this.textRenderer.trimToWidth(importExportStatus, layout.textWidth);
             context.drawTextWithShadow(
                 this.textRenderer,
                 Text.literal(statusText),
-                popupX + 20,
-                popupY + popupHeight - 56,
+                textX,
+                layout.statusBaseline,
                 importExportStatusColor
             );
         }
 
-        int buttonWidth = 100;
-        int buttonHeight = 20;
-        int buttonY = popupY + popupHeight - buttonHeight - 16;
-        int importX = popupX + 20;
-        int exportX = importX + buttonWidth + 8;
-        int cancelX = popupX + popupWidth - buttonWidth - 20;
+        int buttonWidth = layout.buttonWidth;
+        int buttonHeight = layout.buttonHeight;
+        int buttonY = layout.buttonY;
+        int importX = layout.importButtonX;
+        int exportX = layout.exportButtonX;
+        int cancelX = layout.cancelButtonX;
 
         boolean importHovered = isPointInRect(mouseX, mouseY, importX, buttonY, buttonWidth, buttonHeight);
         boolean exportHovered = isPointInRect(mouseX, mouseY, exportX, buttonY, buttonWidth, buttonHeight);
@@ -808,15 +877,12 @@ public class PathmindVisualEditorScreen extends Screen {
             return true;
         }
 
-        int popupWidth = 280;
-        int popupHeight = 150;
-        int popupX = (this.width - popupWidth) / 2;
-        int popupY = (this.height - popupHeight) / 2;
-        int buttonWidth = 90;
-        int buttonHeight = 20;
-        int buttonY = popupY + popupHeight - buttonHeight - 16;
-        int cancelX = popupX + 20;
-        int confirmX = popupX + popupWidth - buttonWidth - 20;
+        ClearPopupLayout layout = computeClearPopupLayout();
+        int buttonWidth = layout.buttonWidth;
+        int buttonHeight = layout.buttonHeight;
+        int buttonY = layout.buttonY;
+        int cancelX = layout.cancelButtonX;
+        int confirmX = layout.confirmButtonX;
 
         int mouseXi = (int) mouseX;
         int mouseYi = (int) mouseY;
@@ -839,16 +905,14 @@ public class PathmindVisualEditorScreen extends Screen {
             return true;
         }
 
-        int popupWidth = 360;
-        int popupHeight = 210;
-        int popupX = (this.width - popupWidth) / 2;
-        int popupY = (this.height - popupHeight) / 2;
-        int buttonWidth = 100;
-        int buttonHeight = 20;
-        int buttonY = popupY + popupHeight - buttonHeight - 16;
-        int importX = popupX + 20;
-        int exportX = importX + buttonWidth + 8;
-        int cancelX = popupX + popupWidth - buttonWidth - 20;
+        Path defaultPath = NodeGraphPersistence.getDefaultSavePath();
+        ImportExportPopupLayout layout = computeImportExportPopupLayout(defaultPath);
+        int buttonWidth = layout.buttonWidth;
+        int buttonHeight = layout.buttonHeight;
+        int buttonY = layout.buttonY;
+        int importX = layout.importButtonX;
+        int exportX = layout.exportButtonX;
+        int cancelX = layout.cancelButtonX;
 
         int mouseXi = (int) mouseX;
         int mouseYi = (int) mouseY;
@@ -883,6 +947,39 @@ public class PathmindVisualEditorScreen extends Screen {
             y + (height - this.textRenderer.fontHeight) / 2 + 1,
             WHITE
         );
+    }
+
+    private static final class ClearPopupLayout {
+        int x;
+        int y;
+        int width;
+        int height;
+        int titleBaseline;
+        int messageBaseline;
+        int buttonY;
+        int buttonWidth;
+        int buttonHeight;
+        int cancelButtonX;
+        int confirmButtonX;
+    }
+
+    private static final class ImportExportPopupLayout {
+        int x;
+        int y;
+        int width;
+        int height;
+        int titleBaseline;
+        int importInfoBaseline;
+        int exportInfoBaseline;
+        int defaultPathBaseline;
+        int statusBaseline;
+        int buttonY;
+        int buttonWidth;
+        int buttonHeight;
+        int importButtonX;
+        int exportButtonX;
+        int cancelButtonX;
+        int textWidth;
     }
 
     private void openClearPopup() {

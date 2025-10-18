@@ -553,10 +553,23 @@ public class NodeParameterOverlay {
     private int computeButtonY() {
         int offset = CONTENT_START_OFFSET;
         if (hasModeSelection()) {
-            offset += LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT + SECTION_SPACING;
+            offset += LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT;
+            if (!node.getParameters().isEmpty()) {
+                offset += SECTION_SPACING;
+            }
         }
-        offset += node.getParameters().size() * (LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT + SECTION_SPACING);
-        return popupY + offset + BUTTON_TOP_MARGIN;
+
+        int paramCount = node.getParameters().size();
+        for (int i = 0; i < paramCount; i++) {
+            offset += LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT;
+            if (i < paramCount - 1) {
+                offset += SECTION_SPACING;
+            }
+        }
+
+        int contentDrivenY = popupY + offset + BUTTON_TOP_MARGIN;
+        int bottomAlignedY = popupY + popupHeight - (BOTTOM_PADDING + BUTTON_HEIGHT);
+        return Math.max(contentDrivenY, bottomAlignedY);
     }
     
     private int adjustColorBrightness(int color, float factor) {
