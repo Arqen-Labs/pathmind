@@ -105,15 +105,17 @@ src/main/java/com/pathmind/
 
 ## License
 
-This project is licensed under the **Creative Commons Attribution-NonCommercial 4.0 International License** (CC BY-NC 4.0).
+This project is distributed under the custom **Pathmind License (All Rights Reserved)** as described in the [`LICENSE`](LICENSE)
+file. In summary:
 
-This means you are free to:
-- **Share**: Copy and redistribute the material in any medium or format
-- **Adapt**: Remix, transform, and build upon the material
-
-Under the following terms:
-- **Attribution**: You must give appropriate credit
-- **NonCommercial**: You may not use the material for commercial purposes
+- Redistribution, modification, or re-uploading of the mod is **not permitted** without explicit written permission from the
+  author.
+- You **may create and monetize videos** featuring the mod.
+- Inclusion in modpacks is allowed only if monetization is limited to CurseForge or Modrinth (including sponsored links or
+  banners) unless prior written permission is granted. Modpacks distributed elsewhere must clearly credit the Pathmind project,
+  must not be easily confused with Pathmind or the author's other projects, and must end any additional monetization upon
+  request.
+- The mod is provided “as is” without warranty—use at your own risk.
 
 ## Bug Reports & Feature Requests
 
