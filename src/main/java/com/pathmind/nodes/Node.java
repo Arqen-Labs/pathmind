@@ -2381,8 +2381,8 @@ public class Node {
         
         Hand hand = resolveHand(getParameter("Hand"), Hand.MAIN_HAND);
         boolean swingOnly = getBooleanParameter("SwingOnly", false);
-        boolean attackEntities = getBooleanParameter("AttackEntities", true);
-        boolean attackBlocks = getBooleanParameter("AttackBlocks", true);
+        final boolean attackEntities = getBooleanParameter("AttackEntities", true);
+        final boolean attackBlocks = getBooleanParameter("AttackBlocks", true);
         int repeatCount = Math.max(1, getIntParameter("RepeatCount", 1));
         double intervalSeconds = Math.max(0.0, getDoubleParameter("AttackIntervalSeconds", 0.0));
         boolean sneakWhileAttacking = getBooleanParameter("SneakWhileAttacking", false);
@@ -2393,6 +2393,9 @@ public class Node {
         }
 
         boolean previousSneak = client.player.isSneaking();
+        final boolean finalSwingOnly = swingOnly;
+        final boolean finalAttackEntities = attackEntities;
+        final boolean finalAttackBlocks = attackBlocks;
 
         new Thread(() -> {
             try {
@@ -2408,9 +2411,9 @@ public class Node {
                 for (int i = 0; i < repeatCount; i++) {
                     runOnClientThread(client, () -> {
                         HitResult target = client.crosshairTarget;
-                        if (!swingOnly && target instanceof EntityHitResult entityHit && attackEntities) {
+                        if (!finalSwingOnly && target instanceof EntityHitResult entityHit && finalAttackEntities) {
                             client.interactionManager.attackEntity(client.player, entityHit.getEntity());
-                        } else if (!swingOnly && target instanceof BlockHitResult blockHit && attackBlocks) {
+                        } else if (!finalSwingOnly && target instanceof BlockHitResult blockHit && finalAttackBlocks) {
                             client.interactionManager.attackBlock(blockHit.getBlockPos(), blockHit.getSide());
                         }
 
