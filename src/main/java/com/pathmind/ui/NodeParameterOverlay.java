@@ -210,10 +210,10 @@ public class NodeParameterOverlay {
             sectionY = fieldY + fieldHeight + SECTION_SPACING;
         }
 
+        context.disableScissor();
+
         renderButton(context, textRenderer, saveButton, mouseX, mouseY);
         renderButton(context, textRenderer, cancelButton, mouseX, mouseY);
-
-        context.disableScissor();
 
         if (hasModeSelection() && modeDropdownOpen) {
             int modeButtonX = popupX + 20;
@@ -599,18 +599,15 @@ public class NodeParameterOverlay {
     }
     
     private void recreateButtons() {
-        int buttonBaseY = computeButtonY();
-        int adjustedY = buttonBaseY - scrollOffset;
-
         this.saveButton = ButtonWidget.builder(
             Text.literal("Save"),
             b -> saveParameters()
-        ).dimensions(popupX + 20, adjustedY, BUTTON_WIDTH, BUTTON_HEIGHT).build();
+        ).dimensions(popupX + 20, computeVisibleButtonY(), BUTTON_WIDTH, BUTTON_HEIGHT).build();
 
         this.cancelButton = ButtonWidget.builder(
             Text.literal("Cancel"),
             b -> close()
-        ).dimensions(popupX + popupWidth - (BUTTON_WIDTH + 20), adjustedY, BUTTON_WIDTH, BUTTON_HEIGHT).build();
+        ).dimensions(popupX + popupWidth - (BUTTON_WIDTH + 20), computeVisibleButtonY(), BUTTON_WIDTH, BUTTON_HEIGHT).build();
 
         updateButtonPositions();
     }
@@ -629,8 +626,7 @@ public class NodeParameterOverlay {
     }
 
     private void updateButtonPositions() {
-        int buttonBaseY = computeButtonY();
-        int adjustedY = buttonBaseY - scrollOffset;
+        int adjustedY = computeVisibleButtonY();
 
         if (saveButton != null) {
             saveButton.setX(popupX + 20);
@@ -641,6 +637,14 @@ public class NodeParameterOverlay {
             cancelButton.setX(popupX + popupWidth - (BUTTON_WIDTH + 20));
             cancelButton.setY(adjustedY);
         }
+    }
+
+    private int computeVisibleButtonY() {
+        int base = computeButtonY();
+        int bottomLimit = popupY + popupHeight - BOTTOM_PADDING - BUTTON_HEIGHT;
+        int topLimit = popupY + CONTENT_START_OFFSET;
+        int clamped = Math.min(base, bottomLimit);
+        return Math.max(clamped, topLimit);
     }
 
     private int adjustColorBrightness(int color, float factor) {

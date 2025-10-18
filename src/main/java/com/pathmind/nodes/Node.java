@@ -51,10 +51,10 @@ public class Node {
     private static final int MIN_HEIGHT = 44;
     private static final int CHAR_PIXEL_WIDTH = 6;
     private static final int HEADER_HEIGHT = 18;
-    private static final int PARAM_LINE_HEIGHT = 12;
-    private static final int PARAM_PADDING_TOP = 4;
-    private static final int PARAM_PADDING_BOTTOM = 6;
-    private static final int BODY_PADDING_NO_PARAMS = 12;
+    private static final int PARAM_LINE_HEIGHT = 10;
+    private static final int PARAM_PADDING_TOP = 2;
+    private static final int PARAM_PADDING_BOTTOM = 4;
+    private static final int BODY_PADDING_NO_PARAMS = 10;
     private static final int START_END_SIZE = 36;
     private static final int SENSOR_SLOT_MARGIN_HORIZONTAL = 8;
     private static final int SENSOR_SLOT_INNER_PADDING = 4;
@@ -925,9 +925,10 @@ public class Node {
             NodeParameter nameParam = getParameter("Name");
             String label = nameParam != null ? nameParam.getDisplayValue() : "";
             String text = "Function: " + label;
-            int computedWidth = Math.max(MIN_WIDTH, text.length() * CHAR_PIXEL_WIDTH + 32);
-            this.width = computedWidth;
-            this.height = Math.max(START_END_SIZE + 12, 56);
+            int computedSize = Math.max(MIN_WIDTH, text.length() * CHAR_PIXEL_WIDTH + 32);
+            computedSize = Math.max(computedSize, START_END_SIZE + 12);
+            this.width = computedSize;
+            this.height = computedSize;
             return;
         }
 

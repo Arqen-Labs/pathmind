@@ -801,11 +801,11 @@ public class NodeGraph {
                 // Render parameters
                 int paramY = y + 18;
                 List<NodeParameter> parameters = node.getParameters();
-                
+
                 for (NodeParameter param : parameters) {
                     String displayText = param.getName() + ": " + param.getDisplayValue();
                     displayText = trimTextToWidth(displayText, textRenderer, width - 10);
-                    
+
                     int paramTextColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0; // Grey text when over sidebar
                     context.drawTextWithShadow(
                         textRenderer,
@@ -814,7 +814,7 @@ public class NodeGraph {
                         paramY,
                         paramTextColor
                     );
-                    paramY += 12;
+                    paramY += 10;
                 }
             }
 

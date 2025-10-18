@@ -195,7 +195,14 @@ public class PathmindVisualEditorScreen extends Screen {
                 WHITE
         );
 
-        renderPresetDropdown(context, mouseX, mouseY);
+        if (!isPopupObscuringWorkspace()) {
+            renderPresetDropdown(context, mouseX, mouseY);
+        }
+    }
+
+    private boolean isPopupObscuringWorkspace() {
+        boolean overlayVisible = parameterOverlay != null && parameterOverlay.isVisible();
+        return overlayVisible || clearPopupVisible || importExportPopupVisible || createPresetPopupVisible;
     }
     
     private void renderDraggingNode(DrawContext context, int mouseX, int mouseY) {
