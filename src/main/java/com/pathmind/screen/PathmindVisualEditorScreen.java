@@ -1056,17 +1056,24 @@ public class PathmindVisualEditorScreen extends Screen {
     }
 
     private void drawPlayIcon(DrawContext context, int buttonX, int buttonY, int color) {
-        int iconTop = buttonY + 4;
-        int iconBottom = buttonY + PLAY_BUTTON_SIZE - 4;
-        int iconLeft = buttonX + 5;
-        int iconRight = buttonX + PLAY_BUTTON_SIZE - 5;
-        int iconHeight = iconBottom - iconTop;
+        int centerX = buttonX + PLAY_BUTTON_SIZE / 2;
+        int centerY = buttonY + PLAY_BUTTON_SIZE / 2;
+        int maxTriangle = Math.min(PLAY_BUTTON_SIZE - 6, 10);
+        if (maxTriangle < 4) {
+            maxTriangle = Math.max(PLAY_BUTTON_SIZE - 6, 4);
+        }
 
-        for (int row = 0; row < iconHeight; row++) {
-            int start = iconLeft + row / 2;
-            int end = iconRight;
-            int y = iconTop + row;
-            context.drawHorizontalLine(start, end, y, color);
+        int triangleSize = maxTriangle;
+        int offset = Math.max(1, Math.round(triangleSize * 0.1f));
+
+        for (int i = 0; i < triangleSize; i++) {
+            int lineWidth = i + 1;
+            int lineY = centerY - triangleSize / 2 + i;
+
+            if (lineY >= buttonY + 2 && lineY <= buttonY + PLAY_BUTTON_SIZE - 3) {
+                int startX = centerX - triangleSize / 2 + offset;
+                context.drawHorizontalLine(startX, startX + lineWidth, lineY, color);
+            }
         }
     }
 
