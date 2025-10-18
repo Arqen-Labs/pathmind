@@ -107,8 +107,8 @@ public class NodeParameterOverlay {
 
         updateButtonPositions();
 
-        int contentTop = popupY + CONTENT_START_OFFSET;
-        int contentBottom = popupY + popupHeight - BOTTOM_PADDING;
+        int contentTop = getScrollAreaTop();
+        int contentBottom = getScrollAreaBottom();
         int contentRight = popupX + popupWidth;
 
         context.enableScissor(popupX + 1, contentTop, contentRight - 1, contentBottom);
@@ -258,7 +258,7 @@ public class NodeParameterOverlay {
             }
         }
 
-        renderScrollbar(context);
+        renderScrollbar(context, contentTop, contentBottom);
     }
 
     private void renderButton(DrawContext context, TextRenderer textRenderer, ButtonWidget button, int mouseX, int mouseY) {
@@ -283,22 +283,22 @@ public class NodeParameterOverlay {
         );
     }
 
-    private void renderScrollbar(DrawContext context) {
+    private void renderScrollbar(DrawContext context, int contentTop, int contentBottom) {
         if (maxScroll <= 0) {
             return;
         }
 
         int trackLeft = popupX + popupWidth - 12;
         int trackRight = trackLeft + SCROLLBAR_WIDTH;
-        int trackTop = popupY + CONTENT_START_OFFSET;
-        int trackBottom = popupY + popupHeight - BOTTOM_PADDING;
+        int trackTop = contentTop;
+        int trackBottom = contentBottom;
         int trackHeight = Math.max(1, trackBottom - trackTop);
 
         context.fill(trackLeft, trackTop, trackRight, trackBottom, 0xFF1A1A1A);
         context.drawBorder(trackLeft, trackTop, SCROLLBAR_WIDTH, trackHeight, 0xFF444444);
 
-        int visibleScrollableHeight = Math.max(1, popupHeight - CONTENT_START_OFFSET - BOTTOM_PADDING);
-        int totalScrollableHeight = Math.max(visibleScrollableHeight, totalContentHeight - CONTENT_START_OFFSET - BOTTOM_PADDING);
+        int visibleScrollableHeight = Math.max(1, contentBottom - contentTop);
+        int totalScrollableHeight = Math.max(visibleScrollableHeight, visibleScrollableHeight + maxScroll);
         int knobHeight = Math.max(20, (int) ((float) visibleScrollableHeight / totalScrollableHeight * trackHeight));
         int maxKnobTravel = Math.max(0, trackHeight - knobHeight);
         int knobOffset = maxKnobTravel <= 0 ? 0 : (int) ((float) scrollOffset / (float) maxScroll * maxKnobTravel);
@@ -323,8 +323,8 @@ public class NodeParameterOverlay {
         }
 
         // Check mode selector click
-        int contentTop = popupY + CONTENT_START_OFFSET;
-        int contentBottom = popupY + popupHeight - BOTTOM_PADDING;
+        int contentTop = getScrollAreaTop();
+        int contentBottom = getScrollAreaBottom();
         int labelY = contentTop - scrollOffset;
         if (hasModeSelection()) {
             int modeButtonX = popupX + 20;
@@ -653,5 +653,21 @@ public class NodeParameterOverlay {
         int g = Math.min(255, Math.max(0, Math.round(((color >> 8) & 0xFF) * factor)));
         int b = Math.min(255, Math.max(0, Math.round((color & 0xFF) * factor)));
         return (a << 24) | (r << 16) | (g << 8) | b;
+    }
+
+    private int getScrollAreaTop() {
+        return popupY + CONTENT_START_OFFSET;
+    }
+
+    private int getScrollAreaBottom() {
+        int top = getScrollAreaTop();
+        int baseBottom = popupY + popupHeight - BOTTOM_PADDING;
+        int buttonTop = saveButton != null ? saveButton.getY() : computeVisibleButtonY();
+        int limitedBottom = buttonTop - 4;
+        int bottom = Math.min(baseBottom, limitedBottom);
+        if (bottom <= top) {
+            bottom = Math.max(top + 1, baseBottom);
+        }
+        return bottom;
     }
 }

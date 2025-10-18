@@ -231,6 +231,7 @@ public class Node {
 
     public boolean canAcceptSensor() {
         switch (type) {
+            case CONTROL_IF:
             case CONTROL_IF_ELSE:
             case CONTROL_REPEAT_UNTIL:
                 return true;
@@ -320,7 +321,7 @@ public class Node {
         if (type == NodeType.CONTROL_FOREVER) {
             return 0;
         }
-        if (type == NodeType.CONTROL_IF_ELSE) {
+        if (type == NodeType.CONTROL_IF_ELSE || type == NodeType.CONTROL_IF) {
             return 2;
         }
         return 1;
@@ -332,6 +333,12 @@ public class Node {
                 return 0xFF4CAF50; // Green for true branch
             } else if (socketIndex == 1) {
                 return 0xFFF44336; // Red for false branch
+            }
+        } else if (type == NodeType.CONTROL_IF) {
+            if (socketIndex == 0) {
+                return 0xFF4CAF50;
+            } else if (socketIndex == 1) {
+                return 0xFFB0BEC5; // Neutral grey for skipped branch
             }
         }
         return getType().getColor();
@@ -825,6 +832,8 @@ public class Node {
             case CONTROL_REPEAT:
                 parameters.add(new NodeParameter("Count", ParameterType.INTEGER, "10"));
                 break;
+            case CONTROL_IF:
+                break;
             case CONTROL_IF_ELSE:
                 break;
             case EVENT_FUNCTION:
@@ -1080,6 +1089,9 @@ public class Node {
                 break;
             case CONTROL_FOREVER:
                 executeControlForever(future);
+                break;
+            case CONTROL_IF:
+                executeControlIf(future);
                 break;
             case CONTROL_IF_ELSE:
                 executeControlIfElse(future);
@@ -1582,7 +1594,13 @@ public class Node {
         setNextOutputSocket(0);
         future.complete(null);
     }
-    
+
+    private void executeControlIf(CompletableFuture<Void> future) {
+        boolean condition = evaluateConditionFromParameters();
+        setNextOutputSocket(condition ? 0 : 1);
+        future.complete(null);
+    }
+
     private void executeControlIfElse(CompletableFuture<Void> future) {
         boolean condition = evaluateConditionFromParameters();
         setNextOutputSocket(condition ? 0 : 1);
