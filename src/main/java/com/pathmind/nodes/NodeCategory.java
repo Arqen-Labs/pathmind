@@ -10,6 +10,7 @@ public enum NodeCategory {
     WORLD("World Automation", 0xFF4CAF50, "Mining, building, and exploration tasks", "🌍"),
     INTERACTION("Interaction", 0xFF7E57C2, "Combat and interaction commands", "✋"),
     INVENTORY("Inventory", 0xFF8D6E63, "Inventory and equipment management", "🎒"),
+    SENSORS("Sensors", 0xFF64B5F6, "Environment and state checks", "📡"),
     UTILITY("Utility", 0xFF9E9E9E, "Utility and messaging tools", "⚙");
 
     private final String displayName;

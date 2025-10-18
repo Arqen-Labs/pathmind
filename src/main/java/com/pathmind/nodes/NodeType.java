@@ -141,6 +141,7 @@ public enum NodeType {
             case CONTROL_FOREVER:
             case CONTROL_IF:
             case CONTROL_IF_ELSE:
+                return NodeCategory.LOGIC;
             case SENSOR_TOUCHING_BLOCK:
             case SENSOR_TOUCHING_ENTITY:
             case SENSOR_AT_COORDINATES:
@@ -157,7 +158,7 @@ public enum NodeType {
             case SENSOR_IS_IN_LAVA:
             case SENSOR_IS_UNDERWATER:
             case SENSOR_IS_FALLING:
-                return NodeCategory.LOGIC;
+                return NodeCategory.SENSORS;
             case GOTO:
             case GOAL:
             case PATH:

@@ -1056,11 +1056,15 @@ public class PathmindVisualEditorScreen extends Screen {
     }
 
     private void drawPlayIcon(DrawContext context, int buttonX, int buttonY, int color) {
-        int iconLeft = buttonX + (PLAY_BUTTON_SIZE / 2) - 3;
-        int iconTop = buttonY + (PLAY_BUTTON_SIZE / 2) - 4;
-        for (int row = 0; row < 7; row++) {
+        int iconTop = buttonY + 4;
+        int iconBottom = buttonY + PLAY_BUTTON_SIZE - 4;
+        int iconLeft = buttonX + 5;
+        int iconRight = buttonX + PLAY_BUTTON_SIZE - 5;
+        int iconHeight = iconBottom - iconTop;
+
+        for (int row = 0; row < iconHeight; row++) {
             int start = iconLeft + row / 2;
-            int end = iconLeft + 6;
+            int end = iconRight;
             int y = iconTop + row;
             context.drawHorizontalLine(start, end, y, color);
         }
@@ -1578,6 +1582,9 @@ public class PathmindVisualEditorScreen extends Screen {
         isDraggingFromSidebar = false;
         draggingNodeType = null;
         ExecutionManager.getInstance().executeGraph(nodeGraph.getNodes(), nodeGraph.getConnections());
+        if (this.client != null) {
+            this.client.setScreen(null);
+        }
     }
 
     private void drawTrashIcon(DrawContext context, int x, int y, int color) {
