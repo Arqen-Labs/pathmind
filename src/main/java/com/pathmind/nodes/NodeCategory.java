@@ -12,7 +12,6 @@ public enum NodeCategory {
     PLAYER_MOVEMENT("Player Movement", 0xFF26C6DA, "Player locomotion and view actions", "⇄"),
     PLAYER_COMBAT("Player Combat", 0xFFFF5252, "Offensive player actions", "⚔"),
     PLAYER_INTERACTION("Player Interaction", 0xFF7E57C2, "Block and entity interaction actions", "✋"),
-    PLAYER_CONSUMABLES("Consumables", 0xFFFF8A65, "Eating and drinking actions", "🍖"),
     PLAYER_INVENTORY("Inventory", 0xFF8D6E63, "Inventory and hotbar management", "🎒"),
     PLAYER_EQUIPMENT("Equipment", 0xFF66BB6A, "Armor and held item management", "🛡"),
     WAYPOINTS("Waypoints", 0xFF9C27B0, "Waypoint management commands", "📍"),
