@@ -656,6 +656,11 @@ public class PathmindVisualEditorScreen extends Screen {
             return true;
         }
 
+        if (parameterOverlay != null && parameterOverlay.isVisible()) {
+            parameterOverlay.mouseScrolled(mouseX, mouseY, verticalAmount);
+            return true;
+        }
+
         if (presetDropdownOpen) {
             return true;
         }
