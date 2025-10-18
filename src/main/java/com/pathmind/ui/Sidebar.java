@@ -180,11 +180,11 @@ public class Sidebar {
             float iconX = tabX + (tabSize - scaledWidth) / 2.0f;
             float iconY = tabY + (tabSize - scaledHeight) / 2.0f + 1.0f;
 
-            context.getMatrices().push();
-            context.getMatrices().translate(iconX, iconY, 0.0f);
-            context.getMatrices().scale(TAB_ICON_SCALE, TAB_ICON_SCALE, 1.0f);
+            context.getMatrices().pushMatrix();
+            context.getMatrices().translate(iconX, iconY);
+            context.getMatrices().scale(TAB_ICON_SCALE, TAB_ICON_SCALE);
             context.drawTextWithShadow(textRenderer, Text.literal(icon), 0, 0, 0xFFFFFFFF);
-            context.getMatrices().pop();
+            context.getMatrices().popMatrix();
             
             // Update hover state
             if (tabHovered) {
