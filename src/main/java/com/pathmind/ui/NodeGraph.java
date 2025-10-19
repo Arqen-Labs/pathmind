@@ -625,12 +625,6 @@ public class NodeGraph {
             collectNodesForCascade(node.getAttachedActionNode(), order, visited);
         }
 
-        for (NodeConnection connection : connections) {
-            if (connection.getOutputNode() == node) {
-                collectNodesForCascade(connection.getInputNode(), order, visited);
-            }
-        }
-
         order.add(node);
     }
     

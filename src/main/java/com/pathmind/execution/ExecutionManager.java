@@ -382,8 +382,22 @@ public class ExecutionManager {
         if (isExecuting) {
             return true;
         }
-        
-        // Show overlay for minimum duration after execution ends
+
+        return isCompletionDisplayActive();
+    }
+
+    /**
+     * Returns true when the overlay should show completion state messaging.
+     */
+    public boolean isDisplayingCompletion() {
+        if (isExecuting) {
+            return false;
+        }
+
+        return isCompletionDisplayActive();
+    }
+
+    private boolean isCompletionDisplayActive() {
         if (executionEndTime > 0 && activeNode != null) {
             long timeSinceEnd = System.currentTimeMillis() - executionEndTime;
             if (timeSinceEnd < MINIMUM_DISPLAY_DURATION) {
@@ -394,7 +408,6 @@ public class ExecutionManager {
                 this.executionEndTime = 0;
             }
         }
-        
         return false;
     }
 

@@ -18,6 +18,7 @@ public class ActiveNodeOverlay {
     private static final int BORDER_COLOR = 0xFF666666; // Grey border
     private static final int TEXT_COLOR = 0xFFFFFFFF; // White text
     private static final int ACCENT_COLOR = 0xFF87CEEB; // Light blue accent
+    private static final int COMPLETION_COLOR = 0xFFFF5555; // Red for completion state
     
     private final ExecutionManager executionManager;
     
@@ -30,9 +31,10 @@ public class ActiveNodeOverlay {
      */
     public void render(DrawContext context, TextRenderer textRenderer, int screenWidth, int screenHeight) {
         boolean isExecuting = executionManager.isExecuting();
+        boolean showingCompletion = executionManager.isDisplayingCompletion();
         Node activeNode = executionManager.getActiveNode();
-        
-        if (!isExecuting || activeNode == null) {
+
+        if ((!isExecuting && !showingCompletion) || (!showingCompletion && activeNode == null)) {
             return;
         }
         int overlayX = screenWidth - OVERLAY_WIDTH - MARGIN;
@@ -59,8 +61,16 @@ public class ActiveNodeOverlay {
         );
         
         // Render node type with color (right-aligned)
-        String nodeTypeName = activeNode.getType().getDisplayName();
-        int nodeColor = activeNode.getType().getColor();
+        String nodeTypeName;
+        int nodeColor;
+
+        if (showingCompletion) {
+            nodeTypeName = "End";
+            nodeColor = COMPLETION_COLOR;
+        } else {
+            nodeTypeName = activeNode.getType().getDisplayName();
+            nodeColor = activeNode.getType().getColor();
+        }
         int nodeTypeWidth = textRenderer.getWidth(nodeTypeName);
         context.drawTextWithShadow(
             textRenderer,
@@ -83,14 +93,14 @@ public class ActiveNodeOverlay {
         );
         
         // Render status indicator (right-aligned)
-        String statusText = "Executing...";
+        String statusText = showingCompletion ? "Finished" : "Executing...";
         int statusWidth = textRenderer.getWidth(statusText);
         context.drawTextWithShadow(
             textRenderer,
             Text.literal(statusText),
             textRightX - statusWidth,
             overlayY + 42,
-            ACCENT_COLOR
+            showingCompletion ? COMPLETION_COLOR : ACCENT_COLOR
         );
         
         // Render a small colored indicator dot (top left)
