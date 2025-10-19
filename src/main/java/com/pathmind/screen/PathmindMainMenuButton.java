@@ -1,7 +1,6 @@
 package com.pathmind.screen;
 
 import com.pathmind.PathmindMod;
-import net.minecraft.client.gl.RenderPipelines;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.tooltip.Tooltip;
 import net.minecraft.client.gui.widget.ButtonWidget;
@@ -12,7 +11,7 @@ import net.minecraft.util.Identifier;
  * A small icon button used on the title screen to open the Pathmind visual editor.
  */
 public class PathmindMainMenuButton extends ButtonWidget {
-    private static final Identifier ICON_TEXTURE = PathmindMod.id("icon.png");
+    private static final Identifier ICON_TEXTURE = PathmindMod.id("logo.png");
     private static final int ICON_PADDING = 2;
 
     public PathmindMainMenuButton(int x, int y, int size, PressAction pressAction) {
@@ -28,6 +27,6 @@ public class PathmindMainMenuButton extends ButtonWidget {
         int iconX = this.getX() + ICON_PADDING;
         int iconY = this.getY() + ICON_PADDING;
 
-        context.drawGuiTexture(RenderPipelines.GUI_TEXTURED, ICON_TEXTURE, iconX, iconY, iconSize, iconSize);
+        context.drawTexture(ICON_TEXTURE, iconX, iconY, 0, 0, iconSize, iconSize, 128, 128);
     }
 }
