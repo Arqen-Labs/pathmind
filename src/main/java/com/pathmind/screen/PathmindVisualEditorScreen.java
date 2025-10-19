@@ -56,8 +56,6 @@ public class PathmindVisualEditorScreen extends Screen {
     private static final int CREATE_PRESET_POPUP_HEIGHT = 170;
     private static final int PLAY_BUTTON_SIZE = 18;
     private static final int PLAY_BUTTON_MARGIN = 8;
-    private static final int STOP_BUTTON_SIZE = 18;
-    private static final int CONTROL_BUTTON_GAP = 6;
 
     private NodeGraph nodeGraph;
     private Sidebar sidebar;
@@ -201,7 +199,6 @@ public class PathmindVisualEditorScreen extends Screen {
         );
 
         if (!isPopupObscuringWorkspace()) {
-            renderStopButton(context, mouseX, mouseY);
             renderPlayButton(context, mouseX, mouseY);
             renderPresetDropdown(context, mouseX, mouseY);
         }
@@ -317,17 +314,10 @@ public class PathmindVisualEditorScreen extends Screen {
             return true;
         }
 
-        if (!isPopupObscuringWorkspace() && button == 0) {
-            if (isPointInPlayButton((int) mouseX, (int) mouseY)) {
-                presetDropdownOpen = false;
-                startExecutingAllGraphs();
-                return true;
-            }
-            if (isPointInStopButton((int) mouseX, (int) mouseY)) {
-                presetDropdownOpen = false;
-                stopExecutingAllGraphs();
-                return true;
-            }
+        if (!isPopupObscuringWorkspace() && button == 0 && isPointInPlayButton((int) mouseX, (int) mouseY)) {
+            presetDropdownOpen = false;
+            startExecutingAllGraphs();
+            return true;
         }
 
         if (button == 0) {
@@ -1050,71 +1040,39 @@ public class PathmindVisualEditorScreen extends Screen {
         boolean hovered = isPointInRect(mouseX, mouseY, buttonX, buttonY, PLAY_BUTTON_SIZE, PLAY_BUTTON_SIZE);
         boolean executing = ExecutionManager.getInstance().isExecuting();
 
-        int bgColor = executing ? 0xFF243224 : 0xFF2A2A2A;
+        int bgColor = executing ? 0xFF2E3B2E : 0xFF2A2A2A;
         if (hovered) {
-            bgColor = executing ? 0xFF2F4531 : 0xFF353535;
+            bgColor = executing ? 0xFF355237 : 0xFF3B3B3B;
         }
 
-        int borderColor = executing ? SUCCESS_COLOR : GREY_LINE;
-        if (hovered) {
-            borderColor = SUCCESS_COLOR;
-        }
+        int borderColor = (hovered || executing) ? ACCENT_COLOR : GREY_LINE;
         context.fill(buttonX + 1, buttonY + 1, buttonX + PLAY_BUTTON_SIZE - 1, buttonY + PLAY_BUTTON_SIZE - 1, bgColor);
         context.drawBorder(buttonX, buttonY, PLAY_BUTTON_SIZE, PLAY_BUTTON_SIZE, borderColor);
 
-        int iconColor = executing ? SUCCESS_COLOR : 0xFF4CAF50;
-        if (hovered) {
-            iconColor = 0xFF8BE97A;
-        }
+        int iconColor = (hovered || executing) ? ACCENT_COLOR : WHITE;
         drawPlayIcon(context, buttonX, buttonY, iconColor);
     }
 
     private void drawPlayIcon(DrawContext context, int buttonX, int buttonY, int color) {
-        int triangleSize = Math.max(5, Math.min(PLAY_BUTTON_SIZE - 12, 7));
-        int startX = buttonX + (PLAY_BUTTON_SIZE - triangleSize) / 2;
-        int startY = buttonY + (PLAY_BUTTON_SIZE - triangleSize) / 2;
+        int centerX = buttonX + PLAY_BUTTON_SIZE / 2;
+        int centerY = buttonY + PLAY_BUTTON_SIZE / 2;
+        int maxTriangle = Math.min(PLAY_BUTTON_SIZE - 6, 10);
+        if (maxTriangle < 4) {
+            maxTriangle = Math.max(PLAY_BUTTON_SIZE - 6, 4);
+        }
 
-        for (int row = 0; row < triangleSize; row++) {
-            int lineY = startY + row;
-            int lineStartX = Math.max(startX + row / 2, buttonX + 2);
-            int lineEndX = Math.min(startX + triangleSize - 1, buttonX + PLAY_BUTTON_SIZE - 3);
-            if (lineStartX <= lineEndX && lineY >= buttonY + 2 && lineY <= buttonY + PLAY_BUTTON_SIZE - 3) {
-                context.drawHorizontalLine(lineStartX, lineEndX, lineY, color);
+        int triangleSize = maxTriangle;
+        int offset = Math.max(1, Math.round(triangleSize * 0.1f));
+
+        for (int i = 0; i < triangleSize; i++) {
+            int lineWidth = i + 1;
+            int lineY = centerY - triangleSize / 2 + i;
+
+            if (lineY >= buttonY + 2 && lineY <= buttonY + PLAY_BUTTON_SIZE - 3) {
+                int startX = centerX - triangleSize / 2 + offset;
+                context.drawHorizontalLine(startX, startX + lineWidth, lineY, color);
             }
         }
-    }
-
-    private void renderStopButton(DrawContext context, int mouseX, int mouseY) {
-        int buttonX = getStopButtonX();
-        int buttonY = getStopButtonY();
-        boolean hovered = isPointInRect(mouseX, mouseY, buttonX, buttonY, STOP_BUTTON_SIZE, STOP_BUTTON_SIZE);
-        boolean executing = ExecutionManager.getInstance().isExecuting();
-
-        int bgColor = executing ? 0xFF352323 : 0xFF2A2A2A;
-        if (hovered) {
-            bgColor = executing ? 0xFF442C2C : 0xFF353535;
-        }
-
-        int borderColor = executing ? ERROR_COLOR : GREY_LINE;
-        if (hovered) {
-            borderColor = ERROR_COLOR;
-        }
-
-        context.fill(buttonX + 1, buttonY + 1, buttonX + STOP_BUTTON_SIZE - 1, buttonY + STOP_BUTTON_SIZE - 1, bgColor);
-        context.drawBorder(buttonX, buttonY, STOP_BUTTON_SIZE, STOP_BUTTON_SIZE, borderColor);
-
-        int iconColor = executing ? ERROR_COLOR : 0xFFEF9A9A;
-        if (hovered) {
-            iconColor = ERROR_COLOR;
-        }
-        drawStopIcon(context, buttonX, buttonY, iconColor);
-    }
-
-    private void drawStopIcon(DrawContext context, int buttonX, int buttonY, int color) {
-        int squareSize = Math.max(6, STOP_BUTTON_SIZE - 10);
-        int left = buttonX + (STOP_BUTTON_SIZE - squareSize) / 2;
-        int top = buttonY + (STOP_BUTTON_SIZE - squareSize) / 2;
-        context.fill(left, top, left + squareSize, top + squareSize, color);
     }
 
     private void renderPresetDropdown(DrawContext context, int mouseX, int mouseY) {
@@ -1207,7 +1165,7 @@ public class PathmindVisualEditorScreen extends Screen {
     }
 
     private int getPresetDropdownX() {
-        return getStopButtonX() - PRESET_DROPDOWN_MARGIN - PRESET_DROPDOWN_WIDTH;
+        return getPlayButtonX() - PRESET_DROPDOWN_MARGIN - PRESET_DROPDOWN_WIDTH;
     }
 
     private int getPresetDropdownY() {
@@ -1220,14 +1178,6 @@ public class PathmindVisualEditorScreen extends Screen {
 
     private int getPlayButtonY() {
         return TITLE_BAR_HEIGHT + PLAY_BUTTON_MARGIN;
-    }
-
-    private int getStopButtonX() {
-        return getPlayButtonX() - CONTROL_BUTTON_GAP - STOP_BUTTON_SIZE;
-    }
-
-    private int getStopButtonY() {
-        return getPlayButtonY();
     }
 
     private int getPresetDropdownOptionsHeight() {
@@ -1632,10 +1582,6 @@ public class PathmindVisualEditorScreen extends Screen {
         return isPointInRect(mouseX, mouseY, getPlayButtonX(), getPlayButtonY(), PLAY_BUTTON_SIZE, PLAY_BUTTON_SIZE);
     }
 
-    private boolean isPointInStopButton(int mouseX, int mouseY) {
-        return isPointInRect(mouseX, mouseY, getStopButtonX(), getStopButtonY(), STOP_BUTTON_SIZE, STOP_BUTTON_SIZE);
-    }
-
     private void startExecutingAllGraphs() {
         dismissParameterOverlay();
         isDraggingFromSidebar = false;
@@ -1644,10 +1590,6 @@ public class PathmindVisualEditorScreen extends Screen {
         if (this.client != null) {
             this.client.setScreen(null);
         }
-    }
-
-    private void stopExecutingAllGraphs() {
-        ExecutionManager.getInstance().requestStopAll();
     }
 
     private void drawTrashIcon(DrawContext context, int x, int y, int color) {

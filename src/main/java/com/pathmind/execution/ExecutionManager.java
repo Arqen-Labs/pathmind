@@ -34,17 +34,6 @@ public class ExecutionManager {
     private List<NodeConnection> activeConnections;
     private final List<String> executingEvents;
     private volatile boolean cancelRequested;
-    private final Map<Node, ChainController> activeChains;
-
-    private static class ChainController {
-        final Node startNode;
-        volatile boolean cancelRequested;
-
-        ChainController(Node startNode) {
-            this.startNode = startNode;
-            this.cancelRequested = false;
-        }
-    }
 
     private ExecutionManager() {
         this.activeNode = null;
@@ -55,7 +44,6 @@ public class ExecutionManager {
         this.activeConnections = new ArrayList<>();
         this.executingEvents = new ArrayList<>();
         this.cancelRequested = false;
-        this.activeChains = new ConcurrentHashMap<>();
     }
     
     public static ExecutionManager getInstance() {
@@ -85,14 +73,21 @@ public class ExecutionManager {
         this.cancelRequested = false;
 
         startExecution(startNodes);
-        activeChains.clear();
+        CompletableFuture<Void>[] chains = startNodes.stream()
+                .map(this::runChain)
+                .toArray(CompletableFuture[]::new);
 
-        for (Node startNode : startNodes) {
-            ChainController controller = new ChainController(startNode);
-            activeChains.put(startNode, controller);
-            CompletableFuture<Void> chainFuture = runChain(startNode, controller);
-            chainFuture.whenComplete((ignored, throwable) -> handleChainCompletion(controller, throwable));
-        }
+        CompletableFuture<Void> combined = CompletableFuture.allOf(chains);
+        combined.whenComplete((ignored, throwable) -> {
+            if (throwable != null) {
+                System.err.println("ExecutionManager: Error during execution - " + throwable.getMessage());
+                throwable.printStackTrace();
+            }
+            stopExecution();
+            activeNodes.clear();
+            activeConnections.clear();
+            executingEvents.clear();
+        });
     }
 
     public void replayLastGraph() {
@@ -240,16 +235,12 @@ public class ExecutionManager {
      * Request that all executing node chains stop immediately.
      */
     public void requestStopAll() {
-        if (!isExecuting && activeNode == null && activeChains.isEmpty()) {
+        if (!isExecuting && activeNode == null) {
             return;
         }
 
         System.out.println("ExecutionManager: Stop requested for all node trees at time " + System.currentTimeMillis());
-        cancelActiveBaritoneCommands();
         cancelRequested = true;
-        for (ChainController controller : activeChains.values()) {
-            controller.cancelRequested = true;
-        }
         this.isExecuting = false;
         this.activeNode = null;
         this.executionStartTime = 0;
@@ -257,21 +248,6 @@ public class ExecutionManager {
         this.activeNodes.clear();
         this.activeConnections.clear();
         this.executingEvents.clear();
-        this.activeChains.clear();
-    }
-
-    private void cancelActiveBaritoneCommands() {
-        PreciseCompletionTracker.getInstance().cancelAllTasks();
-        try {
-            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
-            if (baritone != null) {
-                baritone.getPathingBehavior().cancelEverything();
-            } else {
-                System.err.println("ExecutionManager: Unable to cancel Baritone commands - Baritone instance unavailable.");
-            }
-        } catch (Exception e) {
-            System.err.println("ExecutionManager: Failed to cancel Baritone commands - " + e.getMessage());
-        }
     }
     
     /**
@@ -352,26 +328,26 @@ public class ExecutionManager {
         return 0;
     }
 
-    private CompletableFuture<Void> runChain(Node currentNode, ChainController controller) {
-        if (cancelRequested || controller == null || controller.cancelRequested) {
+    private CompletableFuture<Void> runChain(Node currentNode) {
+        if (cancelRequested) {
             return CompletableFuture.completedFuture(null);
         }
 
         setActiveNode(currentNode);
 
-        if (cancelRequested || controller.cancelRequested) {
+        if (cancelRequested) {
             return CompletableFuture.completedFuture(null);
         }
 
         return currentNode.execute()
             .thenCompose(ignored -> {
-                if (cancelRequested || controller.cancelRequested) {
+                if (cancelRequested) {
                     return CompletableFuture.completedFuture(null);
                 }
-                return handleEventCallIfNeeded(currentNode, controller);
+                return handleEventCallIfNeeded(currentNode);
             })
             .thenCompose(ignored -> {
-                if (cancelRequested || controller.cancelRequested) {
+                if (cancelRequested) {
                     return CompletableFuture.completedFuture(null);
                 }
                 int nextSocket = currentNode.consumeNextOutputSocket();
@@ -386,8 +362,8 @@ public class ExecutionManager {
             });
     }
 
-    private CompletableFuture<Void> handleEventCallIfNeeded(Node node, ChainController controller) {
-        if (cancelRequested || controller.cancelRequested || node.getType() != NodeType.EVENT_CALL) {
+    private CompletableFuture<Void> handleEventCallIfNeeded(Node node) {
+        if (cancelRequested || node.getType() != NodeType.EVENT_CALL) {
             return CompletableFuture.completedFuture(null);
         }
 
@@ -420,10 +396,10 @@ public class ExecutionManager {
         executingEvents.add(eventName);
         CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
         for (Node handler : handlers) {
-            if (cancelRequested || controller.cancelRequested) {
+            if (cancelRequested) {
                 break;
             }
-            chain = chain.thenCompose(ignored -> runChain(handler, controller));
+            chain = chain.thenCompose(ignored -> runChain(handler));
         }
         return chain.whenComplete((ignored, throwable) -> executingEvents.remove(eventName));
     }
