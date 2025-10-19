@@ -2,19 +2,14 @@ package com.pathmind;
 
 import com.pathmind.data.PresetManager;
 import com.pathmind.execution.ExecutionManager;
-import com.pathmind.mixin.ScreenAccessor;
 import com.pathmind.screen.PathmindVisualEditorScreen;
 import com.pathmind.ui.ActiveNodeOverlay;
-import com.pathmind.ui.PathmindIconButton;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.gui.screen.TitleScreen;
-import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
+import net.minecraft.client.util.InputUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,8 +19,8 @@ import org.slf4j.LoggerFactory;
  */
 public class PathmindClientMod implements ClientModInitializer {
     private static final Logger LOGGER = LoggerFactory.getLogger("Pathmind/Client");
-    private static final Identifier PATHMIND_ICON_TEXTURE = Identifier.of("pathmind", "icon.png");
     private ActiveNodeOverlay activeNodeOverlay;
+    private boolean titleScreenShortcutHeld;
 
     @Override
     public void onInitializeClient() {
@@ -41,12 +36,6 @@ public class PathmindClientMod implements ClientModInitializer {
         KeyBindingHelper.registerKeyBinding(PathmindKeybinds.OPEN_VISUAL_EDITOR);
         KeyBindingHelper.registerKeyBinding(PathmindKeybinds.PLAY_GRAPHS);
 
-        ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
-            if (screen instanceof TitleScreen titleScreen) {
-                addTitleScreenButton(client, titleScreen, scaledWidth, scaledHeight);
-            }
-        });
-        
         // Register client tick events for keybind handling
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             handleKeybinds(client);
@@ -63,35 +52,26 @@ public class PathmindClientMod implements ClientModInitializer {
         LOGGER.info("Pathmind client mod initialized successfully");
     }
 
-    private void addTitleScreenButton(MinecraftClient client, TitleScreen screen, int scaledWidth, int scaledHeight) {
-        int buttonSize = 20;
-        int margin = 8;
-        int x = scaledWidth - buttonSize - margin;
-        int y = margin;
-
-        PathmindIconButton openEditorButton = new PathmindIconButton(
-            x,
-            y,
-            buttonSize,
-            PATHMIND_ICON_TEXTURE,
-            button -> {
-                if (!(client.currentScreen instanceof PathmindVisualEditorScreen)) {
-                    client.setScreen(new PathmindVisualEditorScreen());
-                }
-            },
-            Text.translatable("gui.pathmind.open_editor")
-        );
-
-        ((ScreenAccessor) screen).pathmind$addDrawableChild(openEditorButton);
-    }
-
     private void handleKeybinds(MinecraftClient client) {
         // Check if visual editor keybind was pressed
         while (PathmindKeybinds.OPEN_VISUAL_EDITOR.wasPressed()) {
             if (!(client.currentScreen instanceof PathmindVisualEditorScreen)
-                    && (client.currentScreen == null || client.currentScreen instanceof TitleScreen)) {
+                    && (client.currentScreen == null || client.currentScreen instanceof net.minecraft.client.gui.screen.TitleScreen)) {
                 client.setScreen(new PathmindVisualEditorScreen());
             }
+        }
+
+        boolean onTitleScreen = client.currentScreen instanceof net.minecraft.client.gui.screen.TitleScreen;
+        if (onTitleScreen && client.getWindow() != null) {
+            int boundKeyCode = PathmindKeybinds.OPEN_VISUAL_EDITOR.getBoundKey().getCode();
+            boolean isPressed = boundKeyCode != InputUtil.UNKNOWN_KEY.getCode()
+                    && InputUtil.isKeyPressed(client.getWindow().getHandle(), boundKeyCode);
+            if (isPressed && !this.titleScreenShortcutHeld && !(client.currentScreen instanceof PathmindVisualEditorScreen)) {
+                client.setScreen(new PathmindVisualEditorScreen());
+            }
+            this.titleScreenShortcutHeld = isPressed;
+        } else if (!onTitleScreen) {
+            this.titleScreenShortcutHeld = false;
         }
 
         if (client.player == null) {

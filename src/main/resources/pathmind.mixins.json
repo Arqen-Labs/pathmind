@@ -5,7 +5,7 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [],
   "client": [
-    "ScreenAccessor"
+    "TitleScreenMixin"
   ],
   "injectors": {
     "defaultRequire": 1
