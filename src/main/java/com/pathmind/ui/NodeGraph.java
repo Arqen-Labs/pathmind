@@ -4,6 +4,7 @@ import com.pathmind.data.NodeGraphData;
 import com.pathmind.data.NodeGraphPersistence;
 import com.pathmind.data.PresetManager;
 import com.pathmind.nodes.Node;
+import com.pathmind.nodes.NodeCategory;
 import com.pathmind.nodes.NodeConnection;
 import com.pathmind.nodes.NodeParameter;
 import com.pathmind.nodes.NodeType;
@@ -16,6 +17,8 @@ import net.minecraft.text.Text;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Manages the node graph for the Pathmind visual editor.
@@ -61,6 +64,7 @@ public class NodeGraph {
     // Start button hover state
     private boolean hoveringStartButton = false;
     private Node hoveredStartNode = null;
+    private boolean lastStartButtonTriggeredExecution = false;
 
     private Node sensorDropTarget = null;
     private Node actionDropTarget = null;
@@ -72,6 +76,7 @@ public class NodeGraph {
     private int sidebarWidthForRendering = 180;
 
     private String activePreset;
+    private final Set<Node> cascadeDeletionPreviewNodes;
 
     public NodeGraph() {
         this.nodes = new ArrayList<>();
@@ -82,6 +87,7 @@ public class NodeGraph {
         this.draggingNodeStartY = 0;
         this.draggingNodeDetached = false;
         this.activePreset = PresetManager.getActivePreset();
+        this.cascadeDeletionPreviewNodes = new HashSet<>();
 
         // Add preset nodes similar to Blender's shader editor
         // Will be initialized with proper centering when screen dimensions are available
@@ -119,6 +125,10 @@ public class NodeGraph {
     }
 
     public void removeNode(Node node) {
+        removeNodeInternal(node, true, true);
+    }
+
+    private void removeNodeInternal(Node node, boolean autoReconnect, boolean repositionDetachments) {
         if (node == null) {
             return;
         }
@@ -126,7 +136,7 @@ public class NodeGraph {
         if (node.hasAttachedSensor()) {
             Node attached = node.getAttachedSensor();
             node.detachSensor();
-            if (attached != null) {
+            if (repositionDetachments && attached != null) {
                 attached.setPosition(node.getX() + node.getWidth() + 12, node.getY());
             }
         }
@@ -134,7 +144,7 @@ public class NodeGraph {
         if (node.hasAttachedActionNode()) {
             Node attached = node.getAttachedActionNode();
             node.detachActionNode();
-            if (attached != null) {
+            if (repositionDetachments && attached != null) {
                 attached.setPosition(node.getX() + node.getWidth() + 12, node.getY());
             }
         }
@@ -156,46 +166,41 @@ public class NodeGraph {
         if (sensorDropTarget == node) {
             sensorDropTarget = null;
             actionDropTarget = null;
-            actionDropTarget = null;
-            actionDropTarget = null;
         }
 
         if (actionDropTarget == node) {
             actionDropTarget = null;
         }
 
-        // Find connections involving this node before removing them
-        List<NodeConnection> inputConnections = new ArrayList<>();
-        List<NodeConnection> outputConnections = new ArrayList<>();
+        if (autoReconnect) {
+            List<NodeConnection> inputConnections = new ArrayList<>();
+            List<NodeConnection> outputConnections = new ArrayList<>();
 
-        for (NodeConnection conn : connections) {
-            if (conn.getOutputNode().equals(node)) {
-                outputConnections.add(conn);
-            } else if (conn.getInputNode().equals(node)) {
-                inputConnections.add(conn);
+            for (NodeConnection conn : connections) {
+                if (conn.getOutputNode().equals(node)) {
+                    outputConnections.add(conn);
+                } else if (conn.getInputNode().equals(node)) {
+                    inputConnections.add(conn);
+                }
+            }
+
+            for (NodeConnection inputConn : inputConnections) {
+                Node inputSource = inputConn.getOutputNode();
+                int inputSocket = inputConn.getOutputSocket();
+
+                for (NodeConnection outputConn : outputConnections) {
+                    Node outputTarget = outputConn.getInputNode();
+                    int outputSocket = outputConn.getInputSocket();
+
+                    connections.add(new NodeConnection(inputSource, outputTarget, inputSocket, outputSocket));
+                }
             }
         }
-        
-        // Auto-reconnect: connect each input source to each output target
-        for (NodeConnection inputConn : inputConnections) {
-            Node inputSource = inputConn.getOutputNode(); // Node that connects TO the deleted node
-            int inputSocket = inputConn.getOutputSocket();
-            
-            for (NodeConnection outputConn : outputConnections) {
-                Node outputTarget = outputConn.getInputNode(); // Node that the deleted node connects TO
-                int outputSocket = outputConn.getInputSocket();
-                
-                // Create new connection between input source and output target
-                NodeConnection newConnection = new NodeConnection(inputSource, outputTarget, inputSocket, outputSocket);
-                connections.add(newConnection);
-            }
-        }
-        
-        // Remove all connections involving this node
-        connections.removeIf(conn -> 
+
+        connections.removeIf(conn ->
             conn.getOutputNode().equals(node) || conn.getInputNode().equals(node));
         nodes.remove(node);
-        
+
         if (selectedNode == node) {
             selectedNode = null;
         }
@@ -484,10 +489,15 @@ public class NodeGraph {
             if (hoveredNode != null && hoveredSocket != -1) {
                 if (isOutputSocket && hoveredSocketIsInput) {
                     // Remove any existing incoming connection to the target socket
-                    connections.removeIf(conn -> 
+                    connections.removeIf(conn ->
                         conn.getInputNode() == hoveredNode && conn.getInputSocket() == hoveredSocket
                     );
-                    
+
+                    // Ensure only one outgoing connection per source socket
+                    connections.removeIf(conn ->
+                        conn.getOutputNode() == connectionSourceNode && conn.getOutputSocket() == connectionSourceSocket
+                    );
+
                     // Connect output to input
                     NodeConnection newConnection = new NodeConnection(connectionSourceNode, hoveredNode, connectionSourceSocket, hoveredSocket);
                     connections.add(newConnection);
@@ -587,8 +597,41 @@ public class NodeGraph {
         // Calculate the node's screen position (same as in renderNode)
         int nodeScreenX = node.getX() - cameraX;
         if (isNodeOverSidebar(node, sidebarWidth, nodeScreenX, node.getWidth())) {
-            removeNode(node);
+            if (node.getType().getCategory() == NodeCategory.LOGIC) {
+                removeNodeCascade(node);
+            } else {
+                removeNode(node);
+            }
         }
+    }
+
+    private void removeNodeCascade(Node node) {
+        List<Node> removalOrder = new ArrayList<>();
+        collectNodesForCascade(node, removalOrder, new HashSet<>());
+        for (Node toRemove : removalOrder) {
+            removeNodeInternal(toRemove, false, false);
+        }
+    }
+
+    private void collectNodesForCascade(Node node, List<Node> order, Set<Node> visited) {
+        if (node == null || !visited.add(node)) {
+            return;
+        }
+
+        if (node.hasAttachedSensor()) {
+            collectNodesForCascade(node.getAttachedSensor(), order, visited);
+        }
+        if (node.hasAttachedActionNode()) {
+            collectNodesForCascade(node.getAttachedActionNode(), order, visited);
+        }
+
+        for (NodeConnection connection : connections) {
+            if (connection.getOutputNode() == node) {
+                collectNodesForCascade(connection.getInputNode(), order, visited);
+            }
+        }
+
+        order.add(node);
     }
     
     public boolean isNodeOverSidebar(Node node, int sidebarWidth) {
@@ -646,6 +689,7 @@ public class NodeGraph {
 
     public void render(DrawContext context, TextRenderer textRenderer, int mouseX, int mouseY, float delta, boolean onlyDragged) {
         if (!onlyDragged) {
+            updateCascadeDeletionPreview();
             // Render connections first (behind nodes) - only for stationary rendering
             renderConnections(context);
         }
@@ -692,6 +736,9 @@ public class NodeGraph {
         // Check if node is being dragged over sidebar (grey-out effect)
         // Use screen coordinates (with camera offset) for this check
         boolean isOverSidebar = node.isDragging() && isNodeOverSidebar(node, sidebarWidthForRendering, x, width);
+        if (!isOverSidebar && cascadeDeletionPreviewNodes.contains(node)) {
+            isOverSidebar = true;
+        }
 
         // Node background
         int bgColor = node.isSelected() ? 0xFF404040 : 0xFF2A2A2A;
@@ -837,7 +884,7 @@ public class NodeGraph {
                 List<NodeParameter> parameters = node.getParameters();
 
                 for (NodeParameter param : parameters) {
-                    String displayText = param.getName() + ": " + param.getDisplayValue();
+                    String displayText = node.getParameterLabel(param);
                     displayText = trimTextToWidth(displayText, textRenderer, width - 10);
 
                     int paramTextColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0; // Grey text when over sidebar
@@ -934,8 +981,13 @@ public class NodeGraph {
             return ellipsis;
         }
 
-        StringBuilder builder = new StringBuilder(text);
-        while (builder.length() > 0 && renderer.getWidth(builder.toString()) + ellipsisWidth > maxWidth) {
+        String baseText = text;
+        if (baseText.endsWith(ellipsis)) {
+            baseText = baseText.substring(0, baseText.length() - ellipsis.length());
+        }
+
+        StringBuilder builder = new StringBuilder(baseText);
+        while (builder.length() > 0 && renderer.getWidth(builder.toString() + ellipsis) > maxWidth) {
             builder.setLength(builder.length() - 1);
         }
         return builder.append(ellipsis).toString();
@@ -1160,17 +1212,34 @@ public class NodeGraph {
         return hoveringStartButton;
     }
 
-    public boolean handleStartButtonClick() {
-        if (!hoveringStartButton || hoveredStartNode == null) {
+    public boolean handleStartButtonClick(int mouseX, int mouseY) {
+        lastStartButtonTriggeredExecution = false;
+        Node startNode = findStartNodeAt(mouseX, mouseY);
+        if (startNode == null) {
             return false;
         }
+
+        hoveredStartNode = startNode;
 
         ExecutionManager manager = ExecutionManager.getInstance();
-        if (!manager.isChainActive(hoveredStartNode)) {
-            return false;
+        if (manager.isChainActive(startNode)) {
+            return manager.requestStopForStart(startNode);
         }
 
-        return manager.requestStopForStart(hoveredStartNode);
+        boolean started = manager.executeBranch(startNode, nodes, connections);
+        if (started) {
+            lastStartButtonTriggeredExecution = true;
+        }
+        return started;
+    }
+
+    private Node findStartNodeAt(int mouseX, int mouseY) {
+        for (Node node : nodes) {
+            if (node.getType() == NodeType.START && isMouseOverStartButton(node, mouseX, mouseY)) {
+                return node;
+            }
+        }
+        return null;
     }
     
     
@@ -1179,6 +1248,29 @@ public class NodeGraph {
      */
     public boolean shouldShowParameters(Node node) {
         return node.hasParameters() && !node.canAcceptSensor() && node.getType() != NodeType.EVENT_FUNCTION;
+    }
+
+    public boolean didLastStartButtonTriggerExecution() {
+        return lastStartButtonTriggeredExecution;
+    }
+
+    private void updateCascadeDeletionPreview() {
+        cascadeDeletionPreviewNodes.clear();
+        for (Node node : nodes) {
+            if (node.getType().getCategory() != NodeCategory.LOGIC) {
+                continue;
+            }
+            if (!node.isDragging()) {
+                continue;
+            }
+            int screenX = node.getX() - cameraX;
+            if (!isNodeOverSidebar(node, sidebarWidthForRendering, screenX, node.getWidth())) {
+                continue;
+            }
+            List<Node> removalOrder = new ArrayList<>();
+            collectNodesForCascade(node, removalOrder, new HashSet<>());
+            cascadeDeletionPreviewNodes.addAll(removalOrder);
+        }
     }
     
     /**
@@ -1253,6 +1345,7 @@ public class NodeGraph {
         actionDropTarget = null;
         lastClickedNode = null;
         lastClickTime = 0;
+        cascadeDeletionPreviewNodes.clear();
     }
 
     private boolean applyLoadedData(NodeGraphData data) {
@@ -1371,6 +1464,7 @@ public class NodeGraph {
         disconnectedConnection = null;
         lastClickedNode = null;
         lastClickTime = 0;
+        cascadeDeletionPreviewNodes.clear();
 
         System.out.println("Loaded " + nodes.size() + " nodes and " + connections.size() + " connections");
         return true;

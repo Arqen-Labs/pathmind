@@ -253,7 +253,7 @@ public class PathmindVisualEditorScreen extends Screen {
     private void renderNodeGraph(DrawContext context, int mouseX, int mouseY, float delta, boolean onlyDragged) {
         if (!onlyDragged) {
             // Node graph background
-            context.fill(sidebar.getWidth(), TITLE_BAR_HEIGHT, this.width, this.height, DARK_GREY);
+            context.fill(Sidebar.getCollapsedWidth(), TITLE_BAR_HEIGHT, this.width, this.height, DARK_GREY);
             
             // Render grid pattern for better visual organization
             renderGrid(context);
@@ -265,7 +265,7 @@ public class PathmindVisualEditorScreen extends Screen {
     
     private void renderGrid(DrawContext context) {
         int gridSize = 20;
-        int startX = sidebar.getWidth();
+        int startX = Sidebar.getCollapsedWidth();
         int startY = TITLE_BAR_HEIGHT;
         
         // Get camera offset from node graph
@@ -388,11 +388,17 @@ public class PathmindVisualEditorScreen extends Screen {
                 return true;
             }
             
-            // Check if clicking START button
-            if (button == 0 && nodeGraph.isHoveringStartButton()) { // Left click on START button
-                if (nodeGraph.handleStartButtonClick()) {
-                    return true;
+            if (button == 0 && nodeGraph.handleStartButtonClick((int) mouseX, (int) mouseY)) {
+                presetDropdownOpen = false;
+                if (nodeGraph.didLastStartButtonTriggerExecution()) {
+                    dismissParameterOverlay();
+                    isDraggingFromSidebar = false;
+                    draggingNodeType = null;
+                    if (this.client != null) {
+                        this.client.setScreen(null);
+                    }
                 }
+                return true;
             }
             
             return handleNodeGraphClick(mouseX, mouseY, button);
@@ -1048,7 +1054,7 @@ public class PathmindVisualEditorScreen extends Screen {
         int buttonX = getPlayButtonX();
         int buttonY = getPlayButtonY();
         boolean hovered = isPointInRect(mouseX, mouseY, buttonX, buttonY, PLAY_BUTTON_SIZE, PLAY_BUTTON_SIZE);
-        boolean executing = ExecutionManager.getInstance().isExecuting();
+        boolean executing = ExecutionManager.getInstance().isGlobalExecutionActive();
 
         int bgColor = executing ? 0xFF243224 : 0xFF2A2A2A;
         if (hovered) {
@@ -1088,7 +1094,7 @@ public class PathmindVisualEditorScreen extends Screen {
         int buttonX = getStopButtonX();
         int buttonY = getStopButtonY();
         boolean hovered = isPointInRect(mouseX, mouseY, buttonX, buttonY, STOP_BUTTON_SIZE, STOP_BUTTON_SIZE);
-        boolean executing = ExecutionManager.getInstance().isExecuting();
+        boolean executing = ExecutionManager.getInstance().isGlobalExecutionActive();
 
         int bgColor = executing ? 0xFF8C1B1B : 0xFF2A2A2A;
         if (hovered) {

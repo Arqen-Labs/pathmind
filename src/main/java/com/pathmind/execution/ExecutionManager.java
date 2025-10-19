@@ -15,6 +15,7 @@ import com.pathmind.nodes.ParameterType;
 import com.pathmind.data.NodeGraphData;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -39,6 +40,7 @@ public class ExecutionManager {
     private final List<String> executingEvents;
     private volatile boolean cancelRequested;
     private final Map<Node, ChainController> activeChains;
+    private boolean globalExecutionActive;
 
     private static class ChainController {
         final Node startNode;
@@ -60,6 +62,7 @@ public class ExecutionManager {
         this.executingEvents = new ArrayList<>();
         this.cancelRequested = false;
         this.activeChains = new ConcurrentHashMap<>();
+        this.globalExecutionActive = false;
     }
     
     public static ExecutionManager getInstance() {
@@ -88,7 +91,7 @@ public class ExecutionManager {
         this.activeConnections = new ArrayList<>(filteredConnections);
         this.cancelRequested = false;
 
-        startExecution(startNodes);
+        startExecution(startNodes, true);
         activeChains.clear();
 
         for (Node startNode : startNodes) {
@@ -196,13 +199,48 @@ public class ExecutionManager {
 
         executeGraph(nodes, connections);
     }
+
+    public boolean executeBranch(Node startNode, List<Node> nodes, List<NodeConnection> connections) {
+        if (startNode == null || startNode.getType() != NodeType.START) {
+            System.out.println("ExecutionManager: Cannot execute branch - invalid START node.");
+            return false;
+        }
+        if (nodes == null || connections == null) {
+            System.out.println("ExecutionManager: Cannot execute branch - missing nodes or connections.");
+            return false;
+        }
+        if (isChainActive(startNode)) {
+            System.out.println("ExecutionManager: START node already executing, ignoring branch start request.");
+            return false;
+        }
+
+        List<NodeConnection> filteredConnections = filterConnections(connections);
+
+        this.lastExecutedGraph = createGraphSnapshot(nodes, filteredConnections);
+        this.activeNodes = new ArrayList<>(nodes);
+        this.activeConnections = new ArrayList<>(filteredConnections);
+        this.cancelRequested = false;
+
+        if (activeChains.isEmpty()) {
+            startExecution(Collections.singletonList(startNode), false);
+        } else {
+            this.isExecuting = true;
+        }
+
+        ChainController controller = new ChainController(startNode);
+        activeChains.put(startNode, controller);
+        CompletableFuture<Void> chainFuture = runChain(startNode, controller);
+        chainFuture.whenComplete((ignored, throwable) -> handleChainCompletion(controller, throwable));
+        return true;
+    }
     
     /**
      * Start execution with the given start node
      */
-    public void startExecution(List<Node> startNodes) {
+    private void startExecution(List<Node> startNodes, boolean markGlobal) {
         this.activeNode = startNodes.isEmpty() ? null : startNodes.get(0);
         this.isExecuting = true;
+        this.globalExecutionActive = markGlobal;
         this.cancelRequested = false;
         this.executionStartTime = System.currentTimeMillis();
         this.executionEndTime = 0;
@@ -229,6 +267,7 @@ public class ExecutionManager {
     public void stopExecution() {
         System.out.println("ExecutionManager: Stopping execution at time " + System.currentTimeMillis());
         this.isExecuting = false;
+        this.globalExecutionActive = false;
         if (cancelRequested) {
             this.executionEndTime = 0;
             this.executionStartTime = 0;
@@ -256,6 +295,7 @@ public class ExecutionManager {
             controller.cancelRequested = true;
         }
         this.isExecuting = false;
+        this.globalExecutionActive = false;
         this.activeNode = null;
         this.executionStartTime = 0;
         this.executionEndTime = 0;
@@ -356,6 +396,10 @@ public class ExecutionManager {
         }
         
         return false;
+    }
+
+    public boolean isGlobalExecutionActive() {
+        return globalExecutionActive;
     }
     
     /**
