@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.Objects;
 
 /**
  * Manages the execution state of the node graph.
@@ -42,11 +43,11 @@ public class ExecutionManager {
     private NodeGraphData lastGlobalGraph;
     private List<Node> activeNodes;
     private List<NodeConnection> activeConnections;
-    private final Set<NodeConnection> activeConnectionLookup;
+    private final Set<ConnectionKey> activeConnectionLookup;
     private final List<String> executingEvents;
     private volatile boolean cancelRequested;
     private final Map<Node, ChainController> activeChains;
-    private final Map<NodeConnection, Node> eventConnectionOwners;
+    private final Map<ConnectionKey, Node> eventConnectionOwners;
     private final Set<Node> activeEventFunctionNodes;
     private boolean globalExecutionActive;
     private boolean lastSnapshotWasGlobal;
@@ -58,6 +59,40 @@ public class ExecutionManager {
         ChainController(Node startNode) {
             this.startNode = startNode;
             this.cancelRequested = false;
+        }
+    }
+
+    private static final class ConnectionKey {
+        private final String outputNodeId;
+        private final int outputSocket;
+        private final String inputNodeId;
+        private final int inputSocket;
+
+        ConnectionKey(String outputNodeId, int outputSocket, String inputNodeId, int inputSocket) {
+            this.outputNodeId = outputNodeId;
+            this.outputSocket = outputSocket;
+            this.inputNodeId = inputNodeId;
+            this.inputSocket = inputSocket;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof ConnectionKey)) {
+                return false;
+            }
+            ConnectionKey other = (ConnectionKey) obj;
+            return outputSocket == other.outputSocket
+                    && inputSocket == other.inputSocket
+                    && Objects.equals(outputNodeId, other.outputNodeId)
+                    && Objects.equals(inputNodeId, other.inputNodeId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(outputNodeId, outputSocket, inputNodeId, inputSocket);
         }
     }
 
@@ -623,22 +658,21 @@ public class ExecutionManager {
     }
 
     public boolean shouldAnimateConnection(NodeConnection connection) {
-        if (connection == null) {
-            return false;
-        }
-        if (!isExecuting) {
-            return false;
-        }
-        if (!activeConnectionLookup.contains(connection)) {
+        if (connection == null || !isExecuting) {
             return false;
         }
 
-        Node owner = eventConnectionOwners.get(connection);
+        ConnectionKey key = toKey(connection);
+        if (key == null) {
+            return false;
+        }
+
+        Node owner = eventConnectionOwners.get(key);
         if (owner != null) {
             return activeEventFunctionNodes.contains(owner);
         }
 
-        return true;
+        return activeConnectionLookup.contains(key);
     }
 
     private String normalizeEventName(String value) {
@@ -785,7 +819,12 @@ public class ExecutionManager {
         activeEventFunctionNodes.clear();
 
         if (connections != null) {
-            activeConnectionLookup.addAll(connections);
+            for (NodeConnection connection : connections) {
+                ConnectionKey key = toKey(connection);
+                if (key != null) {
+                    activeConnectionLookup.add(key);
+                }
+            }
         }
 
         if (nodes == null || connections == null) {
@@ -804,7 +843,10 @@ public class ExecutionManager {
 
             for (NodeConnection connection : connections) {
                 if (scopeNodes.contains(connection.getOutputNode()) && scopeNodes.contains(connection.getInputNode())) {
-                    eventConnectionOwners.put(connection, node);
+                    ConnectionKey key = toKey(connection);
+                    if (key != null) {
+                        eventConnectionOwners.put(key, node);
+                    }
                 }
             }
         }
@@ -820,5 +862,19 @@ public class ExecutionManager {
         } else {
             activeEventFunctionNodes.remove(handler);
         }
+    }
+
+    private ConnectionKey toKey(NodeConnection connection) {
+        if (connection == null) {
+            return null;
+        }
+
+        Node output = connection.getOutputNode();
+        Node input = connection.getInputNode();
+        if (output == null || input == null) {
+            return null;
+        }
+
+        return new ConnectionKey(output.getId(), connection.getOutputSocket(), input.getId(), connection.getInputSocket());
     }
 }
