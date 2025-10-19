@@ -9,6 +9,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.screen.TitleScreen;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,17 +52,16 @@ public class PathmindClientMod implements ClientModInitializer {
     }
     
     private void handleKeybinds(MinecraftClient client) {
-        if (client.player == null) {
-            return;
-        }
-        
         // Check if visual editor keybind was pressed
         while (PathmindKeybinds.OPEN_VISUAL_EDITOR.wasPressed()) {
-            if (client.currentScreen == null) {
-                // Only open if no screen is currently open
+            if (!(client.currentScreen instanceof PathmindVisualEditorScreen)
+                    && (client.currentScreen == null || client.currentScreen instanceof TitleScreen)) {
                 client.setScreen(new PathmindVisualEditorScreen());
             }
-            // If screen is already open, do nothing (don't close it)
+        }
+
+        if (client.player == null) {
+            return;
         }
 
         while (PathmindKeybinds.PLAY_GRAPHS.wasPressed()) {
