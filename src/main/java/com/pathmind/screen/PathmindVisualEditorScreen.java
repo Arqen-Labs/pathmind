@@ -1207,7 +1207,7 @@ public class PathmindVisualEditorScreen extends Screen {
     }
 
     private int getPresetDropdownX() {
-        return getPlayButtonX() - PRESET_DROPDOWN_MARGIN - PRESET_DROPDOWN_WIDTH;
+        return getStopButtonX() - PRESET_DROPDOWN_MARGIN - PRESET_DROPDOWN_WIDTH;
     }
 
     private int getPresetDropdownY() {

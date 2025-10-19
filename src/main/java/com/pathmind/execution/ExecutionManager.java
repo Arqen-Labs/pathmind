@@ -1,5 +1,12 @@
 package com.pathmind.execution;
 
+import baritone.api.BaritoneAPI;
+import baritone.api.IBaritone;
+import baritone.api.behavior.IPathingBehavior;
+import baritone.api.process.ICustomGoalProcess;
+import baritone.api.process.IExploreProcess;
+import baritone.api.process.IFarmProcess;
+import baritone.api.process.IMineProcess;
 import com.pathmind.nodes.Node;
 import com.pathmind.nodes.NodeConnection;
 import com.pathmind.nodes.NodeParameter;
@@ -237,6 +244,8 @@ public class ExecutionManager {
      * Request that all executing node chains stop immediately.
      */
     public void requestStopAll() {
+        cancelAllBaritoneCommands();
+
         if (!isExecuting && activeNode == null && activeChains.isEmpty()) {
             return;
         }
@@ -254,6 +263,45 @@ public class ExecutionManager {
         this.activeConnections.clear();
         this.executingEvents.clear();
         this.activeChains.clear();
+    }
+
+    private void cancelAllBaritoneCommands() {
+        PreciseCompletionTracker.getInstance().cancelAllTasks();
+
+        try {
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone == null) {
+                return;
+            }
+
+            IPathingBehavior pathingBehavior = baritone.getPathingBehavior();
+            if (pathingBehavior != null) {
+                pathingBehavior.cancelEverything();
+            }
+
+            ICustomGoalProcess goalProcess = baritone.getCustomGoalProcess();
+            if (goalProcess != null) {
+                goalProcess.setGoal(null);
+                goalProcess.onLostControl();
+            }
+
+            IMineProcess mineProcess = baritone.getMineProcess();
+            if (mineProcess != null) {
+                mineProcess.cancel();
+            }
+
+            IExploreProcess exploreProcess = baritone.getExploreProcess();
+            if (exploreProcess != null && exploreProcess.isActive()) {
+                exploreProcess.onLostControl();
+            }
+
+            IFarmProcess farmProcess = baritone.getFarmProcess();
+            if (farmProcess != null && farmProcess.isActive()) {
+                farmProcess.onLostControl();
+            }
+        } catch (Exception e) {
+            System.err.println("ExecutionManager: Failed to cancel Baritone processes: " + e.getMessage());
+        }
     }
     
     /**
