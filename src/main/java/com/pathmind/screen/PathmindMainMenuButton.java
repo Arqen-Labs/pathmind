@@ -28,6 +28,6 @@ public class PathmindMainMenuButton extends ButtonWidget {
         int iconX = this.getX() + ICON_PADDING;
         int iconY = this.getY() + ICON_PADDING;
 
-        context.drawGuiTexture(RenderPipelines.GUI_TEXTURED, ICON_TEXTURE, iconX, iconY, iconSize, iconSize);
+        context.drawTexture(RenderPipelines.GUI_TEXTURED, ICON_TEXTURE, iconX, iconY, 0, 0, iconSize, iconSize, 128, 128);
     }
 }
