@@ -1090,22 +1090,22 @@ public class PathmindVisualEditorScreen extends Screen {
         boolean hovered = isPointInRect(mouseX, mouseY, buttonX, buttonY, STOP_BUTTON_SIZE, STOP_BUTTON_SIZE);
         boolean executing = ExecutionManager.getInstance().isExecuting();
 
-        int bgColor = executing ? 0xFF352323 : 0xFF2A2A2A;
+        int bgColor = executing ? 0xFF8C1B1B : 0xFF2A2A2A;
         if (hovered) {
-            bgColor = executing ? 0xFF442C2C : 0xFF353535;
+            bgColor = executing ? 0xFFA02525 : 0xFF353535;
         }
 
-        int borderColor = executing ? ERROR_COLOR : GREY_LINE;
+        int borderColor = executing ? 0xFFFF4C4C : GREY_LINE;
         if (hovered) {
-            borderColor = ERROR_COLOR;
+            borderColor = executing ? 0xFFFF6666 : ERROR_COLOR;
         }
 
         context.fill(buttonX + 1, buttonY + 1, buttonX + STOP_BUTTON_SIZE - 1, buttonY + STOP_BUTTON_SIZE - 1, bgColor);
         context.drawBorder(buttonX, buttonY, STOP_BUTTON_SIZE, STOP_BUTTON_SIZE, borderColor);
 
-        int iconColor = executing ? ERROR_COLOR : 0xFFEF9A9A;
+        int iconColor = executing ? 0xFFFF6F6F : 0xFFFFA6A6;
         if (hovered) {
-            iconColor = ERROR_COLOR;
+            iconColor = executing ? 0xFFFF8A8A : ERROR_COLOR;
         }
         drawStopIcon(context, buttonX, buttonY, iconColor);
     }

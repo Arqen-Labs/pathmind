@@ -405,8 +405,11 @@ public class ExecutionManager {
                     return CompletableFuture.completedFuture(null);
                 }
                 int nextSocket = currentNode.consumeNextOutputSocket();
+                if (nextSocket == Node.NO_OUTPUT) {
+                    return CompletableFuture.completedFuture(null);
+                }
                 Node nextNode = getNextConnectedNode(currentNode, activeConnections, nextSocket);
-                if (nextNode == null && nextSocket != 0) {
+                if (nextNode == null && nextSocket > 0) {
                     nextNode = getNextConnectedNode(currentNode, activeConnections, 0);
                 }
                 if (nextNode != null) {
@@ -571,6 +574,9 @@ public class ExecutionManager {
                 continue;
             }
             if (output.isSensorNode() || input.isSensorNode()) {
+                continue;
+            }
+            if (connection.getOutputSocket() < 0 || connection.getOutputSocket() >= output.getOutputSocketCount()) {
                 continue;
             }
             filtered.add(connection);

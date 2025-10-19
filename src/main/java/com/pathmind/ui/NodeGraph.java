@@ -30,6 +30,9 @@ public class NodeGraph {
     private final List<NodeConnection> connections;
     private Node selectedNode;
     private Node draggingNode;
+    private int draggingNodeStartX;
+    private int draggingNodeStartY;
+    private boolean draggingNodeDetached;
     
     // Camera/viewport for infinite scrolling
     private int cameraX = 0;
@@ -75,6 +78,9 @@ public class NodeGraph {
         this.connections = new ArrayList<>();
         this.selectedNode = null;
         this.draggingNode = null;
+        this.draggingNodeStartX = 0;
+        this.draggingNodeStartY = 0;
+        this.draggingNodeDetached = false;
         this.activePreset = PresetManager.getActivePreset();
 
         // Add preset nodes similar to Blender's shader editor
@@ -239,21 +245,10 @@ public class NodeGraph {
         sensorDropTarget = null;
         actionDropTarget = null;
 
-        if (node.isSensorNode() && node.isAttachedToControl()) {
-            Node parent = node.getParentControl();
-            if (parent != null) {
-                parent.detachSensor();
-            }
-        }
-
-        if (node.isAttachedToActionControl()) {
-            Node parent = node.getParentActionControl();
-            if (parent != null) {
-                parent.detachActionNode();
-            }
-        }
-
         draggingNode = node;
+        draggingNodeStartX = node.getX();
+        draggingNodeStartY = node.getY();
+        draggingNodeDetached = false;
         node.setDragging(true);
         node.setDragOffsetX(mouseX + cameraX - node.getX());
         node.setDragOffsetY(mouseY + cameraY - node.getY());
@@ -301,40 +296,49 @@ public class NodeGraph {
         if (draggingNode != null) {
             int newX = worldMouseX - draggingNode.getDragOffsetX();
             int newY = worldMouseY - draggingNode.getDragOffsetY();
-            draggingNode.setPosition(newX, newY);
 
-            boolean hideSockets = false;
-            if (draggingNode.isSensorNode()) {
-                sensorDropTarget = null;
-                actionDropTarget = null;
-                for (Node node : nodes) {
-                    if (!node.canAcceptSensor() || node == draggingNode) {
-                        continue;
-                    }
-                    if (node.isPointInsideSensorSlot(worldMouseX, worldMouseY)) {
-                        sensorDropTarget = node;
-                        hideSockets = true;
-                        break;
-                    }
-                }
-            } else {
-                sensorDropTarget = null;
-                actionDropTarget = null;
-                for (Node node : nodes) {
-                    if (!node.canAcceptActionNode() || node == draggingNode) {
-                        continue;
-                    }
-                    if (!node.canAcceptActionNode(draggingNode)) {
-                        continue;
-                    }
-                    if (node.isPointInsideActionSlot(worldMouseX, worldMouseY)) {
-                        actionDropTarget = node;
-                        hideSockets = true;
-                        break;
-                    }
+            if (!draggingNodeDetached) {
+                if (newX != draggingNodeStartX || newY != draggingNodeStartY) {
+                    detachDraggingNodeFromParents();
                 }
             }
-            draggingNode.setSocketsHidden(hideSockets);
+
+            if (draggingNodeDetached) {
+                draggingNode.setPosition(newX, newY);
+
+                boolean hideSockets = false;
+                if (draggingNode.isSensorNode()) {
+                    sensorDropTarget = null;
+                    actionDropTarget = null;
+                    for (Node node : nodes) {
+                        if (!node.canAcceptSensor() || node == draggingNode) {
+                            continue;
+                        }
+                        if (node.isPointInsideSensorSlot(worldMouseX, worldMouseY)) {
+                            sensorDropTarget = node;
+                            hideSockets = true;
+                            break;
+                        }
+                    }
+                } else {
+                    sensorDropTarget = null;
+                    actionDropTarget = null;
+                    for (Node node : nodes) {
+                        if (!node.canAcceptActionNode() || node == draggingNode) {
+                            continue;
+                        }
+                        if (!node.canAcceptActionNode(draggingNode)) {
+                            continue;
+                        }
+                        if (node.isPointInsideActionSlot(worldMouseX, worldMouseY)) {
+                            actionDropTarget = node;
+                            hideSockets = true;
+                            break;
+                        }
+                    }
+                }
+                draggingNode.setSocketsHidden(hideSockets);
+            }
         }
         if (isDraggingConnection) {
             connectionDragX = worldMouseX;
@@ -447,8 +451,31 @@ public class NodeGraph {
             }
             draggingNode = null;
         }
+        draggingNodeDetached = false;
         sensorDropTarget = null;
         actionDropTarget = null;
+    }
+
+    private void detachDraggingNodeFromParents() {
+        if (draggingNode == null || draggingNodeDetached) {
+            return;
+        }
+
+        if (draggingNode.isSensorNode() && draggingNode.isAttachedToControl()) {
+            Node parent = draggingNode.getParentControl();
+            if (parent != null) {
+                parent.detachSensor();
+            }
+        }
+
+        if (draggingNode.isAttachedToActionControl()) {
+            Node parent = draggingNode.getParentActionControl();
+            if (parent != null) {
+                parent.detachActionNode();
+            }
+        }
+
+        draggingNodeDetached = true;
     }
     
     public void stopDraggingConnection() {
