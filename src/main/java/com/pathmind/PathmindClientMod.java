@@ -32,8 +32,8 @@ public class PathmindClientMod implements ClientModInitializer {
         // Register keybindings
         PathmindKeybinds.registerKeybinds();
         KeyBindingHelper.registerKeyBinding(PathmindKeybinds.OPEN_VISUAL_EDITOR);
-        KeyBindingHelper.registerKeyBinding(PathmindKeybinds.PLAY_LAST_GRAPH);
-        
+        KeyBindingHelper.registerKeyBinding(PathmindKeybinds.PLAY_GRAPHS);
+
         // Register client tick events for keybind handling
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             handleKeybinds(client);
@@ -49,23 +49,22 @@ public class PathmindClientMod implements ClientModInitializer {
         
         LOGGER.info("Pathmind client mod initialized successfully");
     }
-    
+
     private void handleKeybinds(MinecraftClient client) {
+        // Check if visual editor keybind was pressed
+        while (PathmindKeybinds.OPEN_VISUAL_EDITOR.wasPressed()) {
+            if (!(client.currentScreen instanceof PathmindVisualEditorScreen)
+                    && client.currentScreen == null) {
+                client.setScreen(new PathmindVisualEditorScreen());
+            }
+        }
+
         if (client.player == null) {
             return;
         }
-        
-        // Check if visual editor keybind was pressed
-        while (PathmindKeybinds.OPEN_VISUAL_EDITOR.wasPressed()) {
-            if (client.currentScreen == null) {
-                // Only open if no screen is currently open
-                client.setScreen(new PathmindVisualEditorScreen());
-            }
-            // If screen is already open, do nothing (don't close it)
-        }
 
-        while (PathmindKeybinds.PLAY_LAST_GRAPH.wasPressed()) {
-            ExecutionManager.getInstance().replayLastGraph();
+        while (PathmindKeybinds.PLAY_GRAPHS.wasPressed()) {
+            ExecutionManager.getInstance().playAllGraphs();
         }
     }
 }

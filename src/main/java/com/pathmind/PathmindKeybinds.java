@@ -9,17 +9,17 @@ import org.lwjgl.glfw.GLFW;
  */
 public class PathmindKeybinds {
     public static KeyBinding OPEN_VISUAL_EDITOR;
-    public static KeyBinding PLAY_LAST_GRAPH;
+    public static KeyBinding PLAY_GRAPHS;
     
     public static void registerKeybinds() {
         OPEN_VISUAL_EDITOR = new KeyBinding(
                 "key.pathmind.open_visual_editor",
                 InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_RIGHT_SUPER, // Right Command/Ctrl key
+                GLFW.GLFW_KEY_RIGHT_ALT, // Right Alt/Option key
                 "category.pathmind.general"
         );
-        PLAY_LAST_GRAPH = new KeyBinding(
-                "key.pathmind.play_last_graph",
+        PLAY_GRAPHS = new KeyBinding(
+                "key.pathmind.play_graphs",
                 InputUtil.Type.KEYSYM,
                 GLFW.GLFW_KEY_K,
                 "category.pathmind.general"

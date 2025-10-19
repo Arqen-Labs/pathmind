@@ -13,15 +13,20 @@ import com.pathmind.nodes.NodeParameter;
 import com.pathmind.nodes.NodeType;
 import com.pathmind.nodes.ParameterType;
 import com.pathmind.data.NodeGraphData;
+import com.pathmind.data.NodeGraphPersistence;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.Objects;
 
 /**
  * Manages the execution state of the node graph.
@@ -35,12 +40,17 @@ public class ExecutionManager {
     private long executionEndTime;
     private static final long MINIMUM_DISPLAY_DURATION = 3000; // 3 seconds minimum display
     private NodeGraphData lastExecutedGraph;
+    private NodeGraphData lastGlobalGraph;
     private List<Node> activeNodes;
     private List<NodeConnection> activeConnections;
+    private final Set<ConnectionKey> activeConnectionLookup;
     private final List<String> executingEvents;
     private volatile boolean cancelRequested;
     private final Map<Node, ChainController> activeChains;
+    private final Map<ConnectionKey, Node> eventConnectionOwners;
+    private final Set<Node> activeEventFunctionNodes;
     private boolean globalExecutionActive;
+    private boolean lastSnapshotWasGlobal;
 
     private static class ChainController {
         final Node startNode;
@@ -49,6 +59,40 @@ public class ExecutionManager {
         ChainController(Node startNode) {
             this.startNode = startNode;
             this.cancelRequested = false;
+        }
+    }
+
+    private static final class ConnectionKey {
+        private final String outputNodeId;
+        private final int outputSocket;
+        private final String inputNodeId;
+        private final int inputSocket;
+
+        ConnectionKey(String outputNodeId, int outputSocket, String inputNodeId, int inputSocket) {
+            this.outputNodeId = outputNodeId;
+            this.outputSocket = outputSocket;
+            this.inputNodeId = inputNodeId;
+            this.inputSocket = inputSocket;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof ConnectionKey)) {
+                return false;
+            }
+            ConnectionKey other = (ConnectionKey) obj;
+            return outputSocket == other.outputSocket
+                    && inputSocket == other.inputSocket
+                    && Objects.equals(outputNodeId, other.outputNodeId)
+                    && Objects.equals(inputNodeId, other.inputNodeId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(outputNodeId, outputSocket, inputNodeId, inputSocket);
         }
     }
 
@@ -63,6 +107,10 @@ public class ExecutionManager {
         this.cancelRequested = false;
         this.activeChains = new ConcurrentHashMap<>();
         this.globalExecutionActive = false;
+        this.lastSnapshotWasGlobal = false;
+        this.activeConnectionLookup = ConcurrentHashMap.newKeySet();
+        this.eventConnectionOwners = new ConcurrentHashMap<>();
+        this.activeEventFunctionNodes = ConcurrentHashMap.newKeySet();
     }
     
     public static ExecutionManager getInstance() {
@@ -73,6 +121,10 @@ public class ExecutionManager {
     }
 
     public void executeGraph(List<Node> nodes, List<NodeConnection> connections) {
+        executeGraphInternal(nodes, connections, true);
+    }
+
+    private void executeGraphInternal(List<Node> nodes, List<NodeConnection> connections, boolean markGlobalSnapshot) {
         if (nodes == null || connections == null) {
             System.out.println("ExecutionManager: Cannot execute graph - missing nodes or connections.");
             return;
@@ -86,12 +138,18 @@ public class ExecutionManager {
 
         List<NodeConnection> filteredConnections = filterConnections(connections);
 
-        this.lastExecutedGraph = createGraphSnapshot(nodes, filteredConnections);
+        NodeGraphData snapshot = createGraphSnapshot(nodes, filteredConnections);
+        this.lastExecutedGraph = snapshot;
+        if (markGlobalSnapshot) {
+            this.lastGlobalGraph = snapshot;
+        }
+        this.lastSnapshotWasGlobal = markGlobalSnapshot;
         this.activeNodes = new ArrayList<>(nodes);
         this.activeConnections = new ArrayList<>(filteredConnections);
+        rebuildConnectionState(this.activeNodes, this.activeConnections);
         this.cancelRequested = false;
 
-        startExecution(startNodes, true);
+        startExecution(startNodes, markGlobalSnapshot);
         activeChains.clear();
 
         for (Node startNode : startNodes) {
@@ -108,96 +166,22 @@ public class ExecutionManager {
             return;
         }
 
-        Map<String, Node> nodeMap = new HashMap<>();
-        List<Node> nodes = new ArrayList<>();
-
-        for (NodeGraphData.NodeData nodeData : lastExecutedGraph.getNodes()) {
-            Node node = new Node(nodeData.getType(), nodeData.getX(), nodeData.getY());
-
-            try {
-                java.lang.reflect.Field idField = Node.class.getDeclaredField("id");
-                idField.setAccessible(true);
-                idField.set(node, nodeData.getId());
-            } catch (Exception e) {
-                System.err.println("ExecutionManager: Failed to set node ID during replay - " + e.getMessage());
-            }
-
-            if (nodeData.getMode() != null) {
-                node.setMode(nodeData.getMode());
-            }
-
-            node.getParameters().clear();
-            if (nodeData.getParameters() != null) {
-                for (NodeGraphData.ParameterData paramData : nodeData.getParameters()) {
-                    ParameterType paramType = ParameterType.valueOf(paramData.getType());
-                    NodeParameter param = new NodeParameter(paramData.getName(), paramType, paramData.getValue());
-                    node.getParameters().add(param);
-                }
-            }
-            node.recalculateDimensions();
-
-            nodes.add(node);
-            nodeMap.put(nodeData.getId(), node);
-        }
-
-        for (NodeGraphData.NodeData nodeData : lastExecutedGraph.getNodes()) {
-            if (nodeData.getAttachedSensorId() != null) {
-                Node control = nodeMap.get(nodeData.getId());
-                Node sensor = nodeMap.get(nodeData.getAttachedSensorId());
-                if (control != null && sensor != null) {
-                    control.attachSensor(sensor);
-                }
-            }
-        }
-
-        for (NodeGraphData.NodeData nodeData : lastExecutedGraph.getNodes()) {
-            if (nodeData.getParentControlId() != null) {
-                Node sensor = nodeMap.get(nodeData.getId());
-                Node control = nodeMap.get(nodeData.getParentControlId());
-                if (sensor != null && control != null && sensor.isSensorNode()) {
-                    control.attachSensor(sensor);
-                }
-            }
-        }
-
-        for (NodeGraphData.NodeData nodeData : lastExecutedGraph.getNodes()) {
-            if (nodeData.getAttachedActionId() != null) {
-                Node control = nodeMap.get(nodeData.getId());
-                Node child = nodeMap.get(nodeData.getAttachedActionId());
-                if (control != null && child != null) {
-                    control.attachActionNode(child);
-                }
-            }
-        }
-
-        for (NodeGraphData.NodeData nodeData : lastExecutedGraph.getNodes()) {
-            if (nodeData.getParentActionControlId() != null) {
-                Node child = nodeMap.get(nodeData.getId());
-                Node control = nodeMap.get(nodeData.getParentActionControlId());
-                if (child != null && control != null && control.canAcceptActionNode(child)) {
-                    control.attachActionNode(child);
-                }
-            }
-        }
-
-        List<NodeConnection> connections = new ArrayList<>();
-        for (NodeGraphData.ConnectionData connData : lastExecutedGraph.getConnections()) {
-            Node outputNode = nodeMap.get(connData.getOutputNodeId());
-            Node inputNode = nodeMap.get(connData.getInputNodeId());
-            if (outputNode != null && inputNode != null) {
-                if (outputNode.isSensorNode() || inputNode.isSensorNode()) {
-                    continue;
-                }
-                connections.add(new NodeConnection(outputNode, inputNode, connData.getOutputSocket(), connData.getInputSocket()));
-            }
-        }
-
-        if (nodes.isEmpty()) {
+        if (!executeGraphSnapshot(lastExecutedGraph, lastSnapshotWasGlobal)) {
             System.out.println("ExecutionManager: No nodes available to replay.");
+        }
+    }
+
+    public void playAllGraphs() {
+        if (lastGlobalGraph != null && executeGraphSnapshot(lastGlobalGraph, true)) {
             return;
         }
 
-        executeGraph(nodes, connections);
+        NodeGraphData savedGraph = NodeGraphPersistence.loadNodeGraph();
+        if (savedGraph != null && executeGraphSnapshot(savedGraph, true)) {
+            return;
+        }
+
+        System.out.println("ExecutionManager: No saved node graph available to play.");
     }
 
     public boolean executeBranch(Node startNode, List<Node> nodes, List<NodeConnection> connections) {
@@ -215,10 +199,33 @@ public class ExecutionManager {
         }
 
         List<NodeConnection> filteredConnections = filterConnections(connections);
+        Set<Node> branchNodeSet = collectBranchNodes(startNode, filteredConnections);
 
-        this.lastExecutedGraph = createGraphSnapshot(nodes, filteredConnections);
-        this.activeNodes = new ArrayList<>(nodes);
-        this.activeConnections = new ArrayList<>(filteredConnections);
+        for (Node node : nodes) {
+            if (node.getType() == NodeType.EVENT_FUNCTION) {
+                branchNodeSet.addAll(collectBranchNodes(node, filteredConnections));
+            }
+        }
+
+        List<Node> branchNodes = new ArrayList<>();
+        for (Node node : nodes) {
+            if (branchNodeSet.contains(node)) {
+                branchNodes.add(node);
+            }
+        }
+
+        List<NodeConnection> branchConnections = new ArrayList<>();
+        for (NodeConnection connection : filteredConnections) {
+            if (branchNodeSet.contains(connection.getOutputNode()) && branchNodeSet.contains(connection.getInputNode())) {
+                branchConnections.add(connection);
+            }
+        }
+
+        this.lastExecutedGraph = createGraphSnapshot(branchNodes, branchConnections);
+        this.lastSnapshotWasGlobal = false;
+        this.activeNodes = branchNodes;
+        this.activeConnections = branchConnections;
+        rebuildConnectionState(this.activeNodes, this.activeConnections);
         this.cancelRequested = false;
 
         if (activeChains.isEmpty()) {
@@ -301,7 +308,10 @@ public class ExecutionManager {
         this.executionEndTime = 0;
         this.activeNodes.clear();
         this.activeConnections.clear();
+        this.activeConnectionLookup.clear();
         this.executingEvents.clear();
+        this.eventConnectionOwners.clear();
+        this.activeEventFunctionNodes.clear();
         this.activeChains.clear();
     }
 
@@ -457,23 +467,7 @@ public class ExecutionManager {
                 }
                 return handleEventCallIfNeeded(currentNode, controller);
             })
-            .thenCompose(ignored -> {
-                if (cancelRequested || controller.cancelRequested) {
-                    return CompletableFuture.completedFuture(null);
-                }
-                int nextSocket = currentNode.consumeNextOutputSocket();
-                if (nextSocket == Node.NO_OUTPUT) {
-                    return CompletableFuture.completedFuture(null);
-                }
-                Node nextNode = getNextConnectedNode(currentNode, activeConnections, nextSocket);
-                if (nextNode == null && nextSocket > 0) {
-                    nextNode = getNextConnectedNode(currentNode, activeConnections, 0);
-                }
-                if (nextNode != null) {
-                    return runChain(nextNode, controller);
-                }
-                return CompletableFuture.completedFuture(null);
-            });
+            .thenCompose(ignored -> continueFromNode(currentNode, controller));
     }
 
     private CompletableFuture<Void> handleEventCallIfNeeded(Node node, ChainController controller) {
@@ -513,9 +507,66 @@ public class ExecutionManager {
             if (cancelRequested || controller.cancelRequested) {
                 break;
             }
-            chain = chain.thenCompose(ignored -> runChain(handler, controller));
+            chain = chain.thenCompose(ignored -> runEventHandler(handler, controller));
         }
         return chain.whenComplete((ignored, throwable) -> executingEvents.remove(eventName));
+    }
+
+    private CompletableFuture<Void> continueFromNode(Node currentNode, ChainController controller) {
+        if (cancelRequested || controller == null || controller.cancelRequested) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        int nextSocket = currentNode.consumeNextOutputSocket();
+
+        if (currentNode.hasAttachedActionNode()) {
+            Node attachedAction = currentNode.getAttachedActionNode();
+            NodeType type = currentNode.getType();
+
+            if (attachedAction != null) {
+                if (type == NodeType.CONTROL_FOREVER && nextSocket != Node.NO_OUTPUT) {
+                    return runChain(attachedAction, controller)
+                        .thenCompose(ignored -> {
+                            if (cancelRequested || controller.cancelRequested) {
+                                return CompletableFuture.completedFuture(null);
+                            }
+                            return runChain(currentNode, controller);
+                        });
+                }
+
+                if ((type == NodeType.CONTROL_REPEAT || type == NodeType.CONTROL_REPEAT_UNTIL) && nextSocket == 0) {
+                    return runChain(attachedAction, controller)
+                        .thenCompose(ignored -> {
+                            if (cancelRequested || controller.cancelRequested) {
+                                return CompletableFuture.completedFuture(null);
+                            }
+                            return runChain(currentNode, controller);
+                        });
+                }
+            }
+        }
+
+        if (nextSocket == Node.NO_OUTPUT) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        Node nextNode = getNextConnectedNode(currentNode, activeConnections, nextSocket);
+        if (nextNode == null && nextSocket > 0) {
+            nextNode = getNextConnectedNode(currentNode, activeConnections, 0);
+        }
+        if (nextNode != null) {
+            return runChain(nextNode, controller);
+        }
+        return CompletableFuture.completedFuture(null);
+    }
+
+    private CompletableFuture<Void> runEventHandler(Node handler, ChainController controller) {
+        if (handler == null) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        setEventFunctionActive(handler, true);
+        return runChain(handler, controller).whenComplete((ignored, throwable) -> setEventFunctionActive(handler, false));
     }
 
     private void handleChainCompletion(ChainController controller, Throwable throwable) {
@@ -534,8 +585,126 @@ public class ExecutionManager {
             stopExecution();
             activeNodes.clear();
             activeConnections.clear();
+            activeConnectionLookup.clear();
             executingEvents.clear();
+            eventConnectionOwners.clear();
+            activeEventFunctionNodes.clear();
         }
+    }
+
+    private boolean executeGraphSnapshot(NodeGraphData graphData, boolean markGlobalSnapshot) {
+        if (graphData == null) {
+            return false;
+        }
+
+        Map<String, Node> nodeMap = new HashMap<>();
+        List<Node> nodes = new ArrayList<>();
+
+        for (NodeGraphData.NodeData nodeData : graphData.getNodes()) {
+            Node node = new Node(nodeData.getType(), nodeData.getX(), nodeData.getY());
+
+            try {
+                java.lang.reflect.Field idField = Node.class.getDeclaredField("id");
+                idField.setAccessible(true);
+                idField.set(node, nodeData.getId());
+            } catch (Exception e) {
+                System.err.println("ExecutionManager: Failed to set node ID during replay - " + e.getMessage());
+            }
+
+            if (nodeData.getMode() != null) {
+                node.setMode(nodeData.getMode());
+            }
+
+            node.getParameters().clear();
+            if (nodeData.getParameters() != null) {
+                for (NodeGraphData.ParameterData paramData : nodeData.getParameters()) {
+                    ParameterType paramType = ParameterType.valueOf(paramData.getType());
+                    NodeParameter param = new NodeParameter(paramData.getName(), paramType, paramData.getValue());
+                    node.getParameters().add(param);
+                }
+            }
+            node.recalculateDimensions();
+
+            nodes.add(node);
+            nodeMap.put(nodeData.getId(), node);
+        }
+
+        for (NodeGraphData.NodeData nodeData : graphData.getNodes()) {
+            if (nodeData.getAttachedSensorId() != null) {
+                Node control = nodeMap.get(nodeData.getId());
+                Node sensor = nodeMap.get(nodeData.getAttachedSensorId());
+                if (control != null && sensor != null) {
+                    control.attachSensor(sensor);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : graphData.getNodes()) {
+            if (nodeData.getParentControlId() != null) {
+                Node sensor = nodeMap.get(nodeData.getId());
+                Node control = nodeMap.get(nodeData.getParentControlId());
+                if (sensor != null && control != null && sensor.isSensorNode()) {
+                    control.attachSensor(sensor);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : graphData.getNodes()) {
+            if (nodeData.getAttachedActionId() != null) {
+                Node control = nodeMap.get(nodeData.getId());
+                Node child = nodeMap.get(nodeData.getAttachedActionId());
+                if (control != null && child != null) {
+                    control.attachActionNode(child);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : graphData.getNodes()) {
+            if (nodeData.getParentActionControlId() != null) {
+                Node child = nodeMap.get(nodeData.getId());
+                Node control = nodeMap.get(nodeData.getParentActionControlId());
+                if (child != null && control != null && control.canAcceptActionNode(child)) {
+                    control.attachActionNode(child);
+                }
+            }
+        }
+
+        List<NodeConnection> connections = new ArrayList<>();
+        for (NodeGraphData.ConnectionData connData : graphData.getConnections()) {
+            Node outputNode = nodeMap.get(connData.getOutputNodeId());
+            Node inputNode = nodeMap.get(connData.getInputNodeId());
+            if (outputNode != null && inputNode != null) {
+                if (outputNode.isSensorNode() || inputNode.isSensorNode()) {
+                    continue;
+                }
+                connections.add(new NodeConnection(outputNode, inputNode, connData.getOutputSocket(), connData.getInputSocket()));
+            }
+        }
+
+        if (nodes.isEmpty()) {
+            return false;
+        }
+
+        executeGraphInternal(nodes, connections, markGlobalSnapshot);
+        return true;
+    }
+
+    public boolean shouldAnimateConnection(NodeConnection connection) {
+        if (connection == null || !isExecuting) {
+            return false;
+        }
+
+        ConnectionKey key = toKey(connection);
+        if (key == null) {
+            return false;
+        }
+
+        Node owner = eventConnectionOwners.get(key);
+        if (owner != null) {
+            return activeEventFunctionNodes.contains(owner);
+        }
+
+        return activeConnectionLookup.contains(key);
     }
 
     private String normalizeEventName(String value) {
@@ -573,6 +742,41 @@ public class ExecutionManager {
         }
 
         return startNodes;
+    }
+
+    private Set<Node> collectBranchNodes(Node startNode, List<NodeConnection> connections) {
+        LinkedHashSet<Node> visited = new LinkedHashSet<>();
+        if (startNode == null) {
+            return visited;
+        }
+
+        ArrayDeque<Node> stack = new ArrayDeque<>();
+        stack.push(startNode);
+
+        while (!stack.isEmpty()) {
+            Node current = stack.pop();
+            if (!visited.add(current)) {
+                continue;
+            }
+
+            Node attachedSensor = current.getAttachedSensor();
+            if (attachedSensor != null) {
+                stack.push(attachedSensor);
+            }
+
+            Node attachedAction = current.getAttachedActionNode();
+            if (attachedAction != null) {
+                stack.push(attachedAction);
+            }
+
+            for (NodeConnection connection : connections) {
+                if (connection.getOutputNode() == current) {
+                    stack.push(connection.getInputNode());
+                }
+            }
+        }
+
+        return visited;
     }
 
     private NodeGraphData createGraphSnapshot(List<Node> nodes, List<NodeConnection> connections) {
@@ -639,5 +843,70 @@ public class ExecutionManager {
             filtered.add(connection);
         }
         return filtered;
+    }
+
+    private void rebuildConnectionState(List<Node> nodes, List<NodeConnection> connections) {
+        activeConnectionLookup.clear();
+        eventConnectionOwners.clear();
+        activeEventFunctionNodes.clear();
+
+        if (connections != null) {
+            for (NodeConnection connection : connections) {
+                ConnectionKey key = toKey(connection);
+                if (key != null) {
+                    activeConnectionLookup.add(key);
+                }
+            }
+        }
+
+        if (nodes == null || connections == null) {
+            return;
+        }
+
+        for (Node node : nodes) {
+            if (node.getType() != NodeType.EVENT_FUNCTION) {
+                continue;
+            }
+
+            Set<Node> scopeNodes = collectBranchNodes(node, connections);
+            if (scopeNodes.isEmpty()) {
+                continue;
+            }
+
+            for (NodeConnection connection : connections) {
+                if (scopeNodes.contains(connection.getOutputNode()) && scopeNodes.contains(connection.getInputNode())) {
+                    ConnectionKey key = toKey(connection);
+                    if (key != null) {
+                        eventConnectionOwners.put(key, node);
+                    }
+                }
+            }
+        }
+    }
+
+    private void setEventFunctionActive(Node handler, boolean active) {
+        if (handler == null || handler.getType() != NodeType.EVENT_FUNCTION) {
+            return;
+        }
+
+        if (active) {
+            activeEventFunctionNodes.add(handler);
+        } else {
+            activeEventFunctionNodes.remove(handler);
+        }
+    }
+
+    private ConnectionKey toKey(NodeConnection connection) {
+        if (connection == null) {
+            return null;
+        }
+
+        Node output = connection.getOutputNode();
+        Node input = connection.getInputNode();
+        if (output == null || input == null) {
+            return null;
+        }
+
+        return new ConnectionKey(output.getId(), connection.getOutputSocket(), input.getId(), connection.getInputSocket());
     }
 }

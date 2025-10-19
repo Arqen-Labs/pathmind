@@ -18,8 +18,10 @@ import baritone.api.pathing.goals.GoalBlock;
 import com.pathmind.execution.PreciseCompletionTracker;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.player.PlayerInventory;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.block.Block;
+import net.minecraft.block.BlockState;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.registry.Registries;
@@ -36,6 +38,7 @@ import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.math.Box;
 
 /**
@@ -1372,22 +1375,41 @@ public class Node {
     private void executePlaceCommand(CompletableFuture<Void> future) {
         String block = "stone";
         int x = 0, y = 0, z = 0;
-        
+
         NodeParameter blockParam = getParameter("Block");
         NodeParameter xParam = getParameter("X");
         NodeParameter yParam = getParameter("Y");
         NodeParameter zParam = getParameter("Z");
-        
+        Hand hand = resolveHand(getParameter("Hand"), Hand.MAIN_HAND);
+
         if (blockParam != null) block = blockParam.getStringValue();
         if (xParam != null) x = xParam.getIntValue();
         if (yParam != null) y = yParam.getIntValue();
         if (zParam != null) z = zParam.getIntValue();
-        
-        String command = String.format("#place %s %d %d %d", block, x, y, z);
-        System.out.println("Executing command: " + command);
-        
-        executeCommand(command);
-        future.complete(null); // These commands complete immediately
+
+        BlockPos targetPos = new BlockPos(x, y, z);
+
+        String goalCommand = String.format("#goal %d %d %d", x, y, z);
+        System.out.println("Executing command: " + goalCommand);
+        executeCommand(goalCommand);
+
+        CompletableFuture<Void> pathFuture = new CompletableFuture<>();
+        PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_PATH, pathFuture);
+
+        System.out.println("Executing command: #path");
+        executeCommand("#path");
+
+        final String resolvedBlock = block;
+        final BlockPos resolvedTargetPos = targetPos;
+        final Hand resolvedHand = hand;
+
+        pathFuture.whenComplete((ignored, throwable) -> {
+            if (throwable != null) {
+                future.completeExceptionally(throwable);
+            } else {
+                placeBlockAfterPath(resolvedBlock, resolvedTargetPos, resolvedHand, future);
+            }
+        });
     }
     
     private void executeBuildCommand(CompletableFuture<Void> future) {
@@ -2229,7 +2251,162 @@ public class Node {
 
         future.complete(null);
     }
-    
+
+    private void placeBlockAfterPath(String blockId, BlockPos targetPos, Hand hand, CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || client.interactionManager == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+
+        Block desiredBlock = resolveBlockForPlacement(blockId);
+
+        try {
+            runOnClientThread(client, () -> {
+                if (desiredBlock != null && client.player.getWorld() != null) {
+                    if (client.player.getWorld().getBlockState(targetPos).isOf(desiredBlock)) {
+                        future.complete(null);
+                        return;
+                    }
+                } else if (client.player.getWorld() != null && !isBlockReplaceable(client.player.getWorld(), targetPos)) {
+                    future.complete(null);
+                    return;
+                }
+
+                if (!ensureBlockInHand(client, blockId, hand)) {
+                    throw new RuntimeException("Block " + blockId + " not found in hotbar");
+                }
+                if (!performBlockPlacement(client, targetPos, hand)) {
+                    throw new RuntimeException("Failed to place block at " + targetPos.getX() + ", " + targetPos.getY() + ", " + targetPos.getZ());
+                }
+                future.complete(null);
+            });
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            future.completeExceptionally(e);
+        } catch (RuntimeException e) {
+            future.completeExceptionally(e);
+        }
+    }
+
+    private boolean ensureBlockInHand(net.minecraft.client.MinecraftClient client, String blockId, Hand hand) {
+        if (blockId == null || blockId.isEmpty()) {
+            return true;
+        }
+
+        Identifier identifier = Identifier.tryParse(blockId);
+        if (identifier == null || !Registries.ITEM.containsId(identifier)) {
+            return false;
+        }
+
+        Item targetItem = Registries.ITEM.get(identifier);
+        ItemStack current = client.player.getStackInHand(hand);
+        if (!current.isEmpty() && current.isOf(targetItem)) {
+            return true;
+        }
+
+        PlayerInventory inventory = client.player.getInventory();
+        int slot = findHotbarSlotWithItem(inventory, targetItem);
+        if (slot == -1) {
+            return false;
+        }
+
+        if (hand == Hand.MAIN_HAND) {
+            if (inventory.getSelectedSlot() != slot) {
+                inventory.setSelectedSlot(slot);
+                if (client.player.networkHandler != null) {
+                    client.player.networkHandler.sendPacket(new UpdateSelectedSlotC2SPacket(slot));
+                }
+            }
+            return true;
+        }
+
+        ItemStack offhandStack = client.player.getOffHandStack();
+        if (!offhandStack.isEmpty() && offhandStack.isOf(targetItem)) {
+            return true;
+        }
+
+        inventory.setSelectedSlot(slot);
+        if (client.player.networkHandler != null) {
+            client.player.networkHandler.sendPacket(new UpdateSelectedSlotC2SPacket(slot));
+        }
+        return true;
+    }
+
+    private int findHotbarSlotWithItem(PlayerInventory inventory, Item targetItem) {
+        int hotbarSize = PlayerInventory.getHotbarSize();
+        for (int slot = 0; slot < hotbarSize; slot++) {
+            ItemStack stack = inventory.getStack(slot);
+            if (!stack.isEmpty() && stack.isOf(targetItem)) {
+                return slot;
+            }
+        }
+        return -1;
+    }
+
+    private boolean performBlockPlacement(net.minecraft.client.MinecraftClient client, BlockPos targetPos, Hand hand) {
+        if (client.player.getWorld() == null) {
+            return false;
+        }
+
+        net.minecraft.world.World world = client.player.getWorld();
+        if (!isBlockReplaceable(world, targetPos)) {
+            return true;
+        }
+
+        for (Direction direction : Direction.values()) {
+            BlockPos clickedPos = targetPos.offset(direction);
+            if (world.getBlockState(clickedPos).isAir()) {
+                continue;
+            }
+
+            Direction placementSide = direction.getOpposite();
+            Vec3d hitPos = Vec3d.ofCenter(clickedPos).add(
+                placementSide.getOffsetX() * 0.5D,
+                placementSide.getOffsetY() * 0.5D,
+                placementSide.getOffsetZ() * 0.5D
+            );
+            BlockHitResult hitResult = new BlockHitResult(hitPos, placementSide, clickedPos, false);
+            ActionResult result = client.interactionManager.interactBlock(client.player, hand, hitResult);
+            if (result.isAccepted()) {
+                client.player.swingHand(hand);
+                if (client.player.networkHandler != null) {
+                    client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
+                }
+                return true;
+            }
+        }
+
+        ActionResult fallback = client.interactionManager.interactItem(client.player, hand);
+        return fallback.isAccepted();
+    }
+
+    private Block resolveBlockForPlacement(String blockId) {
+        if (blockId == null || blockId.isEmpty()) {
+            return null;
+        }
+
+        Identifier identifier = Identifier.tryParse(blockId);
+        if (identifier == null || !Registries.BLOCK.containsId(identifier)) {
+            return null;
+        }
+
+        return Registries.BLOCK.get(identifier);
+    }
+
+    private boolean isBlockReplaceable(net.minecraft.world.World world, BlockPos targetPos) {
+        BlockState state = world.getBlockState(targetPos);
+        if (state.isAir()) {
+            return true;
+        }
+
+        if (!state.getFluidState().isEmpty()) {
+            return true;
+        }
+
+        return state.getCollisionShape(world, targetPos).isEmpty();
+    }
+
     private void executeLookCommand(CompletableFuture<Void> future) {
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null) {
