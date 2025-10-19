@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Manages the execution state of the node graph.
@@ -252,6 +253,30 @@ public class ExecutionManager {
     public Node getActiveNode() {
         return activeNode;
     }
+
+    public boolean requestStopForStart(Node startNode) {
+        if (startNode == null) {
+            return false;
+        }
+
+        ChainController controller = activeChains.get(startNode);
+        if (controller == null) {
+            System.out.println("ExecutionManager: No active chain found for requested START node stop.");
+            return false;
+        }
+
+        controller.cancelRequested = true;
+        System.out.println("ExecutionManager: Stop requested for START node " + startNode.getId() + " at time " + System.currentTimeMillis());
+        return true;
+    }
+
+    public boolean isChainActive(Node startNode) {
+        if (startNode == null) {
+            return false;
+        }
+        ChainController controller = activeChains.get(startNode);
+        return controller != null && !controller.cancelRequested;
+    }
     
     /**
      * Check if execution is currently running or should still be displayed
@@ -328,7 +353,7 @@ public class ExecutionManager {
                     nextNode = getNextConnectedNode(currentNode, activeConnections, 0);
                 }
                 if (nextNode != null) {
-                    return runChain(nextNode);
+                    return runChain(nextNode, controller);
                 }
                 return CompletableFuture.completedFuture(null);
             });
@@ -374,6 +399,26 @@ public class ExecutionManager {
             chain = chain.thenCompose(ignored -> runChain(handler));
         }
         return chain.whenComplete((ignored, throwable) -> executingEvents.remove(eventName));
+    }
+
+    private void handleChainCompletion(ChainController controller, Throwable throwable) {
+        if (controller == null) {
+            return;
+        }
+
+        if (throwable != null && !cancelRequested && !controller.cancelRequested) {
+            System.err.println("ExecutionManager: Error during execution - " + throwable.getMessage());
+            throwable.printStackTrace();
+        }
+
+        activeChains.remove(controller.startNode);
+
+        if (activeChains.isEmpty() && isExecuting) {
+            stopExecution();
+            activeNodes.clear();
+            activeConnections.clear();
+            executingEvents.clear();
+        }
     }
 
     private String normalizeEventName(String value) {

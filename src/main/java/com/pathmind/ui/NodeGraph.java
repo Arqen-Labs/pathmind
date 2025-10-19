@@ -57,6 +57,7 @@ public class NodeGraph {
 
     // Start button hover state
     private boolean hoveringStartButton = false;
+    private Node hoveredStartNode = null;
 
     private Node sensorDropTarget = null;
     private Node actionDropTarget = null;
@@ -379,11 +380,13 @@ public class NodeGraph {
         hoveredSocketNode = null;
         hoveredSocketIndex = -1;
         hoveringStartButton = false;
-        
+        hoveredStartNode = null;
+
         // Check for start button hover
         for (Node node : nodes) {
             if (node.getType() == NodeType.START && isMouseOverStartButton(node, mouseX, mouseY)) {
                 hoveringStartButton = true;
+                hoveredStartNode = node;
                 break;
             }
         }
@@ -1129,11 +1132,18 @@ public class NodeGraph {
     public boolean isHoveringStartButton() {
         return hoveringStartButton;
     }
-    
+
     public boolean handleStartButtonClick() {
-        // Execute the node graph
-        ExecutionManager.getInstance().executeGraph(nodes, connections);
-        return true; // Signal that the click was handled
+        if (!hoveringStartButton || hoveredStartNode == null) {
+            return false;
+        }
+
+        ExecutionManager manager = ExecutionManager.getInstance();
+        if (!manager.isChainActive(hoveredStartNode)) {
+            return false;
+        }
+
+        return manager.requestStopForStart(hoveredStartNode);
     }
     
     
@@ -1208,6 +1218,7 @@ public class NodeGraph {
         hoveredSocket = -1;
         hoveredSocketIsInput = false;
         hoveringStartButton = false;
+        hoveredStartNode = null;
         isDraggingConnection = false;
         connectionSourceNode = null;
         disconnectedConnection = null;
@@ -1327,6 +1338,7 @@ public class NodeGraph {
         hoveredSocket = -1;
         hoveredSocketIsInput = false;
         hoveringStartButton = false;
+        hoveredStartNode = null;
         isDraggingConnection = false;
         connectionSourceNode = null;
         disconnectedConnection = null;

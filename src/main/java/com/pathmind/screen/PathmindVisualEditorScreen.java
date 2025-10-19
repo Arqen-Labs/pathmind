@@ -381,8 +381,6 @@ public class PathmindVisualEditorScreen extends Screen {
             // Check if clicking START button
             if (button == 0 && nodeGraph.isHoveringStartButton()) { // Left click on START button
                 if (nodeGraph.handleStartButtonClick()) {
-                    // Close the GUI after execution starts
-                    this.close();
                     return true;
                 }
             }
