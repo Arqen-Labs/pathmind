@@ -467,23 +467,7 @@ public class ExecutionManager {
                 }
                 return handleEventCallIfNeeded(currentNode, controller);
             })
-            .thenCompose(ignored -> {
-                if (cancelRequested || controller.cancelRequested) {
-                    return CompletableFuture.completedFuture(null);
-                }
-                int nextSocket = currentNode.consumeNextOutputSocket();
-                if (nextSocket == Node.NO_OUTPUT) {
-                    return CompletableFuture.completedFuture(null);
-                }
-                Node nextNode = getNextConnectedNode(currentNode, activeConnections, nextSocket);
-                if (nextNode == null && nextSocket > 0) {
-                    nextNode = getNextConnectedNode(currentNode, activeConnections, 0);
-                }
-                if (nextNode != null) {
-                    return runChain(nextNode, controller);
-                }
-                return CompletableFuture.completedFuture(null);
-            });
+            .thenCompose(ignored -> continueFromNode(currentNode, controller));
     }
 
     private CompletableFuture<Void> handleEventCallIfNeeded(Node node, ChainController controller) {
@@ -526,6 +510,54 @@ public class ExecutionManager {
             chain = chain.thenCompose(ignored -> runEventHandler(handler, controller));
         }
         return chain.whenComplete((ignored, throwable) -> executingEvents.remove(eventName));
+    }
+
+    private CompletableFuture<Void> continueFromNode(Node currentNode, ChainController controller) {
+        if (cancelRequested || controller == null || controller.cancelRequested) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        int nextSocket = currentNode.consumeNextOutputSocket();
+
+        if (currentNode.hasAttachedActionNode()) {
+            Node attachedAction = currentNode.getAttachedActionNode();
+            NodeType type = currentNode.getType();
+
+            if (attachedAction != null) {
+                if (type == NodeType.CONTROL_FOREVER && nextSocket != Node.NO_OUTPUT) {
+                    return runChain(attachedAction, controller)
+                        .thenCompose(ignored -> {
+                            if (cancelRequested || controller.cancelRequested) {
+                                return CompletableFuture.completedFuture(null);
+                            }
+                            return runChain(currentNode, controller);
+                        });
+                }
+
+                if ((type == NodeType.CONTROL_REPEAT || type == NodeType.CONTROL_REPEAT_UNTIL) && nextSocket == 0) {
+                    return runChain(attachedAction, controller)
+                        .thenCompose(ignored -> {
+                            if (cancelRequested || controller.cancelRequested) {
+                                return CompletableFuture.completedFuture(null);
+                            }
+                            return runChain(currentNode, controller);
+                        });
+                }
+            }
+        }
+
+        if (nextSocket == Node.NO_OUTPUT) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        Node nextNode = getNextConnectedNode(currentNode, activeConnections, nextSocket);
+        if (nextNode == null && nextSocket > 0) {
+            nextNode = getNextConnectedNode(currentNode, activeConnections, 0);
+        }
+        if (nextNode != null) {
+            return runChain(nextNode, controller);
+        }
+        return CompletableFuture.completedFuture(null);
     }
 
     private CompletableFuture<Void> runEventHandler(Node handler, ChainController controller) {
