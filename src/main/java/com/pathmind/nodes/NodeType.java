@@ -35,6 +35,7 @@ public enum NodeType {
     CONTROL_REPEAT("Repeat", 0xFFFFC107, "Repeat enclosed nodes a set number of times"),
     CONTROL_REPEAT_UNTIL("Repeat Until", 0xFFFFC107, "Repeat until a condition becomes true"),
     CONTROL_FOREVER("Forever", 0xFFFFC107, "Loop enclosed nodes indefinitely"),
+    CONTROL_IF("If", 0xFFFFC107, "Run the next branch only when a condition is true"),
     CONTROL_IF_ELSE("If Else", 0xFFFFC107, "Run one of two branches depending on a condition"),
 
     // Player movement commands
@@ -49,14 +50,10 @@ public enum NodeType {
     SWING("Swing", 0xFFFF7043, "Performs a hand swing without interaction"),
     
     // Player interaction commands
-    USE_ITEM("Use Item", 0xFF8BC34A, "Uses the item in the selected hand"),
+    USE("Use", 0xFF8BC34A, "Uses the selected hand with fine-grained control"),
     INTERACT("Interact", 0xFF4DB6AC, "Interacts with the targeted block or entity"),
     PLACE_HAND("Place from Hand", 0xFFBA68C8, "Places a block from the selected hand"),
-    
-    // Consumable commands
-    EAT("Eat Item", 0xFFFF8A65, "Consumes the edible item in the selected hand"),
-    DRINK("Drink Item", 0xFF80DEEA, "Consumes the drinkable item in the selected hand"),
-    
+
     // Inventory Commands
     HOTBAR("Hotbar Slot", 0xFFCDDC39, "Selects a hotbar slot"),
     DROP_ITEM("Drop Item", 0xFFFFAB91, "Drops the currently selected item"),
@@ -139,58 +136,12 @@ public enum NodeType {
             case EVENT_FUNCTION:
             case EVENT_CALL:
                 return NodeCategory.EVENTS;
-            case GOTO:
-            case GOAL:
-            case PATH:
-            case STOP:
-            case INVERT:
-            case COME:
-            case SURFACE:
-                return NodeCategory.NAVIGATION;
-            case MINE:
-            case BUILD:
-            case TUNNEL:
-            case FARM:
-            case PLACE:
-            case CRAFT:
-                return NodeCategory.MINING_BUILDING;
-            case EXPLORE:
-            case FOLLOW:
-                return NodeCategory.EXPLORATION;
             case CONTROL_REPEAT:
             case CONTROL_REPEAT_UNTIL:
             case CONTROL_FOREVER:
+            case CONTROL_IF:
             case CONTROL_IF_ELSE:
-                return NodeCategory.CONTROLS;
-            case LOOK:
-            case JUMP:
-            case CROUCH:
-            case SPRINT:
-            case TURN:
-                return NodeCategory.PLAYER_MOVEMENT;
-            case ATTACK:
-            case SWING:
-                return NodeCategory.PLAYER_COMBAT;
-            case USE_ITEM:
-            case INTERACT:
-            case PLACE_HAND:
-                return NodeCategory.PLAYER_INTERACTION;
-            case EAT:
-            case DRINK:
-                return NodeCategory.PLAYER_CONSUMABLES;
-            case HOTBAR:
-            case DROP_ITEM:
-            case DROP_SLOT:
-            case MOVE_ITEM:
-            case SWAP_SLOTS:
-            case CLEAR_SLOT:
-                return NodeCategory.PLAYER_INVENTORY;
-            case EQUIP_ARMOR:
-            case UNEQUIP_ARMOR:
-            case EQUIP_HAND:
-            case UNEQUIP_HAND:
-            case SWAP_HANDS:
-                return NodeCategory.PLAYER_EQUIPMENT;
+                return NodeCategory.LOGIC;
             case SENSOR_TOUCHING_BLOCK:
             case SENSOR_TOUCHING_ENTITY:
             case SENSOR_AT_COORDINATES:
@@ -208,6 +159,46 @@ public enum NodeType {
             case SENSOR_IS_UNDERWATER:
             case SENSOR_IS_FALLING:
                 return NodeCategory.SENSORS;
+            case GOTO:
+            case GOAL:
+            case PATH:
+            case STOP:
+            case INVERT:
+            case COME:
+            case SURFACE:
+            case EXPLORE:
+            case FOLLOW:
+            case LOOK:
+            case JUMP:
+            case CROUCH:
+            case SPRINT:
+            case TURN:
+                return NodeCategory.MOVEMENT;
+            case MINE:
+            case BUILD:
+            case TUNNEL:
+            case FARM:
+            case PLACE:
+            case CRAFT:
+                return NodeCategory.WORLD;
+            case ATTACK:
+            case SWING:
+            case USE:
+            case INTERACT:
+            case PLACE_HAND:
+                return NodeCategory.INTERACTION;
+            case HOTBAR:
+            case DROP_ITEM:
+            case DROP_SLOT:
+            case MOVE_ITEM:
+            case SWAP_SLOTS:
+            case CLEAR_SLOT:
+            case EQUIP_ARMOR:
+            case UNEQUIP_ARMOR:
+            case EQUIP_HAND:
+            case UNEQUIP_HAND:
+            case SWAP_HANDS:
+                return NodeCategory.INVENTORY;
             case WAIT:
             case MESSAGE:
                 return NodeCategory.UTILITY;
@@ -235,7 +226,7 @@ public enum NodeType {
             case MESSAGE:
             case HOTBAR:
             case DROP_ITEM:
-            case USE_ITEM:
+            case USE:
             case LOOK:
             case JUMP:
             case CROUCH:
@@ -253,8 +244,6 @@ public enum NodeType {
             case UNEQUIP_ARMOR:
             case EQUIP_HAND:
             case UNEQUIP_HAND:
-            case EAT:
-            case DRINK:
             case CONTROL_REPEAT:
             case CONTROL_REPEAT_UNTIL:
             case CONTROL_IF_ELSE:

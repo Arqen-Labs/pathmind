@@ -53,9 +53,9 @@ public class ExecutionManager {
             return;
         }
 
-        Node startNode = findStartNode(nodes);
-        if (startNode == null) {
-            System.out.println("ExecutionManager: No START node found!");
+        List<Node> startNodes = findStartNodes(nodes);
+        if (startNodes.isEmpty()) {
+            System.out.println("ExecutionManager: No START nodes found!");
             return;
         }
 
@@ -65,8 +65,13 @@ public class ExecutionManager {
         this.activeNodes = new ArrayList<>(nodes);
         this.activeConnections = new ArrayList<>(filteredConnections);
 
-        startExecution(startNode);
-        runChain(startNode).whenComplete((ignored, throwable) -> {
+        startExecution(startNodes);
+        CompletableFuture<Void>[] chains = startNodes.stream()
+                .map(this::runChain)
+                .toArray(CompletableFuture[]::new);
+
+        CompletableFuture<Void> combined = CompletableFuture.allOf(chains);
+        combined.whenComplete((ignored, throwable) -> {
             if (throwable != null) {
                 System.err.println("ExecutionManager: Error during execution - " + throwable.getMessage());
                 throwable.printStackTrace();
@@ -179,11 +184,18 @@ public class ExecutionManager {
     /**
      * Start execution with the given start node
      */
-    public void startExecution(Node startNode) {
-        this.activeNode = startNode;
+    public void startExecution(List<Node> startNodes) {
+        this.activeNode = startNodes.isEmpty() ? null : startNodes.get(0);
         this.isExecuting = true;
         this.executionStartTime = System.currentTimeMillis();
-        System.out.println("ExecutionManager: Started execution with node " + startNode.getType() + " at time " + this.executionStartTime);
+        this.executionEndTime = 0;
+        if (!startNodes.isEmpty()) {
+            System.out.println(
+                    "ExecutionManager: Started execution with " + startNodes.size() +
+                            " start node(s) at time " + this.executionStartTime);
+        } else {
+            System.out.println("ExecutionManager: Started execution without any root nodes at time " + this.executionStartTime);
+        }
     }
     
     /**
@@ -337,13 +349,19 @@ public class ExecutionManager {
         return null;
     }
 
-    private Node findStartNode(List<Node> nodes) {
+    private List<Node> findStartNodes(List<Node> nodes) {
+        List<Node> startNodes = new ArrayList<>();
+        if (nodes == null) {
+            return startNodes;
+        }
+
         for (Node node : nodes) {
             if (node.getType() == NodeType.START) {
-                return node;
+                startNodes.add(node);
             }
         }
-        return null;
+
+        return startNodes;
     }
 
     private NodeGraphData createGraphSnapshot(List<Node> nodes, List<NodeConnection> connections) {

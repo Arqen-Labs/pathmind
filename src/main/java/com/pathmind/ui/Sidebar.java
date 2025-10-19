@@ -19,8 +19,8 @@ import java.util.Map;
 public class Sidebar {
     // Outer sidebar dimensions
     private static final int OUTER_SIDEBAR_WIDTH = 180;
-    private static final int INNER_SIDEBAR_WIDTH =60;
-    private static final int TAB_SIZE = 20;
+    private static final int INNER_SIDEBAR_WIDTH = 45;
+    private static final int TAB_SIZE = 25;
     private static final int TAB_SPACING = 8;
     private static final int TOP_PADDING = 8;
     private static final int TAB_COLUMNS = 2;

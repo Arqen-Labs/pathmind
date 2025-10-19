@@ -2,6 +2,7 @@ package com.pathmind.screen;
 
 import com.pathmind.data.NodeGraphPersistence;
 import com.pathmind.data.PresetManager;
+import com.pathmind.execution.ExecutionManager;
 import com.pathmind.nodes.Node;
 import com.pathmind.nodes.NodeType;
 import com.pathmind.ui.NodeGraph;
@@ -53,6 +54,8 @@ public class PathmindVisualEditorScreen extends Screen {
     private static final int PRESET_TEXT_ICON_GAP = 4;
     private static final int CREATE_PRESET_POPUP_WIDTH = 320;
     private static final int CREATE_PRESET_POPUP_HEIGHT = 170;
+    private static final int PLAY_BUTTON_SIZE = 18;
+    private static final int PLAY_BUTTON_MARGIN = 8;
 
     private NodeGraph nodeGraph;
     private Sidebar sidebar;
@@ -195,7 +198,15 @@ public class PathmindVisualEditorScreen extends Screen {
                 WHITE
         );
 
-        renderPresetDropdown(context, mouseX, mouseY);
+        if (!isPopupObscuringWorkspace()) {
+            renderPlayButton(context, mouseX, mouseY);
+            renderPresetDropdown(context, mouseX, mouseY);
+        }
+    }
+
+    private boolean isPopupObscuringWorkspace() {
+        boolean overlayVisible = parameterOverlay != null && parameterOverlay.isVisible();
+        return overlayVisible || clearPopupVisible || importExportPopupVisible || createPresetPopupVisible;
     }
     
     private void renderDraggingNode(DrawContext context, int mouseX, int mouseY) {
@@ -300,6 +311,12 @@ public class PathmindVisualEditorScreen extends Screen {
             if (handleImportExportPopupClick(mouseX, mouseY, button)) {
                 return true;
             }
+            return true;
+        }
+
+        if (!isPopupObscuringWorkspace() && button == 0 && isPointInPlayButton((int) mouseX, (int) mouseY)) {
+            presetDropdownOpen = false;
+            startExecutingAllGraphs();
             return true;
         }
 
@@ -653,6 +670,11 @@ public class PathmindVisualEditorScreen extends Screen {
         }
 
         if (importExportPopupVisible) {
+            return true;
+        }
+
+        if (parameterOverlay != null && parameterOverlay.isVisible()) {
+            parameterOverlay.mouseScrolled(mouseX, mouseY, verticalAmount);
             return true;
         }
 
@@ -1014,6 +1036,47 @@ public class PathmindVisualEditorScreen extends Screen {
         parameterOverlay = null;
     }
 
+    private void renderPlayButton(DrawContext context, int mouseX, int mouseY) {
+        int buttonX = getPlayButtonX();
+        int buttonY = getPlayButtonY();
+        boolean hovered = isPointInRect(mouseX, mouseY, buttonX, buttonY, PLAY_BUTTON_SIZE, PLAY_BUTTON_SIZE);
+        boolean executing = ExecutionManager.getInstance().isExecuting();
+
+        int bgColor = executing ? 0xFF2E3B2E : 0xFF2A2A2A;
+        if (hovered) {
+            bgColor = executing ? 0xFF355237 : 0xFF3B3B3B;
+        }
+
+        int borderColor = (hovered || executing) ? ACCENT_COLOR : GREY_LINE;
+        context.fill(buttonX + 1, buttonY + 1, buttonX + PLAY_BUTTON_SIZE - 1, buttonY + PLAY_BUTTON_SIZE - 1, bgColor);
+        context.drawBorder(buttonX, buttonY, PLAY_BUTTON_SIZE, PLAY_BUTTON_SIZE, borderColor);
+
+        int iconColor = (hovered || executing) ? ACCENT_COLOR : WHITE;
+        drawPlayIcon(context, buttonX, buttonY, iconColor);
+    }
+
+    private void drawPlayIcon(DrawContext context, int buttonX, int buttonY, int color) {
+        int centerX = buttonX + PLAY_BUTTON_SIZE / 2;
+        int centerY = buttonY + PLAY_BUTTON_SIZE / 2;
+        int maxTriangle = Math.min(PLAY_BUTTON_SIZE - 6, 10);
+        if (maxTriangle < 4) {
+            maxTriangle = Math.max(PLAY_BUTTON_SIZE - 6, 4);
+        }
+
+        int triangleSize = maxTriangle;
+        int offset = Math.max(1, Math.round(triangleSize * 0.1f));
+
+        for (int i = 0; i < triangleSize; i++) {
+            int lineWidth = i + 1;
+            int lineY = centerY - triangleSize / 2 + i;
+
+            if (lineY >= buttonY + 2 && lineY <= buttonY + PLAY_BUTTON_SIZE - 3) {
+                int startX = centerX - triangleSize / 2 + offset;
+                context.drawHorizontalLine(startX, startX + lineWidth, lineY, color);
+            }
+        }
+    }
+
     private void renderPresetDropdown(DrawContext context, int mouseX, int mouseY) {
         int dropdownX = getPresetDropdownX();
         int dropdownY = getPresetDropdownY();
@@ -1104,11 +1167,19 @@ public class PathmindVisualEditorScreen extends Screen {
     }
 
     private int getPresetDropdownX() {
-        return this.width - PRESET_DROPDOWN_WIDTH - PRESET_DROPDOWN_MARGIN;
+        return getPlayButtonX() - PRESET_DROPDOWN_MARGIN - PRESET_DROPDOWN_WIDTH;
     }
 
     private int getPresetDropdownY() {
         return TITLE_BAR_HEIGHT + PRESET_DROPDOWN_MARGIN;
+    }
+
+    private int getPlayButtonX() {
+        return this.width - PLAY_BUTTON_SIZE - PLAY_BUTTON_MARGIN;
+    }
+
+    private int getPlayButtonY() {
+        return TITLE_BAR_HEIGHT + PLAY_BUTTON_MARGIN;
     }
 
     private int getPresetDropdownOptionsHeight() {
@@ -1507,6 +1578,20 @@ public class PathmindVisualEditorScreen extends Screen {
         int buttonX = getImportExportButtonX();
         int buttonY = getBottomButtonY();
         return isPointInRect(mouseX, mouseY, buttonX, buttonY, BOTTOM_BUTTON_SIZE, BOTTOM_BUTTON_SIZE);
+    }
+
+    private boolean isPointInPlayButton(int mouseX, int mouseY) {
+        return isPointInRect(mouseX, mouseY, getPlayButtonX(), getPlayButtonY(), PLAY_BUTTON_SIZE, PLAY_BUTTON_SIZE);
+    }
+
+    private void startExecutingAllGraphs() {
+        dismissParameterOverlay();
+        isDraggingFromSidebar = false;
+        draggingNodeType = null;
+        ExecutionManager.getInstance().executeGraph(nodeGraph.getNodes(), nodeGraph.getConnections());
+        if (this.client != null) {
+            this.client.setScreen(null);
+        }
     }
 
     private void drawTrashIcon(DrawContext context, int x, int y, int color) {
