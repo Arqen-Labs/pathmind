@@ -609,7 +609,8 @@ public class NodeGraph {
         List<Node> removalOrder = new ArrayList<>();
         collectNodesForCascade(node, removalOrder, new HashSet<>());
         for (Node toRemove : removalOrder) {
-            removeNodeInternal(toRemove, false, false);
+            boolean shouldReconnect = toRemove == node;
+            removeNodeInternal(toRemove, shouldReconnect, false);
         }
     }
 
@@ -623,12 +624,6 @@ public class NodeGraph {
         }
         if (node.hasAttachedActionNode()) {
             collectNodesForCascade(node.getAttachedActionNode(), order, visited);
-        }
-
-        for (NodeConnection connection : connections) {
-            if (connection.getOutputNode() == node) {
-                collectNodesForCascade(connection.getInputNode(), order, visited);
-            }
         }
 
         order.add(node);

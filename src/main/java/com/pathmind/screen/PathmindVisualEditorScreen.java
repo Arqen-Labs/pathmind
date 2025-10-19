@@ -706,9 +706,15 @@ public class PathmindVisualEditorScreen extends Screen {
         return super.mouseScrolled(mouseX, mouseY, horizontalAmount, verticalAmount);
     }
     
-    @Override
-    public void close() {
-        // Auto-save the node graph when closing
+    private boolean hasSavedOnClose = false;
+
+    private void autoSaveWorkspace() {
+        if (hasSavedOnClose) {
+            return;
+        }
+
+        hasSavedOnClose = true;
+
         if (nodeGraph.save()) {
             System.out.println("Node graph auto-saved successfully");
         } else {
@@ -716,8 +722,18 @@ public class PathmindVisualEditorScreen extends Screen {
         }
 
         PresetManager.setActivePreset(activePresetName);
+    }
 
+    @Override
+    public void close() {
+        autoSaveWorkspace();
         super.close();
+    }
+
+    @Override
+    public void removed() {
+        autoSaveWorkspace();
+        super.removed();
     }
 
     private void renderClearConfirmationPopup(DrawContext context, int mouseX, int mouseY) {
