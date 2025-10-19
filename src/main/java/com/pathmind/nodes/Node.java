@@ -55,7 +55,7 @@ public class Node {
     private static final int PARAM_LINE_HEIGHT = 10;
     private static final int PARAM_PADDING_TOP = 2;
     private static final int PARAM_PADDING_BOTTOM = 4;
-    private static final int MAX_PARAMETER_LABEL_LENGTH = 28;
+    private static final int MAX_PARAMETER_LABEL_LENGTH = 20;
     private static final int BODY_PADDING_NO_PARAMS = 10;
     private static final int START_END_SIZE = 36;
     private static final int SENSOR_SLOT_MARGIN_HORIZONTAL = 8;
