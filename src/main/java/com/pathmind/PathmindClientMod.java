@@ -9,7 +9,6 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.util.InputUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,7 +19,6 @@ import org.slf4j.LoggerFactory;
 public class PathmindClientMod implements ClientModInitializer {
     private static final Logger LOGGER = LoggerFactory.getLogger("Pathmind/Client");
     private ActiveNodeOverlay activeNodeOverlay;
-    private boolean titleScreenShortcutHeld;
 
     @Override
     public void onInitializeClient() {
@@ -56,22 +54,9 @@ public class PathmindClientMod implements ClientModInitializer {
         // Check if visual editor keybind was pressed
         while (PathmindKeybinds.OPEN_VISUAL_EDITOR.wasPressed()) {
             if (!(client.currentScreen instanceof PathmindVisualEditorScreen)
-                    && (client.currentScreen == null || client.currentScreen instanceof net.minecraft.client.gui.screen.TitleScreen)) {
+                    && client.currentScreen == null) {
                 client.setScreen(new PathmindVisualEditorScreen());
             }
-        }
-
-        boolean onTitleScreen = client.currentScreen instanceof net.minecraft.client.gui.screen.TitleScreen;
-        if (onTitleScreen && client.getWindow() != null) {
-            int boundKeyCode = PathmindKeybinds.OPEN_VISUAL_EDITOR.getBoundKey().getCode();
-            boolean isPressed = boundKeyCode != InputUtil.UNKNOWN_KEY.getCode()
-                    && InputUtil.isKeyPressed(client.getWindow().getHandle(), boundKeyCode);
-            if (isPressed && !this.titleScreenShortcutHeld && !(client.currentScreen instanceof PathmindVisualEditorScreen)) {
-                client.setScreen(new PathmindVisualEditorScreen());
-            }
-            this.titleScreenShortcutHeld = isPressed;
-        } else if (!onTitleScreen) {
-            this.titleScreenShortcutHeld = false;
         }
 
         if (client.player == null) {
