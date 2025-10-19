@@ -4,20 +4,14 @@ package com.pathmind.nodes;
  * Enum representing different categories of nodes for sidebar organization.
  */
 public enum NodeCategory {
-    NAVIGATION("Navigation", 0xFF00BCD4, "Movement and pathfinding commands", "→"),
-    MINING_BUILDING("Mining & Building", 0xFFFF9800, "Mining, building, and crafting commands", "⛏"),
-    EXPLORATION("Exploration", 0xFF9C27B0, "World exploration commands", "🗺"),
-    CONTROLS("Controls", 0xFFFFC107, "Flow control blocks", "⬚"),
-    SENSORS("Sensors", 0xFF64B5F6, "Condition sensing blocks", "✦"),
-    PLAYER_MOVEMENT("Player Movement", 0xFF26C6DA, "Player locomotion and view actions", "⇄"),
-    PLAYER_COMBAT("Player Combat", 0xFFFF5252, "Offensive player actions", "⚔"),
-    PLAYER_INTERACTION("Player Interaction", 0xFF7E57C2, "Block and entity interaction actions", "✋"),
-    PLAYER_CONSUMABLES("Consumables", 0xFFFF8A65, "Eating and drinking actions", "🍖"),
-    PLAYER_INVENTORY("Inventory", 0xFF8D6E63, "Inventory and hotbar management", "🎒"),
-    PLAYER_EQUIPMENT("Equipment", 0xFF66BB6A, "Armor and held item management", "🛡"),
-    WAYPOINTS("Waypoints", 0xFF9C27B0, "Waypoint management commands", "📍"),
-    UTILITY("Utility", 0xFF4CAF50, "Utility and configuration commands", "⚙"),
-    EVENTS("Events", 0xFFE91E63, "Event entry points and triggers", "★");
+    EVENTS("Events", 0xFFE91E63, "Event entry points and triggers", "★"),
+    LOGIC("Logic", 0xFFFFC107, "Flow control and condition checks", "⬚"),
+    MOVEMENT("Movement", 0xFF00BCD4, "Pathfinding and player movement actions", "⇄"),
+    WORLD("World Automation", 0xFF4CAF50, "Mining, building, and exploration tasks", "🌍"),
+    INTERACTION("Interaction", 0xFF7E57C2, "Combat and interaction commands", "✋"),
+    INVENTORY("Inventory", 0xFF8D6E63, "Inventory and equipment management", "🎒"),
+    SENSORS("Sensors", 0xFF64B5F6, "Environment and state checks", "📡"),
+    UTILITY("Utility", 0xFF9E9E9E, "Utility and messaging tools", "⚙");
 
     private final String displayName;
     private final int color;
