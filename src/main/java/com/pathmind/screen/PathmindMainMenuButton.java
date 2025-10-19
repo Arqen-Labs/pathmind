@@ -22,7 +22,10 @@ public class PathmindMainMenuButton extends ButtonWidget {
 
     @Override
     protected void renderWidget(DrawContext context, int mouseX, int mouseY, float delta) {
+        Text originalMessage = this.getMessage();
+        this.setMessage(Text.empty());
         super.renderWidget(context, mouseX, mouseY, delta);
+        this.setMessage(originalMessage);
 
         int iconSize = this.width - ICON_PADDING * 2;
         int iconX = this.getX() + ICON_PADDING;
