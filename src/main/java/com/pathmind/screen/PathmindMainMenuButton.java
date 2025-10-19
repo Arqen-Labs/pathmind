@@ -1,6 +1,7 @@
 package com.pathmind.screen;
 
 import com.pathmind.PathmindMod;
+import net.minecraft.client.gl.RenderPipelines;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.tooltip.Tooltip;
 import net.minecraft.client.gui.widget.ButtonWidget;
@@ -27,6 +28,6 @@ public class PathmindMainMenuButton extends ButtonWidget {
         int iconX = this.getX() + ICON_PADDING;
         int iconY = this.getY() + ICON_PADDING;
 
-        context.drawTexture(ICON_TEXTURE, iconX, iconY, 0, 0, iconSize, iconSize, 128, 128);
+        context.drawGuiTexture(RenderPipelines.GUI_TEXTURED, ICON_TEXTURE, iconX, iconY, iconSize, iconSize);
     }
 }
