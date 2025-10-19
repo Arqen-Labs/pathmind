@@ -21,14 +21,14 @@ public final class PathmindMainMenuIntegration {
     public static void register() {
         ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
             if (screen instanceof TitleScreen) {
-                addButton(screen, scaledWidth, scaledHeight);
+                addButton(screen);
                 registerKeyHandler(client, screen);
             }
         });
     }
 
-    private static void addButton(Screen screen, int width, int height) {
-        int x = width - BUTTON_SIZE - BUTTON_MARGIN;
+    private static void addButton(Screen screen) {
+        int x = BUTTON_MARGIN;
         int y = BUTTON_MARGIN;
 
         ((ScreenAccessor) screen).pathmind$addDrawableChild(new PathmindMainMenuButton(x, y, BUTTON_SIZE, button -> {
