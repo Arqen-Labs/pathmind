@@ -40,6 +40,7 @@ public class ExecutionManager {
     private final List<String> executingEvents;
     private volatile boolean cancelRequested;
     private final Map<Node, ChainController> activeChains;
+    private boolean globalExecutionActive;
 
     private static class ChainController {
         final Node startNode;
@@ -61,6 +62,7 @@ public class ExecutionManager {
         this.executingEvents = new ArrayList<>();
         this.cancelRequested = false;
         this.activeChains = new ConcurrentHashMap<>();
+        this.globalExecutionActive = false;
     }
     
     public static ExecutionManager getInstance() {
@@ -89,7 +91,7 @@ public class ExecutionManager {
         this.activeConnections = new ArrayList<>(filteredConnections);
         this.cancelRequested = false;
 
-        startExecution(startNodes);
+        startExecution(startNodes, true);
         activeChains.clear();
 
         for (Node startNode : startNodes) {
@@ -220,7 +222,7 @@ public class ExecutionManager {
         this.cancelRequested = false;
 
         if (activeChains.isEmpty()) {
-            startExecution(Collections.singletonList(startNode));
+            startExecution(Collections.singletonList(startNode), false);
         } else {
             this.isExecuting = true;
         }
@@ -235,9 +237,10 @@ public class ExecutionManager {
     /**
      * Start execution with the given start node
      */
-    public void startExecution(List<Node> startNodes) {
+    private void startExecution(List<Node> startNodes, boolean markGlobal) {
         this.activeNode = startNodes.isEmpty() ? null : startNodes.get(0);
         this.isExecuting = true;
+        this.globalExecutionActive = markGlobal;
         this.cancelRequested = false;
         this.executionStartTime = System.currentTimeMillis();
         this.executionEndTime = 0;
@@ -264,6 +267,7 @@ public class ExecutionManager {
     public void stopExecution() {
         System.out.println("ExecutionManager: Stopping execution at time " + System.currentTimeMillis());
         this.isExecuting = false;
+        this.globalExecutionActive = false;
         if (cancelRequested) {
             this.executionEndTime = 0;
             this.executionStartTime = 0;
@@ -291,6 +295,7 @@ public class ExecutionManager {
             controller.cancelRequested = true;
         }
         this.isExecuting = false;
+        this.globalExecutionActive = false;
         this.activeNode = null;
         this.executionStartTime = 0;
         this.executionEndTime = 0;
@@ -391,6 +396,10 @@ public class ExecutionManager {
         }
         
         return false;
+    }
+
+    public boolean isGlobalExecutionActive() {
+        return globalExecutionActive;
     }
     
     /**

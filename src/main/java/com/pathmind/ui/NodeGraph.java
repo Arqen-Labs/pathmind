@@ -64,6 +64,7 @@ public class NodeGraph {
     // Start button hover state
     private boolean hoveringStartButton = false;
     private Node hoveredStartNode = null;
+    private boolean lastStartButtonTriggeredExecution = false;
 
     private Node sensorDropTarget = null;
     private Node actionDropTarget = null;
@@ -75,6 +76,7 @@ public class NodeGraph {
     private int sidebarWidthForRendering = 180;
 
     private String activePreset;
+    private final Set<Node> cascadeDeletionPreviewNodes;
 
     public NodeGraph() {
         this.nodes = new ArrayList<>();
@@ -85,6 +87,7 @@ public class NodeGraph {
         this.draggingNodeStartY = 0;
         this.draggingNodeDetached = false;
         this.activePreset = PresetManager.getActivePreset();
+        this.cascadeDeletionPreviewNodes = new HashSet<>();
 
         // Add preset nodes similar to Blender's shader editor
         // Will be initialized with proper centering when screen dimensions are available
@@ -686,6 +689,7 @@ public class NodeGraph {
 
     public void render(DrawContext context, TextRenderer textRenderer, int mouseX, int mouseY, float delta, boolean onlyDragged) {
         if (!onlyDragged) {
+            updateCascadeDeletionPreview();
             // Render connections first (behind nodes) - only for stationary rendering
             renderConnections(context);
         }
@@ -732,6 +736,9 @@ public class NodeGraph {
         // Check if node is being dragged over sidebar (grey-out effect)
         // Use screen coordinates (with camera offset) for this check
         boolean isOverSidebar = node.isDragging() && isNodeOverSidebar(node, sidebarWidthForRendering, x, width);
+        if (!isOverSidebar && cascadeDeletionPreviewNodes.contains(node)) {
+            isOverSidebar = true;
+        }
 
         // Node background
         int bgColor = node.isSelected() ? 0xFF404040 : 0xFF2A2A2A;
@@ -1206,6 +1213,7 @@ public class NodeGraph {
     }
 
     public boolean handleStartButtonClick(int mouseX, int mouseY) {
+        lastStartButtonTriggeredExecution = false;
         Node startNode = findStartNodeAt(mouseX, mouseY);
         if (startNode == null) {
             return false;
@@ -1218,7 +1226,11 @@ public class NodeGraph {
             return manager.requestStopForStart(startNode);
         }
 
-        return manager.executeBranch(startNode, nodes, connections);
+        boolean started = manager.executeBranch(startNode, nodes, connections);
+        if (started) {
+            lastStartButtonTriggeredExecution = true;
+        }
+        return started;
     }
 
     private Node findStartNodeAt(int mouseX, int mouseY) {
@@ -1236,6 +1248,29 @@ public class NodeGraph {
      */
     public boolean shouldShowParameters(Node node) {
         return node.hasParameters() && !node.canAcceptSensor() && node.getType() != NodeType.EVENT_FUNCTION;
+    }
+
+    public boolean didLastStartButtonTriggerExecution() {
+        return lastStartButtonTriggeredExecution;
+    }
+
+    private void updateCascadeDeletionPreview() {
+        cascadeDeletionPreviewNodes.clear();
+        for (Node node : nodes) {
+            if (node.getType().getCategory() != NodeCategory.LOGIC) {
+                continue;
+            }
+            if (!node.isDragging()) {
+                continue;
+            }
+            int screenX = node.getX() - cameraX;
+            if (!isNodeOverSidebar(node, sidebarWidthForRendering, screenX, node.getWidth())) {
+                continue;
+            }
+            List<Node> removalOrder = new ArrayList<>();
+            collectNodesForCascade(node, removalOrder, new HashSet<>());
+            cascadeDeletionPreviewNodes.addAll(removalOrder);
+        }
     }
     
     /**
@@ -1310,6 +1345,7 @@ public class NodeGraph {
         actionDropTarget = null;
         lastClickedNode = null;
         lastClickTime = 0;
+        cascadeDeletionPreviewNodes.clear();
     }
 
     private boolean applyLoadedData(NodeGraphData data) {
@@ -1428,6 +1464,7 @@ public class NodeGraph {
         disconnectedConnection = null;
         lastClickedNode = null;
         lastClickTime = 0;
+        cascadeDeletionPreviewNodes.clear();
 
         System.out.println("Loaded " + nodes.size() + " nodes and " + connections.size() + " connections");
         return true;
