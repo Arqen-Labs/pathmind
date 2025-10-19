@@ -14,7 +14,7 @@ import net.minecraft.util.Identifier;
  * A small icon button used on the title screen to open the Pathmind visual editor.
  */
 public class PathmindMainMenuButton extends ButtonWidget {
-    public static final Identifier ICON_TEXTURE = PathmindMod.id("logo");
+    public static final Identifier ICON_TEXTURE = PathmindMod.id("logo.png");
     private static final int ICON_TEXTURE_SIZE = 128;
     private static final int ICON_PADDING = 2;
     private static final Text OPEN_EDITOR_TEXT = Text.translatable("gui.pathmind.open_editor");
