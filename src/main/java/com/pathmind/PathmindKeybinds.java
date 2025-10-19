@@ -21,7 +21,7 @@ public class PathmindKeybinds {
         PLAY_LAST_GRAPH = new KeyBinding(
                 "key.pathmind.play_last_graph",
                 InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_P,
+                GLFW.GLFW_KEY_K,
                 "category.pathmind.general"
         );
     }
