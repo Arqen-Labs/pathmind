@@ -8,8 +8,11 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.TitleScreen;
+import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.text.Text;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,6 +37,26 @@ public class PathmindClientMod implements ClientModInitializer {
         PathmindKeybinds.registerKeybinds();
         KeyBindingHelper.registerKeyBinding(PathmindKeybinds.OPEN_VISUAL_EDITOR);
         KeyBindingHelper.registerKeyBinding(PathmindKeybinds.PLAY_GRAPHS);
+
+        ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
+            if (screen instanceof TitleScreen) {
+                int buttonWidth = 150;
+                int buttonHeight = 20;
+                int x = scaledWidth - buttonWidth - 8;
+                int y = 8;
+
+                ButtonWidget openEditorButton = ButtonWidget.builder(
+                    Text.translatable("gui.pathmind.open_editor"),
+                    button -> {
+                        if (!(client.currentScreen instanceof PathmindVisualEditorScreen)) {
+                            client.setScreen(new PathmindVisualEditorScreen());
+                        }
+                    }
+                ).dimensions(x, y, buttonWidth, buttonHeight).build();
+
+                screen.addDrawableChild(openEditorButton);
+            }
+        });
         
         // Register client tick events for keybind handling
         ClientTickEvents.END_CLIENT_TICK.register(client -> {

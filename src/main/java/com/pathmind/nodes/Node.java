@@ -28,6 +28,7 @@ import net.minecraft.registry.Registries;
 import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
 import net.minecraft.network.packet.c2s.play.HandSwingC2SPacket;
 import net.minecraft.network.packet.c2s.play.PlayerActionC2SPacket;
+import net.minecraft.network.packet.c2s.play.PlayerInteractBlockC2SPacket;
 import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
@@ -2273,7 +2274,9 @@ public class Node {
                     return;
                 }
 
-                ensureBlockInHand(client, blockId, hand);
+                if (!ensureBlockInHand(client, blockId, hand)) {
+                    throw new RuntimeException("Block " + blockId + " not found in hotbar");
+                }
                 if (!performBlockPlacement(client, targetPos, hand)) {
                     throw new RuntimeException("Failed to place block at " + targetPos.getX() + ", " + targetPos.getY() + ", " + targetPos.getZ());
                 }
@@ -2287,36 +2290,59 @@ public class Node {
         }
     }
 
-    private void ensureBlockInHand(net.minecraft.client.MinecraftClient client, String blockId, Hand hand) {
+    private boolean ensureBlockInHand(net.minecraft.client.MinecraftClient client, String blockId, Hand hand) {
         if (blockId == null || blockId.isEmpty()) {
-            return;
+            return true;
         }
 
         Identifier identifier = Identifier.tryParse(blockId);
         if (identifier == null || !Registries.ITEM.containsId(identifier)) {
-            return;
+            return false;
         }
 
         Item targetItem = Registries.ITEM.get(identifier);
         ItemStack current = client.player.getStackInHand(hand);
         if (!current.isEmpty() && current.isOf(targetItem)) {
-            return;
+            return true;
+        }
+
+        PlayerInventory inventory = client.player.getInventory();
+        int slot = findHotbarSlotWithItem(inventory, targetItem);
+        if (slot == -1) {
+            return false;
         }
 
         if (hand == Hand.MAIN_HAND) {
-            PlayerInventory inventory = client.player.getInventory();
-            int hotbarSize = PlayerInventory.getHotbarSize();
-            for (int slot = 0; slot < hotbarSize; slot++) {
-                ItemStack stack = inventory.getStack(slot);
-                if (!stack.isEmpty() && stack.isOf(targetItem)) {
-                    inventory.setSelectedSlot(slot);
-                    if (client.player.networkHandler != null) {
-                        client.player.networkHandler.sendPacket(new UpdateSelectedSlotC2SPacket(slot));
-                    }
-                    return;
+            if (inventory.getSelectedSlot() != slot) {
+                inventory.setSelectedSlot(slot);
+                if (client.player.networkHandler != null) {
+                    client.player.networkHandler.sendPacket(new UpdateSelectedSlotC2SPacket(slot));
                 }
             }
+            return true;
         }
+
+        ItemStack offhandStack = client.player.getOffHandStack();
+        if (!offhandStack.isEmpty() && offhandStack.isOf(targetItem)) {
+            return true;
+        }
+
+        inventory.setSelectedSlot(slot);
+        if (client.player.networkHandler != null) {
+            client.player.networkHandler.sendPacket(new UpdateSelectedSlotC2SPacket(slot));
+        }
+        return true;
+    }
+
+    private int findHotbarSlotWithItem(PlayerInventory inventory, Item targetItem) {
+        int hotbarSize = PlayerInventory.getHotbarSize();
+        for (int slot = 0; slot < hotbarSize; slot++) {
+            ItemStack stack = inventory.getStack(slot);
+            if (!stack.isEmpty() && stack.isOf(targetItem)) {
+                return slot;
+            }
+        }
+        return -1;
     }
 
     private boolean performBlockPlacement(net.minecraft.client.MinecraftClient client, BlockPos targetPos, Hand hand) {
@@ -2344,6 +2370,7 @@ public class Node {
             BlockHitResult hitResult = new BlockHitResult(hitPos, placementSide, clickedPos, false);
             ActionResult result = client.interactionManager.interactBlock(client.player, hand, hitResult);
             if (result.isAccepted()) {
+                sendPlacementPacket(client, hand, hitResult);
                 client.player.swingHand(hand);
                 if (client.player.networkHandler != null) {
                     client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
@@ -2354,6 +2381,17 @@ public class Node {
 
         ActionResult fallback = client.interactionManager.interactItem(client.player, hand);
         return fallback.isAccepted();
+    }
+
+    private void sendPlacementPacket(net.minecraft.client.MinecraftClient client, Hand hand, BlockHitResult hitResult) {
+        if (client.player == null || client.player.networkHandler == null || client.interactionManager == null || client.player.getWorld() == null) {
+            return;
+        }
+
+        client.interactionManager.sendSequencedPacket(
+            client.player.getWorld(),
+            sequence -> new PlayerInteractBlockC2SPacket(hand, hitResult, sequence)
+        );
     }
 
     private Block resolveBlockForPlacement(String blockId) {
