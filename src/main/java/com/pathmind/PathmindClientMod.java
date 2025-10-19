@@ -44,7 +44,7 @@ public class PathmindClientMod implements ClientModInitializer {
         ClientLifecycleEvents.CLIENT_STARTED.register(client -> {
             TextureManager textureManager = client.getTextureManager();
             textureManager.registerTexture(PathmindMainMenuButton.ICON_TEXTURE,
-                    new ResourceTexture(PathmindMod.id("textures/icon.png")));
+                    new ResourceTexture(PathmindMod.id("logo.png")));
         });
 
         // Hook into the main menu for button and keyboard support
