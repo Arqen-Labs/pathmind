@@ -21,6 +21,7 @@ import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.block.Block;
+import net.minecraft.block.BlockState;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.registry.Registries;
@@ -2263,7 +2264,7 @@ public class Node {
                         future.complete(null);
                         return;
                     }
-                } else if (client.player.getWorld() != null && !client.player.getWorld().getBlockState(targetPos).getMaterial().isReplaceable()) {
+                } else if (client.player.getWorld() != null && !isBlockReplaceable(client.player.getWorld(), targetPos)) {
                     future.complete(null);
                     return;
                 }
@@ -2320,7 +2321,7 @@ public class Node {
         }
 
         net.minecraft.world.World world = client.player.getWorld();
-        if (!world.getBlockState(targetPos).getMaterial().isReplaceable()) {
+        if (!isBlockReplaceable(world, targetPos)) {
             return true;
         }
 
@@ -2362,6 +2363,19 @@ public class Node {
         }
 
         return Registries.BLOCK.get(identifier);
+    }
+
+    private boolean isBlockReplaceable(net.minecraft.world.World world, BlockPos targetPos) {
+        BlockState state = world.getBlockState(targetPos);
+        if (state.isAir()) {
+            return true;
+        }
+
+        if (!state.getFluidState().isEmpty()) {
+            return true;
+        }
+
+        return state.getCollisionShape(world, targetPos).isEmpty();
     }
 
     private void executeLookCommand(CompletableFuture<Void> future) {
