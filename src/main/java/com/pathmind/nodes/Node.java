@@ -55,6 +55,7 @@ public class Node {
     private static final int PARAM_LINE_HEIGHT = 10;
     private static final int PARAM_PADDING_TOP = 2;
     private static final int PARAM_PADDING_BOTTOM = 4;
+    private static final int MAX_PARAMETER_LABEL_LENGTH = 48;
     private static final int BODY_PADDING_NO_PARAMS = 10;
     private static final int START_END_SIZE = 36;
     private static final int SENSOR_SLOT_MARGIN_HORIZONTAL = 8;
@@ -911,6 +912,18 @@ public class Node {
         return null;
     }
 
+    public String getParameterLabel(NodeParameter parameter) {
+        if (parameter == null) {
+            return "";
+        }
+        String text = parameter.getName() + ": " + parameter.getDisplayValue();
+        if (text.length() <= MAX_PARAMETER_LABEL_LENGTH) {
+            return text;
+        }
+        int maxContentLength = Math.max(0, MAX_PARAMETER_LABEL_LENGTH - 3);
+        return text.substring(0, maxContentLength) + "...";
+    }
+
     /**
      * Check if this node has parameters (Start nodes don't)
      */
@@ -930,7 +943,7 @@ public class Node {
 
         int maxTextLength = Math.max(type.getDisplayName().length(), 1);
         for (NodeParameter param : parameters) {
-            String paramText = param.getName() + ": " + param.getDisplayValue();
+            String paramText = getParameterLabel(param);
             if (paramText.length() > maxTextLength) {
                 maxTextLength = paramText.length();
             }

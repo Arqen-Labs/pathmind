@@ -4,6 +4,7 @@ import com.pathmind.data.NodeGraphData;
 import com.pathmind.data.NodeGraphPersistence;
 import com.pathmind.data.PresetManager;
 import com.pathmind.nodes.Node;
+import com.pathmind.nodes.NodeCategory;
 import com.pathmind.nodes.NodeConnection;
 import com.pathmind.nodes.NodeParameter;
 import com.pathmind.nodes.NodeType;
@@ -16,6 +17,8 @@ import net.minecraft.text.Text;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Manages the node graph for the Pathmind visual editor.
@@ -484,10 +487,15 @@ public class NodeGraph {
             if (hoveredNode != null && hoveredSocket != -1) {
                 if (isOutputSocket && hoveredSocketIsInput) {
                     // Remove any existing incoming connection to the target socket
-                    connections.removeIf(conn -> 
+                    connections.removeIf(conn ->
                         conn.getInputNode() == hoveredNode && conn.getInputSocket() == hoveredSocket
                     );
-                    
+
+                    // Ensure only one outgoing connection per source socket
+                    connections.removeIf(conn ->
+                        conn.getOutputNode() == connectionSourceNode && conn.getOutputSocket() == connectionSourceSocket
+                    );
+
                     // Connect output to input
                     NodeConnection newConnection = new NodeConnection(connectionSourceNode, hoveredNode, connectionSourceSocket, hoveredSocket);
                     connections.add(newConnection);
@@ -587,8 +595,41 @@ public class NodeGraph {
         // Calculate the node's screen position (same as in renderNode)
         int nodeScreenX = node.getX() - cameraX;
         if (isNodeOverSidebar(node, sidebarWidth, nodeScreenX, node.getWidth())) {
-            removeNode(node);
+            if (node.getType().getCategory() == NodeCategory.LOGIC) {
+                removeNodeCascade(node);
+            } else {
+                removeNode(node);
+            }
         }
+    }
+
+    private void removeNodeCascade(Node node) {
+        List<Node> removalOrder = new ArrayList<>();
+        collectNodesForCascade(node, removalOrder, new HashSet<>());
+        for (Node toRemove : removalOrder) {
+            removeNode(toRemove);
+        }
+    }
+
+    private void collectNodesForCascade(Node node, List<Node> order, Set<Node> visited) {
+        if (node == null || !visited.add(node)) {
+            return;
+        }
+
+        if (node.hasAttachedSensor()) {
+            collectNodesForCascade(node.getAttachedSensor(), order, visited);
+        }
+        if (node.hasAttachedActionNode()) {
+            collectNodesForCascade(node.getAttachedActionNode(), order, visited);
+        }
+
+        for (NodeConnection connection : connections) {
+            if (connection.getOutputNode() == node) {
+                collectNodesForCascade(connection.getInputNode(), order, visited);
+            }
+        }
+
+        order.add(node);
     }
     
     public boolean isNodeOverSidebar(Node node, int sidebarWidth) {
@@ -837,7 +878,7 @@ public class NodeGraph {
                 List<NodeParameter> parameters = node.getParameters();
 
                 for (NodeParameter param : parameters) {
-                    String displayText = param.getName() + ": " + param.getDisplayValue();
+                    String displayText = node.getParameterLabel(param);
                     displayText = trimTextToWidth(displayText, textRenderer, width - 10);
 
                     int paramTextColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0; // Grey text when over sidebar
@@ -1166,11 +1207,11 @@ public class NodeGraph {
         }
 
         ExecutionManager manager = ExecutionManager.getInstance();
-        if (!manager.isChainActive(hoveredStartNode)) {
-            return false;
+        if (manager.isChainActive(hoveredStartNode)) {
+            return manager.requestStopForStart(hoveredStartNode);
         }
 
-        return manager.requestStopForStart(hoveredStartNode);
+        return manager.executeBranch(hoveredStartNode, nodes, connections);
     }
     
     

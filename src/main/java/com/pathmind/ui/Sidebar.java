@@ -298,6 +298,15 @@ public class Sidebar {
     public int getWidth() {
         return selectedCategory != null ? OUTER_SIDEBAR_WIDTH : INNER_SIDEBAR_WIDTH;
     }
+
+    /**
+     * Returns the width of the sidebar when no category is expanded.
+     * This is used for layout calculations that should remain stable even
+     * when a category is opened (which visually overlays the workspace).
+     */
+    public static int getCollapsedWidth() {
+        return INNER_SIDEBAR_WIDTH;
+    }
     
     /**
      * Darkens a color by the specified factor

@@ -253,7 +253,7 @@ public class PathmindVisualEditorScreen extends Screen {
     private void renderNodeGraph(DrawContext context, int mouseX, int mouseY, float delta, boolean onlyDragged) {
         if (!onlyDragged) {
             // Node graph background
-            context.fill(sidebar.getWidth(), TITLE_BAR_HEIGHT, this.width, this.height, DARK_GREY);
+            context.fill(Sidebar.getCollapsedWidth(), TITLE_BAR_HEIGHT, this.width, this.height, DARK_GREY);
             
             // Render grid pattern for better visual organization
             renderGrid(context);
@@ -265,7 +265,7 @@ public class PathmindVisualEditorScreen extends Screen {
     
     private void renderGrid(DrawContext context) {
         int gridSize = 20;
-        int startX = sidebar.getWidth();
+        int startX = Sidebar.getCollapsedWidth();
         int startY = TITLE_BAR_HEIGHT;
         
         // Get camera offset from node graph

@@ -15,6 +15,7 @@ import com.pathmind.nodes.ParameterType;
 import com.pathmind.data.NodeGraphData;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -195,6 +196,40 @@ public class ExecutionManager {
         }
 
         executeGraph(nodes, connections);
+    }
+
+    public boolean executeBranch(Node startNode, List<Node> nodes, List<NodeConnection> connections) {
+        if (startNode == null || startNode.getType() != NodeType.START) {
+            System.out.println("ExecutionManager: Cannot execute branch - invalid START node.");
+            return false;
+        }
+        if (nodes == null || connections == null) {
+            System.out.println("ExecutionManager: Cannot execute branch - missing nodes or connections.");
+            return false;
+        }
+        if (isChainActive(startNode)) {
+            System.out.println("ExecutionManager: START node already executing, ignoring branch start request.");
+            return false;
+        }
+
+        List<NodeConnection> filteredConnections = filterConnections(connections);
+
+        this.lastExecutedGraph = createGraphSnapshot(nodes, filteredConnections);
+        this.activeNodes = new ArrayList<>(nodes);
+        this.activeConnections = new ArrayList<>(filteredConnections);
+        this.cancelRequested = false;
+
+        if (activeChains.isEmpty()) {
+            startExecution(Collections.singletonList(startNode));
+        } else {
+            this.isExecuting = true;
+        }
+
+        ChainController controller = new ChainController(startNode);
+        activeChains.put(startNode, controller);
+        CompletableFuture<Void> chainFuture = runChain(startNode, controller);
+        chainFuture.whenComplete((ignored, throwable) -> handleChainCompletion(controller, throwable));
+        return true;
     }
     
     /**
