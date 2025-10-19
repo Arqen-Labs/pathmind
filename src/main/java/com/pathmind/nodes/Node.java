@@ -1399,11 +1399,15 @@ public class Node {
         System.out.println("Executing command: #path");
         executeCommand("#path");
 
+        final String resolvedBlock = block;
+        final BlockPos resolvedTargetPos = targetPos;
+        final Hand resolvedHand = hand;
+
         pathFuture.whenComplete((ignored, throwable) -> {
             if (throwable != null) {
                 future.completeExceptionally(throwable);
             } else {
-                placeBlockAfterPath(block, targetPos, hand, future);
+                placeBlockAfterPath(resolvedBlock, resolvedTargetPos, resolvedHand, future);
             }
         });
     }
