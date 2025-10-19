@@ -2,6 +2,7 @@ package com.pathmind;
 
 import com.pathmind.data.PresetManager;
 import com.pathmind.execution.ExecutionManager;
+import com.pathmind.screen.PathmindMainMenuIntegration;
 import com.pathmind.screen.PathmindVisualEditorScreen;
 import com.pathmind.ui.ActiveNodeOverlay;
 import net.fabricmc.api.ClientModInitializer;
@@ -9,6 +10,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.screen.TitleScreen;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,6 +36,9 @@ public class PathmindClientMod implements ClientModInitializer {
         KeyBindingHelper.registerKeyBinding(PathmindKeybinds.OPEN_VISUAL_EDITOR);
         KeyBindingHelper.registerKeyBinding(PathmindKeybinds.PLAY_GRAPHS);
 
+        // Hook into the main menu for button and keyboard support
+        PathmindMainMenuIntegration.register();
+
         // Register client tick events for keybind handling
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             handleKeybinds(client);
@@ -54,7 +59,7 @@ public class PathmindClientMod implements ClientModInitializer {
         // Check if visual editor keybind was pressed
         while (PathmindKeybinds.OPEN_VISUAL_EDITOR.wasPressed()) {
             if (!(client.currentScreen instanceof PathmindVisualEditorScreen)
-                    && client.currentScreen == null) {
+                    && (client.currentScreen == null || client.currentScreen instanceof TitleScreen)) {
                 client.setScreen(new PathmindVisualEditorScreen());
             }
         }
