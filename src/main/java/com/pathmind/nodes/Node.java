@@ -25,12 +25,9 @@ import net.minecraft.block.BlockState;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.registry.Registries;
-import net.minecraft.client.world.ClientWorld;
-import com.pathmind.mixin.ClientPlayerInteractionManagerAccessor;
 import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
 import net.minecraft.network.packet.c2s.play.HandSwingC2SPacket;
 import net.minecraft.network.packet.c2s.play.PlayerActionC2SPacket;
-import net.minecraft.network.packet.c2s.play.PlayerInteractBlockC2SPacket;
 import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
@@ -2372,7 +2369,6 @@ public class Node {
             BlockHitResult hitResult = new BlockHitResult(hitPos, placementSide, clickedPos, false);
             ActionResult result = client.interactionManager.interactBlock(client.player, hand, hitResult);
             if (result.isAccepted()) {
-                sendPlacementPacket(client, hand, hitResult);
                 client.player.swingHand(hand);
                 if (client.player.networkHandler != null) {
                     client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
@@ -2383,22 +2379,6 @@ public class Node {
 
         ActionResult fallback = client.interactionManager.interactItem(client.player, hand);
         return fallback.isAccepted();
-    }
-
-    private void sendPlacementPacket(net.minecraft.client.MinecraftClient client, Hand hand, BlockHitResult hitResult) {
-        if (client.player == null || client.player.networkHandler == null || client.interactionManager == null || client.player.getWorld() == null) {
-            return;
-        }
-
-        ClientWorld clientWorld = client.world;
-        if (clientWorld == null) {
-            return;
-        }
-
-        ((ClientPlayerInteractionManagerAccessor) client.interactionManager).pathmind$sendSequencedPacket(
-            clientWorld,
-            sequence -> new PlayerInteractBlockC2SPacket(hand, hitResult, sequence)
-        );
     }
 
     private Block resolveBlockForPlacement(String blockId) {
