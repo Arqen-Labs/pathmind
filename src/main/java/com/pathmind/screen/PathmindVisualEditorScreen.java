@@ -2,6 +2,7 @@ package com.pathmind.screen;
 
 import com.pathmind.data.NodeGraphPersistence;
 import com.pathmind.data.PresetManager;
+import com.pathmind.execution.ExecutionManager;
 import com.pathmind.nodes.Node;
 import com.pathmind.nodes.NodeType;
 import com.pathmind.ui.NodeGraph;
@@ -48,6 +49,9 @@ public class PathmindVisualEditorScreen extends Screen {
     private static final int PRESET_DELETE_ICON_MARGIN = 6;
     private static final int PRESET_DELETE_ICON_HITBOX_PADDING = 2;
     private static final int PRESET_TEXT_ICON_GAP = 4;
+    private static final int STOP_ALL_BUTTON_HEIGHT = 18;
+    private static final int STOP_ALL_BUTTON_TEXT_PADDING = 12;
+    private static final String STOP_ALL_BUTTON_LABEL = "Stop all nodetrees";
     private static final int CREATE_PRESET_POPUP_WIDTH = 320;
     private static final int CREATE_PRESET_POPUP_HEIGHT = 170;
 
@@ -208,6 +212,7 @@ public class PathmindVisualEditorScreen extends Screen {
                 WHITE
         );
 
+        renderStopAllNodetreesButton(context, mouseX, mouseY);
         renderPresetDropdown(context, mouseX, mouseY);
     }
     
@@ -320,6 +325,10 @@ public class PathmindVisualEditorScreen extends Screen {
         }
 
         if (button == 0) {
+            if (isStopAllNodetreesButtonClicked((int)mouseX, (int)mouseY, button)) {
+                handleStopAllNodetrees();
+                return true;
+            }
             if (isPointInRect((int)mouseX, (int)mouseY, getPresetDropdownX(), getPresetDropdownY(), PRESET_DROPDOWN_WIDTH, PRESET_DROPDOWN_HEIGHT)) {
                 presetDropdownOpen = !presetDropdownOpen;
                 return true;
@@ -1142,12 +1151,52 @@ public class PathmindVisualEditorScreen extends Screen {
         context.drawBorder(dropdownX, optionStartY, PRESET_DROPDOWN_WIDTH, optionsHeight, GREY_LINE);
     }
 
+    private void renderStopAllNodetreesButton(DrawContext context, int mouseX, int mouseY) {
+        int buttonX = getStopAllButtonX();
+        int buttonY = getStopAllButtonY();
+        int buttonWidth = getStopAllButtonWidth();
+        boolean hovered = isPointInRect(mouseX, mouseY, buttonX, buttonY, buttonWidth, STOP_ALL_BUTTON_HEIGHT);
+        boolean executing = ExecutionManager.getInstance().isExecuting();
+
+        int backgroundColor;
+        if (executing) {
+            backgroundColor = hovered ? 0xFF4A2A2A : 0xFF3A2020;
+        } else {
+            backgroundColor = hovered ? 0xFF3A3A3A : 0xFF2F2F2F;
+        }
+
+        int borderColor = hovered || executing ? ACCENT_COLOR : GREY_LINE;
+
+        context.fill(buttonX, buttonY, buttonX + buttonWidth, buttonY + STOP_ALL_BUTTON_HEIGHT, backgroundColor);
+        context.drawBorder(buttonX, buttonY, buttonWidth, STOP_ALL_BUTTON_HEIGHT, borderColor);
+
+        int textWidth = this.textRenderer.getWidth(STOP_ALL_BUTTON_LABEL);
+        int textX = buttonX + (buttonWidth - textWidth) / 2;
+        int textY = buttonY + (STOP_ALL_BUTTON_HEIGHT - this.textRenderer.fontHeight) / 2 + 1;
+        context.drawTextWithShadow(this.textRenderer, Text.literal(STOP_ALL_BUTTON_LABEL), textX, textY, WHITE);
+    }
+
     private int getPresetDropdownX() {
-        return this.width - PRESET_DROPDOWN_WIDTH - PRESET_DROPDOWN_MARGIN;
+        return getStopAllButtonX() - PRESET_DROPDOWN_MARGIN - PRESET_DROPDOWN_WIDTH;
     }
 
     private int getPresetDropdownY() {
         return TITLE_BAR_HEIGHT + PRESET_DROPDOWN_MARGIN;
+    }
+
+    private int getStopAllButtonX() {
+        return this.width - getStopAllButtonWidth() - PRESET_DROPDOWN_MARGIN;
+    }
+
+    private int getStopAllButtonY() {
+        return TITLE_BAR_HEIGHT + PRESET_DROPDOWN_MARGIN;
+    }
+
+    private int getStopAllButtonWidth() {
+        int textWidth = this.textRenderer != null
+                ? this.textRenderer.getWidth(STOP_ALL_BUTTON_LABEL)
+                : STOP_ALL_BUTTON_LABEL.length() * 6;
+        return Math.max(textWidth + STOP_ALL_BUTTON_TEXT_PADDING * 2, PRESET_DROPDOWN_WIDTH);
     }
 
     private int getPresetDropdownOptionsHeight() {
@@ -1550,6 +1599,20 @@ public class PathmindVisualEditorScreen extends Screen {
         int buttonX = getImportExportButtonX();
         int buttonY = getBottomButtonY();
         return isPointInRect(mouseX, mouseY, buttonX, buttonY, BOTTOM_BUTTON_SIZE, BOTTOM_BUTTON_SIZE);
+    }
+
+    private boolean isStopAllNodetreesButtonClicked(int mouseX, int mouseY, int button) {
+        if (button != 0) {
+            return false;
+        }
+        int buttonX = getStopAllButtonX();
+        int buttonY = getStopAllButtonY();
+        return isPointInRect(mouseX, mouseY, buttonX, buttonY, getStopAllButtonWidth(), STOP_ALL_BUTTON_HEIGHT);
+    }
+
+    private void handleStopAllNodetrees() {
+        presetDropdownOpen = false;
+        ExecutionManager.getInstance().cancelAllNodetrees();
     }
 
     private void drawTrashIcon(DrawContext context, int x, int y, int color) {

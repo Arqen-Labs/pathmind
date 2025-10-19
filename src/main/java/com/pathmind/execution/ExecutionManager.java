@@ -1,11 +1,13 @@
 package com.pathmind.execution;
 
+import baritone.api.BaritoneAPI;
+import baritone.api.IBaritone;
+import com.pathmind.data.NodeGraphData;
 import com.pathmind.nodes.Node;
 import com.pathmind.nodes.NodeConnection;
 import com.pathmind.nodes.NodeParameter;
 import com.pathmind.nodes.NodeType;
 import com.pathmind.nodes.ParameterType;
-import com.pathmind.data.NodeGraphData;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -76,6 +78,41 @@ public class ExecutionManager {
             activeConnections.clear();
             executingEvents.clear();
         });
+    }
+
+    /**
+     * Cancel all executing nodetrees and stop any Baritone activity.
+     */
+    public void cancelAllNodetrees() {
+        System.out.println("ExecutionManager: Cancelling all nodetrees at time " + System.currentTimeMillis());
+
+        // Cancel any tasks that are still being tracked
+        PreciseCompletionTracker.getInstance().cancelAllTasks();
+
+        // Attempt to stop all Baritone processes
+        cancelBaritoneProcesses();
+
+        // Reset execution state so new runs can start cleanly
+        stopExecution();
+        this.executionStartTime = 0;
+        this.executionEndTime = 0;
+        this.activeNode = null;
+        this.activeNodes.clear();
+        this.activeConnections.clear();
+        this.executingEvents.clear();
+    }
+
+    private void cancelBaritoneProcesses() {
+        try {
+            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            if (baritone != null) {
+                baritone.getPathingBehavior().cancelEverything();
+            } else {
+                System.err.println("ExecutionManager: Unable to cancel Baritone processes - Baritone instance unavailable.");
+            }
+        } catch (Exception e) {
+            System.err.println("ExecutionManager: Failed to cancel Baritone processes - " + e.getMessage());
+        }
     }
 
     public void replayLastGraph() {
