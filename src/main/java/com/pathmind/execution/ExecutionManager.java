@@ -29,6 +29,7 @@ public class ExecutionManager {
     private List<Node> activeNodes;
     private List<NodeConnection> activeConnections;
     private final List<String> executingEvents;
+    private volatile boolean cancelRequested;
 
     private ExecutionManager() {
         this.activeNode = null;
@@ -38,6 +39,7 @@ public class ExecutionManager {
         this.activeNodes = new ArrayList<>();
         this.activeConnections = new ArrayList<>();
         this.executingEvents = new ArrayList<>();
+        this.cancelRequested = false;
     }
     
     public static ExecutionManager getInstance() {
@@ -53,9 +55,9 @@ public class ExecutionManager {
             return;
         }
 
-        Node startNode = findStartNode(nodes);
-        if (startNode == null) {
-            System.out.println("ExecutionManager: No START node found!");
+        List<Node> startNodes = findStartNodes(nodes);
+        if (startNodes.isEmpty()) {
+            System.out.println("ExecutionManager: No START nodes found!");
             return;
         }
 
@@ -64,9 +66,15 @@ public class ExecutionManager {
         this.lastExecutedGraph = createGraphSnapshot(nodes, filteredConnections);
         this.activeNodes = new ArrayList<>(nodes);
         this.activeConnections = new ArrayList<>(filteredConnections);
+        this.cancelRequested = false;
 
-        startExecution(startNode);
-        runChain(startNode).whenComplete((ignored, throwable) -> {
+        startExecution(startNodes);
+        CompletableFuture<Void>[] chains = startNodes.stream()
+                .map(this::runChain)
+                .toArray(CompletableFuture[]::new);
+
+        CompletableFuture<Void> combined = CompletableFuture.allOf(chains);
+        combined.whenComplete((ignored, throwable) -> {
             if (throwable != null) {
                 System.err.println("ExecutionManager: Error during execution - " + throwable.getMessage());
                 throwable.printStackTrace();
@@ -179,11 +187,19 @@ public class ExecutionManager {
     /**
      * Start execution with the given start node
      */
-    public void startExecution(Node startNode) {
-        this.activeNode = startNode;
+    public void startExecution(List<Node> startNodes) {
+        this.activeNode = startNodes.isEmpty() ? null : startNodes.get(0);
         this.isExecuting = true;
+        this.cancelRequested = false;
         this.executionStartTime = System.currentTimeMillis();
-        System.out.println("ExecutionManager: Started execution with node " + startNode.getType() + " at time " + this.executionStartTime);
+        this.executionEndTime = 0;
+        if (!startNodes.isEmpty()) {
+            System.out.println(
+                    "ExecutionManager: Started execution with " + startNodes.size() +
+                            " start node(s) at time " + this.executionStartTime);
+        } else {
+            System.out.println("ExecutionManager: Started execution without any root nodes at time " + this.executionStartTime);
+        }
     }
     
     /**
@@ -200,8 +216,34 @@ public class ExecutionManager {
     public void stopExecution() {
         System.out.println("ExecutionManager: Stopping execution at time " + System.currentTimeMillis());
         this.isExecuting = false;
-        this.executionEndTime = System.currentTimeMillis();
+        if (cancelRequested) {
+            this.executionEndTime = 0;
+            this.executionStartTime = 0;
+            this.activeNode = null;
+            cancelRequested = false;
+        } else {
+            this.executionEndTime = System.currentTimeMillis();
+        }
         // Keep activeNode for minimum display duration
+    }
+
+    /**
+     * Request that all executing node chains stop immediately.
+     */
+    public void requestStopAll() {
+        if (!isExecuting && activeNode == null) {
+            return;
+        }
+
+        System.out.println("ExecutionManager: Stop requested for all node trees at time " + System.currentTimeMillis());
+        cancelRequested = true;
+        this.isExecuting = false;
+        this.activeNode = null;
+        this.executionStartTime = 0;
+        this.executionEndTime = 0;
+        this.activeNodes.clear();
+        this.activeConnections.clear();
+        this.executingEvents.clear();
     }
     
     /**
@@ -259,11 +301,27 @@ public class ExecutionManager {
     }
 
     private CompletableFuture<Void> runChain(Node currentNode) {
+        if (cancelRequested) {
+            return CompletableFuture.completedFuture(null);
+        }
+
         setActiveNode(currentNode);
 
+        if (cancelRequested) {
+            return CompletableFuture.completedFuture(null);
+        }
+
         return currentNode.execute()
-            .thenCompose(ignored -> handleEventCallIfNeeded(currentNode))
             .thenCompose(ignored -> {
+                if (cancelRequested) {
+                    return CompletableFuture.completedFuture(null);
+                }
+                return handleEventCallIfNeeded(currentNode);
+            })
+            .thenCompose(ignored -> {
+                if (cancelRequested) {
+                    return CompletableFuture.completedFuture(null);
+                }
                 int nextSocket = currentNode.consumeNextOutputSocket();
                 Node nextNode = getNextConnectedNode(currentNode, activeConnections, nextSocket);
                 if (nextNode == null && nextSocket != 0) {
@@ -277,7 +335,7 @@ public class ExecutionManager {
     }
 
     private CompletableFuture<Void> handleEventCallIfNeeded(Node node) {
-        if (node.getType() != NodeType.EVENT_CALL) {
+        if (cancelRequested || node.getType() != NodeType.EVENT_CALL) {
             return CompletableFuture.completedFuture(null);
         }
 
@@ -310,6 +368,9 @@ public class ExecutionManager {
         executingEvents.add(eventName);
         CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
         for (Node handler : handlers) {
+            if (cancelRequested) {
+                break;
+            }
             chain = chain.thenCompose(ignored -> runChain(handler));
         }
         return chain.whenComplete((ignored, throwable) -> executingEvents.remove(eventName));
@@ -337,13 +398,19 @@ public class ExecutionManager {
         return null;
     }
 
-    private Node findStartNode(List<Node> nodes) {
+    private List<Node> findStartNodes(List<Node> nodes) {
+        List<Node> startNodes = new ArrayList<>();
+        if (nodes == null) {
+            return startNodes;
+        }
+
         for (Node node : nodes) {
             if (node.getType() == NodeType.START) {
-                return node;
+                startNodes.add(node);
             }
         }
-        return null;
+
+        return startNodes;
     }
 
     private NodeGraphData createGraphSnapshot(List<Node> nodes, List<NodeConnection> connections) {

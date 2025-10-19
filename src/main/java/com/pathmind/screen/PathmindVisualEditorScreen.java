@@ -2,6 +2,7 @@ package com.pathmind.screen;
 
 import com.pathmind.data.NodeGraphPersistence;
 import com.pathmind.data.PresetManager;
+import com.pathmind.execution.ExecutionManager;
 import com.pathmind.nodes.Node;
 import com.pathmind.nodes.NodeType;
 import com.pathmind.ui.NodeGraph;
@@ -53,6 +54,10 @@ public class PathmindVisualEditorScreen extends Screen {
     private static final int PRESET_TEXT_ICON_GAP = 4;
     private static final int CREATE_PRESET_POPUP_WIDTH = 320;
     private static final int CREATE_PRESET_POPUP_HEIGHT = 170;
+    private static final int PLAY_BUTTON_SIZE = 18;
+    private static final int PLAY_BUTTON_MARGIN = 8;
+    private static final int STOP_BUTTON_SIZE = 18;
+    private static final int CONTROL_BUTTON_GAP = 6;
 
     private NodeGraph nodeGraph;
     private Sidebar sidebar;
@@ -195,7 +200,16 @@ public class PathmindVisualEditorScreen extends Screen {
                 WHITE
         );
 
-        renderPresetDropdown(context, mouseX, mouseY);
+        if (!isPopupObscuringWorkspace()) {
+            renderStopButton(context, mouseX, mouseY);
+            renderPlayButton(context, mouseX, mouseY);
+            renderPresetDropdown(context, mouseX, mouseY);
+        }
+    }
+
+    private boolean isPopupObscuringWorkspace() {
+        boolean overlayVisible = parameterOverlay != null && parameterOverlay.isVisible();
+        return overlayVisible || clearPopupVisible || importExportPopupVisible || createPresetPopupVisible;
     }
     
     private void renderDraggingNode(DrawContext context, int mouseX, int mouseY) {
@@ -301,6 +315,19 @@ public class PathmindVisualEditorScreen extends Screen {
                 return true;
             }
             return true;
+        }
+
+        if (!isPopupObscuringWorkspace() && button == 0) {
+            if (isPointInPlayButton((int) mouseX, (int) mouseY)) {
+                presetDropdownOpen = false;
+                startExecutingAllGraphs();
+                return true;
+            }
+            if (isPointInStopButton((int) mouseX, (int) mouseY)) {
+                presetDropdownOpen = false;
+                stopExecutingAllGraphs();
+                return true;
+            }
         }
 
         if (button == 0) {
@@ -653,6 +680,11 @@ public class PathmindVisualEditorScreen extends Screen {
         }
 
         if (importExportPopupVisible) {
+            return true;
+        }
+
+        if (parameterOverlay != null && parameterOverlay.isVisible()) {
+            parameterOverlay.mouseScrolled(mouseX, mouseY, verticalAmount);
             return true;
         }
 
@@ -1014,6 +1046,86 @@ public class PathmindVisualEditorScreen extends Screen {
         parameterOverlay = null;
     }
 
+    private void renderPlayButton(DrawContext context, int mouseX, int mouseY) {
+        int buttonX = getPlayButtonX();
+        int buttonY = getPlayButtonY();
+        boolean hovered = isPointInRect(mouseX, mouseY, buttonX, buttonY, PLAY_BUTTON_SIZE, PLAY_BUTTON_SIZE);
+        boolean executing = ExecutionManager.getInstance().isExecuting();
+
+        int bgColor = executing ? 0xFF243224 : 0xFF2A2A2A;
+        if (hovered) {
+            bgColor = executing ? 0xFF2F4531 : 0xFF353535;
+        }
+
+        int borderColor = executing ? SUCCESS_COLOR : GREY_LINE;
+        if (hovered) {
+            borderColor = SUCCESS_COLOR;
+        }
+        context.fill(buttonX + 1, buttonY + 1, buttonX + PLAY_BUTTON_SIZE - 1, buttonY + PLAY_BUTTON_SIZE - 1, bgColor);
+        context.drawBorder(buttonX, buttonY, PLAY_BUTTON_SIZE, PLAY_BUTTON_SIZE, borderColor);
+
+        int iconColor = executing ? SUCCESS_COLOR : 0xFF9CD98B;
+        if (hovered) {
+            iconColor = 0xFFB7F2A9;
+        }
+        drawPlayIcon(context, buttonX, buttonY, iconColor);
+    }
+
+    private void drawPlayIcon(DrawContext context, int buttonX, int buttonY, int color) {
+        int centerX = buttonX + PLAY_BUTTON_SIZE / 2;
+        int centerY = buttonY + PLAY_BUTTON_SIZE / 2;
+        int triangleSize = Math.max(5, Math.min(PLAY_BUTTON_SIZE - 8, 8));
+        int startX = centerX - triangleSize / 2 + 1;
+        int startY = centerY - triangleSize / 2;
+
+        for (int row = 0; row < triangleSize; row++) {
+            int lineWidth = row + 1;
+            int lineY = startY + row;
+            if (lineY < buttonY + 2 || lineY > buttonY + PLAY_BUTTON_SIZE - 3) {
+                continue;
+            }
+
+            int lineStartX = Math.max(startX, buttonX + 2);
+            int lineEndX = Math.min(startX + lineWidth - 1, buttonX + PLAY_BUTTON_SIZE - 3);
+            if (lineStartX <= lineEndX) {
+                context.drawHorizontalLine(lineStartX, lineEndX, lineY, color);
+            }
+        }
+    }
+
+    private void renderStopButton(DrawContext context, int mouseX, int mouseY) {
+        int buttonX = getStopButtonX();
+        int buttonY = getStopButtonY();
+        boolean hovered = isPointInRect(mouseX, mouseY, buttonX, buttonY, STOP_BUTTON_SIZE, STOP_BUTTON_SIZE);
+        boolean executing = ExecutionManager.getInstance().isExecuting();
+
+        int bgColor = executing ? 0xFF352323 : 0xFF2A2A2A;
+        if (hovered) {
+            bgColor = executing ? 0xFF442C2C : 0xFF353535;
+        }
+
+        int borderColor = executing ? ERROR_COLOR : GREY_LINE;
+        if (hovered) {
+            borderColor = ERROR_COLOR;
+        }
+
+        context.fill(buttonX + 1, buttonY + 1, buttonX + STOP_BUTTON_SIZE - 1, buttonY + STOP_BUTTON_SIZE - 1, bgColor);
+        context.drawBorder(buttonX, buttonY, STOP_BUTTON_SIZE, STOP_BUTTON_SIZE, borderColor);
+
+        int iconColor = executing ? ERROR_COLOR : 0xFFEF9A9A;
+        if (hovered) {
+            iconColor = ERROR_COLOR;
+        }
+        drawStopIcon(context, buttonX, buttonY, iconColor);
+    }
+
+    private void drawStopIcon(DrawContext context, int buttonX, int buttonY, int color) {
+        int squareSize = Math.max(6, STOP_BUTTON_SIZE - 10);
+        int left = buttonX + (STOP_BUTTON_SIZE - squareSize) / 2;
+        int top = buttonY + (STOP_BUTTON_SIZE - squareSize) / 2;
+        context.fill(left, top, left + squareSize, top + squareSize, color);
+    }
+
     private void renderPresetDropdown(DrawContext context, int mouseX, int mouseY) {
         int dropdownX = getPresetDropdownX();
         int dropdownY = getPresetDropdownY();
@@ -1104,11 +1216,27 @@ public class PathmindVisualEditorScreen extends Screen {
     }
 
     private int getPresetDropdownX() {
-        return this.width - PRESET_DROPDOWN_WIDTH - PRESET_DROPDOWN_MARGIN;
+        return getPlayButtonX() - PRESET_DROPDOWN_MARGIN - PRESET_DROPDOWN_WIDTH;
     }
 
     private int getPresetDropdownY() {
         return TITLE_BAR_HEIGHT + PRESET_DROPDOWN_MARGIN;
+    }
+
+    private int getPlayButtonX() {
+        return this.width - PLAY_BUTTON_SIZE - PLAY_BUTTON_MARGIN;
+    }
+
+    private int getPlayButtonY() {
+        return TITLE_BAR_HEIGHT + PLAY_BUTTON_MARGIN;
+    }
+
+    private int getStopButtonX() {
+        return getPlayButtonX() - CONTROL_BUTTON_GAP - STOP_BUTTON_SIZE;
+    }
+
+    private int getStopButtonY() {
+        return getPlayButtonY();
     }
 
     private int getPresetDropdownOptionsHeight() {
@@ -1507,6 +1635,28 @@ public class PathmindVisualEditorScreen extends Screen {
         int buttonX = getImportExportButtonX();
         int buttonY = getBottomButtonY();
         return isPointInRect(mouseX, mouseY, buttonX, buttonY, BOTTOM_BUTTON_SIZE, BOTTOM_BUTTON_SIZE);
+    }
+
+    private boolean isPointInPlayButton(int mouseX, int mouseY) {
+        return isPointInRect(mouseX, mouseY, getPlayButtonX(), getPlayButtonY(), PLAY_BUTTON_SIZE, PLAY_BUTTON_SIZE);
+    }
+
+    private boolean isPointInStopButton(int mouseX, int mouseY) {
+        return isPointInRect(mouseX, mouseY, getStopButtonX(), getStopButtonY(), STOP_BUTTON_SIZE, STOP_BUTTON_SIZE);
+    }
+
+    private void startExecutingAllGraphs() {
+        dismissParameterOverlay();
+        isDraggingFromSidebar = false;
+        draggingNodeType = null;
+        ExecutionManager.getInstance().executeGraph(nodeGraph.getNodes(), nodeGraph.getConnections());
+        if (this.client != null) {
+            this.client.setScreen(null);
+        }
+    }
+
+    private void stopExecutingAllGraphs() {
+        ExecutionManager.getInstance().requestStopAll();
     }
 
     private void drawTrashIcon(DrawContext context, int x, int y, int color) {

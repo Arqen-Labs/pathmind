@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.process.ICustomGoalProcess;
@@ -14,7 +16,6 @@ import baritone.api.process.IFollowProcess;
 import baritone.api.process.IFarmProcess;
 import baritone.api.pathing.goals.GoalBlock;
 import com.pathmind.execution.PreciseCompletionTracker;
-import net.minecraft.component.DataComponentTypes;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
@@ -28,8 +29,6 @@ import net.minecraft.network.packet.c2s.play.PlayerActionC2SPacket;
 import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
-import net.minecraft.item.PotionItem;
-import net.minecraft.item.Items;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.hit.EntityHitResult;
@@ -52,10 +51,10 @@ public class Node {
     private static final int MIN_HEIGHT = 44;
     private static final int CHAR_PIXEL_WIDTH = 6;
     private static final int HEADER_HEIGHT = 18;
-    private static final int PARAM_LINE_HEIGHT = 12;
-    private static final int PARAM_PADDING_TOP = 4;
-    private static final int PARAM_PADDING_BOTTOM = 6;
-    private static final int BODY_PADDING_NO_PARAMS = 12;
+    private static final int PARAM_LINE_HEIGHT = 10;
+    private static final int PARAM_PADDING_TOP = 2;
+    private static final int PARAM_PADDING_BOTTOM = 4;
+    private static final int BODY_PADDING_NO_PARAMS = 10;
     private static final int START_END_SIZE = 36;
     private static final int SENSOR_SLOT_MARGIN_HORIZONTAL = 8;
     private static final int SENSOR_SLOT_INNER_PADDING = 4;
@@ -232,6 +231,7 @@ public class Node {
 
     public boolean canAcceptSensor() {
         switch (type) {
+            case CONTROL_IF:
             case CONTROL_IF_ELSE:
             case CONTROL_REPEAT_UNTIL:
                 return true;
@@ -321,7 +321,7 @@ public class Node {
         if (type == NodeType.CONTROL_FOREVER) {
             return 0;
         }
-        if (type == NodeType.CONTROL_IF_ELSE) {
+        if (type == NodeType.CONTROL_IF_ELSE || type == NodeType.CONTROL_IF) {
             return 2;
         }
         return 1;
@@ -333,6 +333,12 @@ public class Node {
                 return 0xFF4CAF50; // Green for true branch
             } else if (socketIndex == 1) {
                 return 0xFFF44336; // Red for false branch
+            }
+        } else if (type == NodeType.CONTROL_IF) {
+            if (socketIndex == 0) {
+                return 0xFF4CAF50;
+            } else if (socketIndex == 1) {
+                return 0xFFB0BEC5; // Neutral grey for skipped branch
             }
         }
         return getType().getColor();
@@ -709,6 +715,8 @@ public class Node {
                 break;
             case WAIT:
                 parameters.add(new NodeParameter("Duration", ParameterType.DOUBLE, "1.0"));
+                parameters.add(new NodeParameter("MinimumDurationSeconds", ParameterType.DOUBLE, "0.0"));
+                parameters.add(new NodeParameter("RandomVarianceSeconds", ParameterType.DOUBLE, "0.0"));
                 break;
             case MESSAGE:
                 parameters.add(new NodeParameter("Text", ParameterType.STRING, "Hello World"));
@@ -718,6 +726,8 @@ public class Node {
                 break;
             case DROP_ITEM:
                 parameters.add(new NodeParameter("All", ParameterType.BOOLEAN, "false"));
+                parameters.add(new NodeParameter("Count", ParameterType.INTEGER, "1"));
+                parameters.add(new NodeParameter("IntervalSeconds", ParameterType.DOUBLE, "0.0"));
                 break;
             case DROP_SLOT:
                 parameters.add(new NodeParameter("Slot", ParameterType.INTEGER, "0"));
@@ -755,15 +765,49 @@ public class Node {
                 parameters.add(new NodeParameter("TargetSlot", ParameterType.INTEGER, "0"));
                 parameters.add(new NodeParameter("DropIfFull", ParameterType.BOOLEAN, "true"));
                 break;
-            case USE_ITEM:
+            case USE:
+                parameters.add(new NodeParameter("Hand", ParameterType.STRING, "main"));
+                parameters.add(new NodeParameter("UseDurationSeconds", ParameterType.DOUBLE, "0.0"));
+                parameters.add(new NodeParameter("RepeatCount", ParameterType.INTEGER, "1"));
+                parameters.add(new NodeParameter("UseIntervalSeconds", ParameterType.DOUBLE, "0.0"));
+                parameters.add(new NodeParameter("StopIfUnavailable", ParameterType.BOOLEAN, "true"));
+                parameters.add(new NodeParameter("UseUntilEmpty", ParameterType.BOOLEAN, "false"));
+                parameters.add(new NodeParameter("AllowBlockInteraction", ParameterType.BOOLEAN, "true"));
+                parameters.add(new NodeParameter("AllowEntityInteraction", ParameterType.BOOLEAN, "true"));
+                parameters.add(new NodeParameter("SwingAfterUse", ParameterType.BOOLEAN, "true"));
+                parameters.add(new NodeParameter("SneakWhileUsing", ParameterType.BOOLEAN, "false"));
+                parameters.add(new NodeParameter("RestoreSneakState", ParameterType.BOOLEAN, "true"));
+                break;
             case INTERACT:
+                parameters.add(new NodeParameter("Hand", ParameterType.STRING, "main"));
+                parameters.add(new NodeParameter("PreferEntity", ParameterType.BOOLEAN, "true"));
+                parameters.add(new NodeParameter("PreferBlock", ParameterType.BOOLEAN, "true"));
+                parameters.add(new NodeParameter("FallbackToItemUse", ParameterType.BOOLEAN, "true"));
+                parameters.add(new NodeParameter("SwingOnSuccess", ParameterType.BOOLEAN, "true"));
+                parameters.add(new NodeParameter("SneakWhileInteracting", ParameterType.BOOLEAN, "false"));
+                parameters.add(new NodeParameter("RestoreSneakState", ParameterType.BOOLEAN, "true"));
+                break;
             case PLACE_HAND:
+                parameters.add(new NodeParameter("Hand", ParameterType.STRING, "main"));
+                parameters.add(new NodeParameter("SneakWhilePlacing", ParameterType.BOOLEAN, "false"));
+                parameters.add(new NodeParameter("SwingOnPlace", ParameterType.BOOLEAN, "true"));
+                parameters.add(new NodeParameter("RequireBlockHit", ParameterType.BOOLEAN, "true"));
+                parameters.add(new NodeParameter("RestoreSneakState", ParameterType.BOOLEAN, "true"));
+                break;
             case SWING:
                 parameters.add(new NodeParameter("Hand", ParameterType.STRING, "main"));
+                parameters.add(new NodeParameter("Count", ParameterType.INTEGER, "1"));
+                parameters.add(new NodeParameter("IntervalSeconds", ParameterType.DOUBLE, "0.0"));
                 break;
             case ATTACK:
                 parameters.add(new NodeParameter("Hand", ParameterType.STRING, "main"));
                 parameters.add(new NodeParameter("SwingOnly", ParameterType.BOOLEAN, "false"));
+                parameters.add(new NodeParameter("AttackEntities", ParameterType.BOOLEAN, "true"));
+                parameters.add(new NodeParameter("AttackBlocks", ParameterType.BOOLEAN, "true"));
+                parameters.add(new NodeParameter("RepeatCount", ParameterType.INTEGER, "1"));
+                parameters.add(new NodeParameter("AttackIntervalSeconds", ParameterType.DOUBLE, "0.0"));
+                parameters.add(new NodeParameter("SneakWhileAttacking", ParameterType.BOOLEAN, "false"));
+                parameters.add(new NodeParameter("RestoreSneakState", ParameterType.BOOLEAN, "true"));
                 break;
             case LOOK:
                 parameters.add(new NodeParameter("Yaw", ParameterType.DOUBLE, "0.0"));
@@ -775,19 +819,20 @@ public class Node {
                 break;
             case JUMP:
                 parameters.add(new NodeParameter("Count", ParameterType.INTEGER, "1"));
+                parameters.add(new NodeParameter("IntervalSeconds", ParameterType.DOUBLE, "0.0"));
                 break;
             case CROUCH:
                 parameters.add(new NodeParameter("Active", ParameterType.BOOLEAN, "true"));
+                parameters.add(new NodeParameter("ToggleKey", ParameterType.BOOLEAN, "false"));
                 break;
             case SPRINT:
                 parameters.add(new NodeParameter("Active", ParameterType.BOOLEAN, "true"));
-                break;
-            case EAT:
-            case DRINK:
-                parameters.add(new NodeParameter("Hand", ParameterType.STRING, "main"));
+                parameters.add(new NodeParameter("AllowFlying", ParameterType.BOOLEAN, "false"));
                 break;
             case CONTROL_REPEAT:
                 parameters.add(new NodeParameter("Count", ParameterType.INTEGER, "10"));
+                break;
+            case CONTROL_IF:
                 break;
             case CONTROL_IF_ELSE:
                 break;
@@ -889,9 +934,10 @@ public class Node {
             NodeParameter nameParam = getParameter("Name");
             String label = nameParam != null ? nameParam.getDisplayValue() : "";
             String text = "Function: " + label;
-            int computedWidth = Math.max(MIN_WIDTH, text.length() * CHAR_PIXEL_WIDTH + 32);
-            this.width = computedWidth;
-            this.height = Math.max(START_END_SIZE + 12, 56);
+            int computedSize = Math.max(MIN_WIDTH, text.length() * CHAR_PIXEL_WIDTH + 32);
+            computedSize = Math.max(computedSize, START_END_SIZE + 12);
+            this.width = computedSize;
+            this.height = computedSize;
             return;
         }
 
@@ -1044,6 +1090,9 @@ public class Node {
             case CONTROL_FOREVER:
                 executeControlForever(future);
                 break;
+            case CONTROL_IF:
+                executeControlIf(future);
+                break;
             case CONTROL_IF_ELSE:
                 executeControlIfElse(future);
                 break;
@@ -1083,8 +1132,8 @@ public class Node {
             case CLEAR_SLOT:
                 executeClearSlotCommand(future);
                 break;
-            case USE_ITEM:
-                executeUseItemCommand(future);
+            case USE:
+                executeUseCommand(future);
                 break;
             case PLACE_HAND:
                 executePlaceHandCommand(future);
@@ -1127,12 +1176,6 @@ public class Node {
                 break;
             case UNEQUIP_HAND:
                 executeUnequipHandCommand(future);
-                break;
-            case EAT:
-                executeEatCommand(future);
-                break;
-            case DRINK:
-                executeDrinkCommand(future);
                 break;
             case SENSOR_TOUCHING_BLOCK:
             case SENSOR_TOUCHING_ENTITY:
@@ -1492,24 +1535,28 @@ public class Node {
     }
     
     private void executeWaitCommand(CompletableFuture<Void> future) {
-        double durationValue = 1.0;
-        NodeParameter durationParam = getParameter("Duration");
-        if (durationParam != null) {
-            durationValue = durationParam.getDoubleValue();
+        double baseDuration = Math.max(0.0, getDoubleParameter("Duration", 1.0));
+        double minimum = Math.max(0.0, getDoubleParameter("MinimumDurationSeconds", 0.0));
+        double variance = Math.max(0.0, getDoubleParameter("RandomVarianceSeconds", 0.0));
+
+        double effectiveDuration = Math.max(baseDuration, minimum);
+        if (variance > 0.0) {
+            double randomOffset = (Math.random() * 2.0 - 1.0) * variance;
+            effectiveDuration = Math.max(minimum, Math.max(0.0, effectiveDuration + randomOffset));
         }
-        
-        final double duration = durationValue; // Make final for lambda
-        System.out.println("Waiting for " + duration + " seconds...");
-        
-        // Use a separate thread for waiting to avoid blocking the main thread
+
+        final double waitSeconds = effectiveDuration;
+        System.out.println("Waiting for " + waitSeconds + " seconds (configured duration=" + baseDuration + ")");
+
         new Thread(() -> {
             try {
-                Thread.sleep((long)(duration * 1000));
+                Thread.sleep((long) (waitSeconds * 1000));
                 future.complete(null);
             } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 future.completeExceptionally(e);
             }
-        }).start();
+        }, "Pathmind-Wait").start();
     }
     
     private void executeControlRepeat(CompletableFuture<Void> future) {
@@ -1547,7 +1594,13 @@ public class Node {
         setNextOutputSocket(0);
         future.complete(null);
     }
-    
+
+    private void executeControlIf(CompletableFuture<Void> future) {
+        boolean condition = evaluateConditionFromParameters();
+        setNextOutputSocket(condition ? 0 : 1);
+        future.complete(null);
+    }
+
     private void executeControlIfElse(CompletableFuture<Void> future) {
         boolean condition = evaluateConditionFromParameters();
         setNextOutputSocket(condition ? 0 : 1);
@@ -1826,12 +1879,37 @@ public class Node {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
             return;
         }
-        
+
         boolean dropAll = getBooleanParameter("All", false);
-        client.player.dropSelectedItem(dropAll);
-        client.player.getInventory().markDirty();
-        client.player.playerScreenHandler.sendContentUpdates();
-        future.complete(null);
+        int count = Math.max(1, getIntParameter("Count", 1));
+        double interval = Math.max(0.0, getDoubleParameter("IntervalSeconds", 0.0));
+
+        if (dropAll) {
+            count = 1; // Dropping all ignores repeat count
+        }
+
+        final int dropIterations = count;
+        final boolean dropEntireStack = dropAll;
+
+        new Thread(() -> {
+            try {
+                for (int i = 0; i < dropIterations; i++) {
+                    runOnClientThread(client, () -> {
+                        client.player.dropSelectedItem(dropEntireStack);
+                        client.player.getInventory().markDirty();
+                        client.player.playerScreenHandler.sendContentUpdates();
+                    });
+
+                    if (interval > 0.0 && i < dropIterations - 1) {
+                        Thread.sleep((long) (interval * 1000));
+                    }
+                }
+                future.complete(null);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                future.completeExceptionally(e);
+            }
+        }, "Pathmind-DropItem").start();
     }
     
     private void executeDropSlotCommand(CompletableFuture<Void> future) {
@@ -1979,27 +2057,125 @@ public class Node {
         future.complete(null);
     }
     
-    private void executeUseItemCommand(CompletableFuture<Void> future) {
+    private void executeUseCommand(CompletableFuture<Void> future) {
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null || client.interactionManager == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
             return;
         }
-        
+
         Hand hand = resolveHand(getParameter("Hand"), Hand.MAIN_HAND);
-        ActionResult result = client.interactionManager.interactItem(client.player, hand);
-        if (result == ActionResult.FAIL) {
-            // Attempt block interaction if right click failed
-            HitResult target = client.crosshairTarget;
-            if (target instanceof BlockHitResult blockHit) {
-                result = client.interactionManager.interactBlock(client.player, hand, blockHit);
+        int configuredCount = Math.max(0, getIntParameter("RepeatCount", 1));
+        boolean useUntilEmpty = getBooleanParameter("UseUntilEmpty", false);
+        boolean stopIfUnavailable = getBooleanParameter("StopIfUnavailable", true);
+        double durationSeconds = Math.max(0.0, getDoubleParameter("UseDurationSeconds", 0.0));
+        double intervalSeconds = Math.max(0.0, getDoubleParameter("UseIntervalSeconds", 0.0));
+        boolean allowBlock = getBooleanParameter("AllowBlockInteraction", true);
+        boolean allowEntity = getBooleanParameter("AllowEntityInteraction", true);
+        boolean swingAfterUse = getBooleanParameter("SwingAfterUse", true);
+        boolean sneakWhileUsing = getBooleanParameter("SneakWhileUsing", false);
+        boolean restoreSneak = getBooleanParameter("RestoreSneakState", true);
+
+        if (!useUntilEmpty && configuredCount == 0) {
+            future.complete(null);
+            return;
+        }
+
+        final int maxIterations = configuredCount == 0 ? Integer.MAX_VALUE : configuredCount;
+
+        new Thread(() -> {
+            try {
+                boolean previousSneak = false;
+
+                if (sneakWhileUsing) {
+                    previousSneak = supplyFromClient(client, () -> client.player.isSneaking());
+                }
+
+                int iteration = 0;
+                while (iteration < maxIterations) {
+                    ItemStack stack = supplyFromClient(client, () -> client.player.getStackInHand(hand).copy());
+                    if ((stack == null || stack.isEmpty()) && stopIfUnavailable) {
+                        break;
+                    }
+
+                    if (sneakWhileUsing) {
+                        runOnClientThread(client, () -> {
+                            client.player.setSneaking(true);
+                            if (client.options != null && client.options.sneakKey != null) {
+                                client.options.sneakKey.setPressed(true);
+                            }
+                        });
+                    }
+
+                    runOnClientThread(client, () -> {
+                        boolean performed = false;
+                        HitResult target = client.crosshairTarget;
+                        if (allowEntity && target instanceof EntityHitResult entityHit) {
+                            ActionResult entityResult = client.interactionManager.interactEntity(client.player, entityHit.getEntity(), hand);
+                            performed = entityResult.isAccepted();
+                        }
+                        if (!performed && allowBlock && target instanceof BlockHitResult blockHit) {
+                            ActionResult blockResult = client.interactionManager.interactBlock(client.player, hand, blockHit);
+                            performed = blockResult.isAccepted();
+                        }
+                        if (!performed) {
+                            client.interactionManager.interactItem(client.player, hand);
+                        }
+
+                        if (durationSeconds > 0.0 && client.options != null && client.options.useKey != null) {
+                            client.options.useKey.setPressed(true);
+                        }
+
+                        if (swingAfterUse) {
+                            client.player.swingHand(hand);
+                            if (client.player.networkHandler != null) {
+                                client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
+                            }
+                        }
+                    });
+
+                    if (durationSeconds > 0.0) {
+                        Thread.sleep((long) (durationSeconds * 1000));
+                        runOnClientThread(client, () -> {
+                            if (client.options != null && client.options.useKey != null) {
+                                client.options.useKey.setPressed(false);
+                            }
+                        });
+                    }
+
+                    if (sneakWhileUsing && restoreSneak) {
+                        boolean sneakState = previousSneak;
+                        runOnClientThread(client, () -> {
+                            client.player.setSneaking(sneakState);
+                            if (client.options != null && client.options.sneakKey != null) {
+                                client.options.sneakKey.setPressed(sneakState);
+                            }
+                        });
+                    }
+
+                    if (useUntilEmpty) {
+                        ItemStack afterUse = supplyFromClient(client, () -> client.player.getStackInHand(hand).copy());
+                        if (afterUse == null || afterUse.isEmpty()) {
+                            break;
+                        }
+                    }
+
+                    iteration++;
+                    if (iteration >= maxIterations) {
+                        break;
+                    }
+
+                    if (intervalSeconds > 0.0) {
+                        Thread.sleep((long) (intervalSeconds * 1000));
+                    }
+                }
+
+                future.complete(null);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                future.completeExceptionally(e);
             }
-        }
-        client.player.swingHand(hand);
-        if (client.player.networkHandler != null) {
-            client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
-        }
-        future.complete(null);
+        }, "Pathmind-Use").start();
     }
 
     private void executePlaceHandCommand(CompletableFuture<Void> future) {
@@ -2008,18 +2184,49 @@ public class Node {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
             return;
         }
-        
+
         Hand hand = resolveHand(getParameter("Hand"), Hand.MAIN_HAND);
+        boolean sneakWhilePlacing = getBooleanParameter("SneakWhilePlacing", false);
+        boolean restoreSneak = getBooleanParameter("RestoreSneakState", true);
+        boolean swingOnPlace = getBooleanParameter("SwingOnPlace", true);
+        boolean requireBlockHit = getBooleanParameter("RequireBlockHit", true);
+
+        boolean previousSneak = client.player.isSneaking();
+        if (sneakWhilePlacing) {
+            client.player.setSneaking(true);
+            if (client.options != null && client.options.sneakKey != null) {
+                client.options.sneakKey.setPressed(true);
+            }
+        }
+
+        boolean placed = false;
         HitResult target = client.crosshairTarget;
         if (target instanceof BlockHitResult blockHit) {
             ActionResult result = client.interactionManager.interactBlock(client.player, hand, blockHit);
-            if (result.isAccepted()) {
-                client.player.swingHand(hand);
-                if (client.player.networkHandler != null) {
-                    client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
-                }
+            placed = result.isAccepted();
+            if (!placed && !requireBlockHit) {
+                ActionResult fallback = client.interactionManager.interactItem(client.player, hand);
+                placed = fallback.isAccepted();
+            }
+        } else if (!requireBlockHit) {
+            ActionResult fallback = client.interactionManager.interactItem(client.player, hand);
+            placed = fallback.isAccepted();
+        }
+
+        if (swingOnPlace && placed) {
+            client.player.swingHand(hand);
+            if (client.player.networkHandler != null) {
+                client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
             }
         }
+
+        if (sneakWhilePlacing && restoreSneak) {
+            client.player.setSneaking(previousSneak);
+            if (client.options != null && client.options.sneakKey != null) {
+                client.options.sneakKey.setPressed(previousSneak);
+            }
+        }
+
         future.complete(null);
     }
     
@@ -2063,10 +2270,22 @@ public class Node {
         }
         
         int count = Math.max(1, getIntParameter("Count", 1));
-        for (int i = 0; i < count; i++) {
-            client.player.jump();
-        }
-        future.complete(null);
+        double intervalSeconds = Math.max(0.0, getDoubleParameter("IntervalSeconds", 0.0));
+
+        new Thread(() -> {
+            try {
+                for (int i = 0; i < count; i++) {
+                    runOnClientThread(client, () -> client.player.jump());
+                    if (intervalSeconds > 0.0 && i < count - 1) {
+                        Thread.sleep((long) (intervalSeconds * 1000));
+                    }
+                }
+                future.complete(null);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                future.completeExceptionally(e);
+            }
+        }, "Pathmind-Jump").start();
     }
     
     private void executeCrouchCommand(CompletableFuture<Void> future) {
@@ -2077,13 +2296,19 @@ public class Node {
         }
         
         boolean active = getBooleanParameter("Active", true);
+        boolean toggleKey = getBooleanParameter("ToggleKey", false);
         client.player.setSneaking(active);
         if (client.options != null && client.options.sneakKey != null) {
-            client.options.sneakKey.setPressed(active);
+            if (toggleKey) {
+                client.options.sneakKey.setPressed(true);
+                client.options.sneakKey.setPressed(false);
+            } else {
+                client.options.sneakKey.setPressed(active);
+            }
         }
         future.complete(null);
     }
-    
+
     private void executeSprintCommand(CompletableFuture<Void> future) {
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null) {
@@ -2092,8 +2317,16 @@ public class Node {
         }
         
         boolean active = getBooleanParameter("Active", true);
+        boolean allowFlying = getBooleanParameter("AllowFlying", false);
+
+        if (!allowFlying && client.player.getAbilities() != null && client.player.getAbilities().flying) {
+            future.complete(null);
+            return;
+        }
+
+        boolean previous = client.player.isSprinting();
         client.player.setSprinting(active);
-        if (client.player.networkHandler != null) {
+        if (client.player.networkHandler != null && previous != active) {
             ClientCommandC2SPacket.Mode mode = active ? ClientCommandC2SPacket.Mode.START_SPRINTING : ClientCommandC2SPacket.Mode.STOP_SPRINTING;
             client.player.networkHandler.sendPacket(new ClientCommandC2SPacket(client.player, mode));
         }
@@ -2108,26 +2341,53 @@ public class Node {
         }
         
         Hand hand = resolveHand(getParameter("Hand"), Hand.MAIN_HAND);
+        boolean preferEntity = getBooleanParameter("PreferEntity", true);
+        boolean preferBlock = getBooleanParameter("PreferBlock", true);
+        boolean fallbackToItem = getBooleanParameter("FallbackToItemUse", true);
+        boolean swingOnSuccess = getBooleanParameter("SwingOnSuccess", true);
+        boolean sneakWhileInteracting = getBooleanParameter("SneakWhileInteracting", false);
+        boolean restoreSneak = getBooleanParameter("RestoreSneakState", true);
+
+        boolean previousSneak = client.player.isSneaking();
+        if (sneakWhileInteracting) {
+            client.player.setSneaking(true);
+            if (client.options != null && client.options.sneakKey != null) {
+                client.options.sneakKey.setPressed(true);
+            }
+        }
+
         HitResult target = client.crosshairTarget;
         ActionResult result = ActionResult.PASS;
-        
-        if (target instanceof EntityHitResult entityHit) {
+        boolean attemptedInteraction = false;
+
+        if (preferEntity && target instanceof EntityHitResult entityHit) {
             result = client.interactionManager.interactEntity(client.player, entityHit.getEntity(), hand);
-        } else if (target instanceof BlockHitResult blockHit) {
-            result = client.interactionManager.interactBlock(client.player, hand, blockHit);
+            attemptedInteraction = true;
         }
-        
-        if (!result.isAccepted()) {
+
+        if ((!attemptedInteraction || !result.isAccepted()) && preferBlock && target instanceof BlockHitResult blockHit) {
+            result = client.interactionManager.interactBlock(client.player, hand, blockHit);
+            attemptedInteraction = true;
+        }
+
+        if ((!attemptedInteraction || (!result.isAccepted() && result != ActionResult.PASS)) && fallbackToItem) {
             result = client.interactionManager.interactItem(client.player, hand);
         }
-        
-        if (result.isAccepted() || result == ActionResult.PASS) {
+
+        if (swingOnSuccess && (result.isAccepted() || result == ActionResult.PASS)) {
             client.player.swingHand(hand);
             if (client.player.networkHandler != null) {
                 client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
             }
         }
-        
+
+        if (sneakWhileInteracting && restoreSneak) {
+            client.player.setSneaking(previousSneak);
+            if (client.options != null && client.options.sneakKey != null) {
+                client.options.sneakKey.setPressed(previousSneak);
+            }
+        }
+
         future.complete(null);
     }
     
@@ -2140,22 +2400,68 @@ public class Node {
         
         Hand hand = resolveHand(getParameter("Hand"), Hand.MAIN_HAND);
         boolean swingOnly = getBooleanParameter("SwingOnly", false);
-        HitResult target = client.crosshairTarget;
-        boolean attacked = false;
-        
-        if (!swingOnly && target instanceof EntityHitResult entityHit) {
-            client.interactionManager.attackEntity(client.player, entityHit.getEntity());
-            attacked = true;
-        } else if (!swingOnly && target instanceof BlockHitResult blockHit) {
-            client.interactionManager.attackBlock(blockHit.getBlockPos(), blockHit.getSide());
-            attacked = true;
+        final boolean attackEntities = getBooleanParameter("AttackEntities", true);
+        final boolean attackBlocks = getBooleanParameter("AttackBlocks", true);
+        int repeatCount = Math.max(1, getIntParameter("RepeatCount", 1));
+        double intervalSeconds = Math.max(0.0, getDoubleParameter("AttackIntervalSeconds", 0.0));
+        boolean sneakWhileAttacking = getBooleanParameter("SneakWhileAttacking", false);
+        boolean restoreSneak = getBooleanParameter("RestoreSneakState", true);
+
+        if (!attackEntities && !attackBlocks) {
+            swingOnly = true;
         }
-        
-        client.player.swingHand(hand);
-        if (client.player.networkHandler != null) {
-            client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
-        }
-        future.complete(null);
+
+        boolean previousSneak = client.player.isSneaking();
+        final boolean finalSwingOnly = swingOnly;
+        final boolean finalAttackEntities = attackEntities;
+        final boolean finalAttackBlocks = attackBlocks;
+
+        new Thread(() -> {
+            try {
+                if (sneakWhileAttacking) {
+                    runOnClientThread(client, () -> {
+                        client.player.setSneaking(true);
+                        if (client.options != null && client.options.sneakKey != null) {
+                            client.options.sneakKey.setPressed(true);
+                        }
+                    });
+                }
+
+                for (int i = 0; i < repeatCount; i++) {
+                    runOnClientThread(client, () -> {
+                        HitResult target = client.crosshairTarget;
+                        if (!finalSwingOnly && target instanceof EntityHitResult entityHit && finalAttackEntities) {
+                            client.interactionManager.attackEntity(client.player, entityHit.getEntity());
+                        } else if (!finalSwingOnly && target instanceof BlockHitResult blockHit && finalAttackBlocks) {
+                            client.interactionManager.attackBlock(blockHit.getBlockPos(), blockHit.getSide());
+                        }
+
+                        client.player.swingHand(hand);
+                        if (client.player.networkHandler != null) {
+                            client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
+                        }
+                    });
+
+                    if (intervalSeconds > 0.0 && i < repeatCount - 1) {
+                        Thread.sleep((long) (intervalSeconds * 1000));
+                    }
+                }
+
+                if (sneakWhileAttacking && restoreSneak) {
+                    runOnClientThread(client, () -> {
+                        client.player.setSneaking(previousSneak);
+                        if (client.options != null && client.options.sneakKey != null) {
+                            client.options.sneakKey.setPressed(previousSneak);
+                        }
+                    });
+                }
+
+                future.complete(null);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                future.completeExceptionally(e);
+            }
+        }, "Pathmind-Attack").start();
     }
 
     private void executeSwingCommand(CompletableFuture<Void> future) {
@@ -2166,11 +2472,29 @@ public class Node {
         }
 
         Hand hand = resolveHand(getParameter("Hand"), Hand.MAIN_HAND);
-        client.player.swingHand(hand);
-        if (client.player.networkHandler != null) {
-            client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
-        }
-        future.complete(null);
+        int count = Math.max(1, getIntParameter("Count", 1));
+        double intervalSeconds = Math.max(0.0, getDoubleParameter("IntervalSeconds", 0.0));
+
+        new Thread(() -> {
+            try {
+                for (int i = 0; i < count; i++) {
+                    runOnClientThread(client, () -> {
+                        client.player.swingHand(hand);
+                        if (client.player.networkHandler != null) {
+                            client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
+                        }
+                    });
+
+                    if (intervalSeconds > 0.0 && i < count - 1) {
+                        Thread.sleep((long) (intervalSeconds * 1000));
+                    }
+                }
+                future.complete(null);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                future.completeExceptionally(e);
+            }
+        }, "Pathmind-Swing").start();
     }
     
     private void executeSwapHandsCommand(CompletableFuture<Void> future) {
@@ -2317,55 +2641,57 @@ public class Node {
         future.complete(null);
     }
     
-    private void executeEatCommand(CompletableFuture<Void> future) {
-        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
-        if (client == null || client.player == null || client.interactionManager == null) {
-            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
-            return;
-        }
-        
-        Hand hand = resolveHand(getParameter("Hand"), Hand.MAIN_HAND);
-        ItemStack stack = client.player.getStackInHand(hand);
-        if (stack.isEmpty() || !stack.getComponents().contains(DataComponentTypes.FOOD)) {
-            future.complete(null);
-            return;
-        }
-        
-        client.interactionManager.interactItem(client.player, hand);
-        client.player.swingHand(hand);
-        if (client.player.networkHandler != null) {
-            client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
-        }
-        future.complete(null);
-    }
-    
-    private void executeDrinkCommand(CompletableFuture<Void> future) {
-        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
-        if (client == null || client.player == null || client.interactionManager == null) {
-            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
-            return;
-        }
-        
-        Hand hand = resolveHand(getParameter("Hand"), Hand.MAIN_HAND);
-        ItemStack stack = client.player.getStackInHand(hand);
-        boolean isDrink = stack.getItem() instanceof PotionItem || stack.isOf(Items.MILK_BUCKET) || stack.isOf(Items.HONEY_BOTTLE);
-        if (stack.isEmpty() || !isDrink) {
-            future.complete(null);
-            return;
-        }
-        
-        client.interactionManager.interactItem(client.player, hand);
-        client.player.swingHand(hand);
-        if (client.player.networkHandler != null) {
-            client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
-        }
-        future.complete(null);
-    }
-    
     private void completeSensorEvaluation(CompletableFuture<Void> future) {
         boolean result = evaluateSensor();
         setNextOutputSocket(result ? 0 : 1);
         future.complete(null);
+    }
+
+    private void runOnClientThread(net.minecraft.client.MinecraftClient client, Runnable task) throws InterruptedException {
+        if (client == null) {
+            task.run();
+            return;
+        }
+
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<RuntimeException> error = new AtomicReference<>();
+        client.execute(() -> {
+            try {
+                task.run();
+            } catch (RuntimeException e) {
+                error.set(e);
+            } finally {
+                latch.countDown();
+            }
+        });
+        latch.await();
+        if (error.get() != null) {
+            throw error.get();
+        }
+    }
+
+    private <T> T supplyFromClient(net.minecraft.client.MinecraftClient client, java.util.function.Supplier<T> supplier) throws InterruptedException {
+        if (client == null) {
+            return supplier.get();
+        }
+
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<T> result = new AtomicReference<>();
+        AtomicReference<RuntimeException> error = new AtomicReference<>();
+        client.execute(() -> {
+            try {
+                result.set(supplier.get());
+            } catch (RuntimeException e) {
+                error.set(e);
+            } finally {
+                latch.countDown();
+            }
+        });
+        latch.await();
+        if (error.get() != null) {
+            throw error.get();
+        }
+        return result.get();
     }
 
     private boolean canStacksCombine(ItemStack first, ItemStack second) {
