@@ -7,6 +7,7 @@ import com.pathmind.screen.PathmindMainMenuIntegration;
 import com.pathmind.screen.PathmindVisualEditorScreen;
 import com.pathmind.ui.ActiveNodeOverlay;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
@@ -39,10 +40,12 @@ public class PathmindClientMod implements ClientModInitializer {
         KeyBindingHelper.registerKeyBinding(PathmindKeybinds.OPEN_VISUAL_EDITOR);
         KeyBindingHelper.registerKeyBinding(PathmindKeybinds.PLAY_GRAPHS);
 
-        // Ensure the menu button icon texture is loaded and ready for rendering
-        TextureManager textureManager = MinecraftClient.getInstance().getTextureManager();
-        textureManager.registerTexture(PathmindMainMenuButton.ICON_TEXTURE,
-                new ResourceTexture(PathmindMod.id("textures/icon.png")));
+        // Ensure the menu button icon texture is loaded and ready for rendering once the client is ready
+        ClientLifecycleEvents.CLIENT_STARTED.register(client -> {
+            TextureManager textureManager = client.getTextureManager();
+            textureManager.registerTexture(PathmindMainMenuButton.ICON_TEXTURE,
+                    new ResourceTexture(PathmindMod.id("textures/icon.png")));
+        });
 
         // Hook into the main menu for button and keyboard support
         PathmindMainMenuIntegration.register();
