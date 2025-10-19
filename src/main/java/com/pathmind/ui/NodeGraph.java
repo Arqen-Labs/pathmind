@@ -122,6 +122,10 @@ public class NodeGraph {
     }
 
     public void removeNode(Node node) {
+        removeNodeInternal(node, true, true);
+    }
+
+    private void removeNodeInternal(Node node, boolean autoReconnect, boolean repositionDetachments) {
         if (node == null) {
             return;
         }
@@ -129,7 +133,7 @@ public class NodeGraph {
         if (node.hasAttachedSensor()) {
             Node attached = node.getAttachedSensor();
             node.detachSensor();
-            if (attached != null) {
+            if (repositionDetachments && attached != null) {
                 attached.setPosition(node.getX() + node.getWidth() + 12, node.getY());
             }
         }
@@ -137,7 +141,7 @@ public class NodeGraph {
         if (node.hasAttachedActionNode()) {
             Node attached = node.getAttachedActionNode();
             node.detachActionNode();
-            if (attached != null) {
+            if (repositionDetachments && attached != null) {
                 attached.setPosition(node.getX() + node.getWidth() + 12, node.getY());
             }
         }
@@ -159,46 +163,41 @@ public class NodeGraph {
         if (sensorDropTarget == node) {
             sensorDropTarget = null;
             actionDropTarget = null;
-            actionDropTarget = null;
-            actionDropTarget = null;
         }
 
         if (actionDropTarget == node) {
             actionDropTarget = null;
         }
 
-        // Find connections involving this node before removing them
-        List<NodeConnection> inputConnections = new ArrayList<>();
-        List<NodeConnection> outputConnections = new ArrayList<>();
+        if (autoReconnect) {
+            List<NodeConnection> inputConnections = new ArrayList<>();
+            List<NodeConnection> outputConnections = new ArrayList<>();
 
-        for (NodeConnection conn : connections) {
-            if (conn.getOutputNode().equals(node)) {
-                outputConnections.add(conn);
-            } else if (conn.getInputNode().equals(node)) {
-                inputConnections.add(conn);
+            for (NodeConnection conn : connections) {
+                if (conn.getOutputNode().equals(node)) {
+                    outputConnections.add(conn);
+                } else if (conn.getInputNode().equals(node)) {
+                    inputConnections.add(conn);
+                }
+            }
+
+            for (NodeConnection inputConn : inputConnections) {
+                Node inputSource = inputConn.getOutputNode();
+                int inputSocket = inputConn.getOutputSocket();
+
+                for (NodeConnection outputConn : outputConnections) {
+                    Node outputTarget = outputConn.getInputNode();
+                    int outputSocket = outputConn.getInputSocket();
+
+                    connections.add(new NodeConnection(inputSource, outputTarget, inputSocket, outputSocket));
+                }
             }
         }
-        
-        // Auto-reconnect: connect each input source to each output target
-        for (NodeConnection inputConn : inputConnections) {
-            Node inputSource = inputConn.getOutputNode(); // Node that connects TO the deleted node
-            int inputSocket = inputConn.getOutputSocket();
-            
-            for (NodeConnection outputConn : outputConnections) {
-                Node outputTarget = outputConn.getInputNode(); // Node that the deleted node connects TO
-                int outputSocket = outputConn.getInputSocket();
-                
-                // Create new connection between input source and output target
-                NodeConnection newConnection = new NodeConnection(inputSource, outputTarget, inputSocket, outputSocket);
-                connections.add(newConnection);
-            }
-        }
-        
-        // Remove all connections involving this node
-        connections.removeIf(conn -> 
+
+        connections.removeIf(conn ->
             conn.getOutputNode().equals(node) || conn.getInputNode().equals(node));
         nodes.remove(node);
-        
+
         if (selectedNode == node) {
             selectedNode = null;
         }
@@ -607,7 +606,7 @@ public class NodeGraph {
         List<Node> removalOrder = new ArrayList<>();
         collectNodesForCascade(node, removalOrder, new HashSet<>());
         for (Node toRemove : removalOrder) {
-            removeNode(toRemove);
+            removeNodeInternal(toRemove, false, false);
         }
     }
 
@@ -975,8 +974,13 @@ public class NodeGraph {
             return ellipsis;
         }
 
-        StringBuilder builder = new StringBuilder(text);
-        while (builder.length() > 0 && renderer.getWidth(builder.toString()) + ellipsisWidth > maxWidth) {
+        String baseText = text;
+        if (baseText.endsWith(ellipsis)) {
+            baseText = baseText.substring(0, baseText.length() - ellipsis.length());
+        }
+
+        StringBuilder builder = new StringBuilder(baseText);
+        while (builder.length() > 0 && renderer.getWidth(builder.toString() + ellipsis) > maxWidth) {
             builder.setLength(builder.length() - 1);
         }
         return builder.append(ellipsis).toString();
@@ -1201,17 +1205,29 @@ public class NodeGraph {
         return hoveringStartButton;
     }
 
-    public boolean handleStartButtonClick() {
-        if (!hoveringStartButton || hoveredStartNode == null) {
+    public boolean handleStartButtonClick(int mouseX, int mouseY) {
+        Node startNode = findStartNodeAt(mouseX, mouseY);
+        if (startNode == null) {
             return false;
         }
 
+        hoveredStartNode = startNode;
+
         ExecutionManager manager = ExecutionManager.getInstance();
-        if (manager.isChainActive(hoveredStartNode)) {
-            return manager.requestStopForStart(hoveredStartNode);
+        if (manager.isChainActive(startNode)) {
+            return manager.requestStopForStart(startNode);
         }
 
-        return manager.executeBranch(hoveredStartNode, nodes, connections);
+        return manager.executeBranch(startNode, nodes, connections);
+    }
+
+    private Node findStartNodeAt(int mouseX, int mouseY) {
+        for (Node node : nodes) {
+            if (node.getType() == NodeType.START && isMouseOverStartButton(node, mouseX, mouseY)) {
+                return node;
+            }
+        }
+        return null;
     }
     
     

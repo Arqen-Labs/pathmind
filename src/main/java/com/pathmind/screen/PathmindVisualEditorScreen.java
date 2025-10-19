@@ -388,11 +388,8 @@ public class PathmindVisualEditorScreen extends Screen {
                 return true;
             }
             
-            // Check if clicking START button
-            if (button == 0 && nodeGraph.isHoveringStartButton()) { // Left click on START button
-                if (nodeGraph.handleStartButtonClick()) {
-                    return true;
-                }
+            if (button == 0 && nodeGraph.handleStartButtonClick((int) mouseX, (int) mouseY)) {
+                return true;
             }
             
             return handleNodeGraphClick(mouseX, mouseY, button);
