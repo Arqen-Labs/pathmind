@@ -8,6 +8,7 @@ import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
+import net.minecraft.util.math.MathHelper;
 
 /**
  * A small icon button used on the title screen to open the Pathmind visual editor.
@@ -30,6 +31,17 @@ public class PathmindMainMenuButton extends ButtonWidget {
         int iconX = this.getX() + ICON_PADDING;
         int iconY = this.getY() + ICON_PADDING;
 
+        int rgb;
+        if (!this.active) {
+            rgb = 0xA0A0A0;
+        } else if (this.isHovered()) {
+            rgb = 0xFFFFA0;
+        } else {
+            rgb = 0xFFFFFF;
+        }
+
+        int color = MathHelper.ceil(this.alpha * 255.0F) << 24 | rgb;
+
         context.drawTexture(
             RenderPipelines.GUI_TEXTURED,
             ICON_TEXTURE,
@@ -40,7 +52,8 @@ public class PathmindMainMenuButton extends ButtonWidget {
             iconSize,
             iconSize,
             iconSize,
-            iconSize
+            iconSize,
+            color
         );
     }
 
