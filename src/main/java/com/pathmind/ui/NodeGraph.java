@@ -609,7 +609,8 @@ public class NodeGraph {
         List<Node> removalOrder = new ArrayList<>();
         collectNodesForCascade(node, removalOrder, new HashSet<>());
         for (Node toRemove : removalOrder) {
-            removeNodeInternal(toRemove, false, false);
+            boolean shouldReconnect = toRemove == node;
+            removeNodeInternal(toRemove, shouldReconnect, false);
         }
     }
 
