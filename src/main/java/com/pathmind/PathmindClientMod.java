@@ -4,6 +4,7 @@ import com.pathmind.data.PresetManager;
 import com.pathmind.execution.ExecutionManager;
 import com.pathmind.screen.PathmindVisualEditorScreen;
 import com.pathmind.ui.ActiveNodeOverlay;
+import com.pathmind.ui.PathmindIconButton;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
@@ -11,8 +12,8 @@ import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.TitleScreen;
-import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,6 +23,7 @@ import org.slf4j.LoggerFactory;
  */
 public class PathmindClientMod implements ClientModInitializer {
     private static final Logger LOGGER = LoggerFactory.getLogger("Pathmind/Client");
+    private static final Identifier PATHMIND_ICON_TEXTURE = Identifier.of("pathmind", "icon.png");
     private ActiveNodeOverlay activeNodeOverlay;
 
     @Override
@@ -39,22 +41,8 @@ public class PathmindClientMod implements ClientModInitializer {
         KeyBindingHelper.registerKeyBinding(PathmindKeybinds.PLAY_GRAPHS);
 
         ScreenEvents.AFTER_INIT.register((client, screen, scaledWidth, scaledHeight) -> {
-            if (screen instanceof TitleScreen) {
-                int buttonWidth = 150;
-                int buttonHeight = 20;
-                int x = scaledWidth - buttonWidth - 8;
-                int y = 8;
-
-                ButtonWidget openEditorButton = ButtonWidget.builder(
-                    Text.translatable("gui.pathmind.open_editor"),
-                    button -> {
-                        if (!(client.currentScreen instanceof PathmindVisualEditorScreen)) {
-                            client.setScreen(new PathmindVisualEditorScreen());
-                        }
-                    }
-                ).dimensions(x, y, buttonWidth, buttonHeight).build();
-
-                screen.addDrawableChild(openEditorButton);
+            if (screen instanceof TitleScreen titleScreen) {
+                addTitleScreenButton(client, titleScreen, scaledWidth, scaledHeight);
             }
         });
         
@@ -73,7 +61,29 @@ public class PathmindClientMod implements ClientModInitializer {
         
         LOGGER.info("Pathmind client mod initialized successfully");
     }
-    
+
+    private void addTitleScreenButton(MinecraftClient client, TitleScreen screen, int scaledWidth, int scaledHeight) {
+        int buttonSize = 20;
+        int margin = 8;
+        int x = scaledWidth - buttonSize - margin;
+        int y = margin;
+
+        PathmindIconButton openEditorButton = new PathmindIconButton(
+            x,
+            y,
+            buttonSize,
+            PATHMIND_ICON_TEXTURE,
+            button -> {
+                if (!(client.currentScreen instanceof PathmindVisualEditorScreen)) {
+                    client.setScreen(new PathmindVisualEditorScreen());
+                }
+            },
+            Text.translatable("gui.pathmind.open_editor")
+        );
+
+        screen.addDrawableChild(openEditorButton);
+    }
+
     private void handleKeybinds(MinecraftClient client) {
         // Check if visual editor keybind was pressed
         while (PathmindKeybinds.OPEN_VISUAL_EDITOR.wasPressed()) {
