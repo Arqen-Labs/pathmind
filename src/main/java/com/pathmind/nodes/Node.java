@@ -25,6 +25,7 @@ import net.minecraft.block.BlockState;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.registry.Registries;
+import net.minecraft.client.world.ClientWorld;
 import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
 import net.minecraft.network.packet.c2s.play.HandSwingC2SPacket;
 import net.minecraft.network.packet.c2s.play.PlayerActionC2SPacket;
@@ -2388,8 +2389,13 @@ public class Node {
             return;
         }
 
+        ClientWorld clientWorld = client.world;
+        if (clientWorld == null) {
+            return;
+        }
+
         client.interactionManager.sendSequencedPacket(
-            client.player.getWorld(),
+            clientWorld,
             sequence -> new PlayerInteractBlockC2SPacket(hand, hitResult, sequence)
         );
     }

@@ -24,7 +24,7 @@ public class PathmindIconButton extends PressableWidget {
         super(x, y, size, size, tooltip);
         this.texture = texture;
         this.onPress = onPress;
-        this.setTooltip(Tooltip.create(tooltip));
+        this.setTooltip(Tooltip.of(tooltip));
     }
 
     @Override
@@ -38,12 +38,10 @@ public class PathmindIconButton extends PressableWidget {
             this.texture,
             this.getX(),
             this.getY(),
+            0.0F,
+            0.0F,
             this.width,
             this.height,
-            0,
-            0,
-            ICON_TEXTURE_SIZE,
-            ICON_TEXTURE_SIZE,
             ICON_TEXTURE_SIZE,
             ICON_TEXTURE_SIZE
         );

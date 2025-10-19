@@ -2,6 +2,7 @@ package com.pathmind;
 
 import com.pathmind.data.PresetManager;
 import com.pathmind.execution.ExecutionManager;
+import com.pathmind.mixin.ScreenAccessor;
 import com.pathmind.screen.PathmindVisualEditorScreen;
 import com.pathmind.ui.ActiveNodeOverlay;
 import com.pathmind.ui.PathmindIconButton;
@@ -81,7 +82,7 @@ public class PathmindClientMod implements ClientModInitializer {
             Text.translatable("gui.pathmind.open_editor")
         );
 
-        screen.addDrawableChild(openEditorButton);
+        ((ScreenAccessor) screen).pathmind$addDrawableChild(openEditorButton);
     }
 
     private void handleKeybinds(MinecraftClient client) {
