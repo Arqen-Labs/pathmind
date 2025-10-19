@@ -5,6 +5,7 @@ import net.minecraft.client.gl.RenderPipelines;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.tooltip.Tooltip;
 import net.minecraft.client.gui.widget.ButtonWidget;
+import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 
@@ -15,10 +16,11 @@ public class PathmindMainMenuButton extends ButtonWidget {
     private static final Identifier ICON_TEXTURE = PathmindMod.id("logo.png");
     private static final int ICON_PADDING = 2;
     private static final int ICON_TEXTURE_SIZE = 128;
+    private static final Text OPEN_EDITOR_TEXT = Text.translatable("gui.pathmind.open_editor");
 
     public PathmindMainMenuButton(int x, int y, int size, PressAction pressAction) {
-        super(x, y, size, size, Text.translatable("gui.pathmind.open_editor"), pressAction, DEFAULT_NARRATION_SUPPLIER);
-        this.setTooltip(Tooltip.of(Text.translatable("gui.pathmind.open_editor")));
+        super(x, y, size, size, Text.empty(), pressAction, DEFAULT_NARRATION_SUPPLIER);
+        this.setTooltip(Tooltip.of(OPEN_EDITOR_TEXT));
     }
 
     @Override
@@ -41,5 +43,10 @@ public class PathmindMainMenuButton extends ButtonWidget {
             ICON_TEXTURE_SIZE,
             ICON_TEXTURE_SIZE
         );
+    }
+
+    @Override
+    public MutableText getNarrationMessage() {
+        return OPEN_EDITOR_TEXT.copy();
     }
 }
