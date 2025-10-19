@@ -1,6 +1,6 @@
 {
   "key.pathmind.open_visual_editor": "Abrir Editor Visual Pathmind",
-  "key.pathmind.play_last_graph": "Reproducir Último Gráfico de Pathmind",
+  "key.pathmind.play_graphs": "Reproducir gráficos",
   "category.pathmind.general": "Pathmind",
   "screen.pathmind.visual_editor.title": "Editor Visual Pathmind",
   "screen.pathmind.visual_editor.subtitle": "Crear y gestionar flujos de trabajo basados en nodos",

@@ -32,7 +32,7 @@ public class PathmindClientMod implements ClientModInitializer {
         // Register keybindings
         PathmindKeybinds.registerKeybinds();
         KeyBindingHelper.registerKeyBinding(PathmindKeybinds.OPEN_VISUAL_EDITOR);
-        KeyBindingHelper.registerKeyBinding(PathmindKeybinds.PLAY_LAST_GRAPH);
+        KeyBindingHelper.registerKeyBinding(PathmindKeybinds.PLAY_GRAPHS);
         
         // Register client tick events for keybind handling
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -64,8 +64,8 @@ public class PathmindClientMod implements ClientModInitializer {
             // If screen is already open, do nothing (don't close it)
         }
 
-        while (PathmindKeybinds.PLAY_LAST_GRAPH.wasPressed()) {
-            ExecutionManager.getInstance().replayLastGraph();
+        while (PathmindKeybinds.PLAY_GRAPHS.wasPressed()) {
+            ExecutionManager.getInstance().playAllGraphs();
         }
     }
 }

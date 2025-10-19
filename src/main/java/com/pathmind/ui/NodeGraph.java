@@ -998,7 +998,8 @@ public class NodeGraph {
     }
 
     private void renderConnections(DrawContext context) {
-        boolean animateConnections = ExecutionManager.getInstance().isExecuting();
+        ExecutionManager manager = ExecutionManager.getInstance();
+        boolean animateConnections = manager.isExecuting();
         long animationTimestamp = System.currentTimeMillis();
 
         for (NodeConnection connection : connections) {
@@ -1015,7 +1016,7 @@ public class NodeGraph {
             int inputY = inputNode.getSocketY(connection.getInputSocket(), true) - cameraY;
             
             // Simple bezier-like curve
-            if (animateConnections) {
+            if (animateConnections && manager.shouldAnimateConnection(connection)) {
                 renderAnimatedConnectionCurve(context, outputX, outputY, inputX, inputY,
                         outputNode.getOutputSocketColor(connection.getOutputSocket()), animationTimestamp);
             } else {
