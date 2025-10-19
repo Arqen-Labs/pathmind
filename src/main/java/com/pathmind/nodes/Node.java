@@ -26,6 +26,7 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.registry.Registries;
 import net.minecraft.client.world.ClientWorld;
+import com.pathmind.mixin.ClientPlayerInteractionManagerAccessor;
 import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
 import net.minecraft.network.packet.c2s.play.HandSwingC2SPacket;
 import net.minecraft.network.packet.c2s.play.PlayerActionC2SPacket;
@@ -2394,7 +2395,7 @@ public class Node {
             return;
         }
 
-        client.interactionManager.sendSequencedPacket(
+        ((ClientPlayerInteractionManagerAccessor) client.interactionManager).pathmind$sendSequencedPacket(
             clientWorld,
             sequence -> new PlayerInteractBlockC2SPacket(hand, hitResult, sequence)
         );

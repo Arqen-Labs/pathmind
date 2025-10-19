@@ -4,7 +4,9 @@
   "package": "com.pathmind.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [],
-  "client": [],
+  "client": [
+    "ClientPlayerInteractionManagerAccessor"
+  ],
   "injectors": {
     "defaultRequire": 1
   }
