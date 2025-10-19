@@ -1,11 +1,12 @@
 package com.pathmind.ui;
 
+import java.util.function.Consumer;
+
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
 import net.minecraft.client.gui.screen.narration.NarrationPart;
 import net.minecraft.client.gui.tooltip.Tooltip;
 import net.minecraft.client.gui.widget.PressableWidget;
-import net.minecraft.client.gui.widget.PressableWidget.PressAction;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 
@@ -17,9 +18,9 @@ public class PathmindIconButton extends PressableWidget {
     private static final int ICON_TEXTURE_SIZE = 128;
 
     private final Identifier texture;
-    private final PressAction onPress;
+    private final Consumer<PathmindIconButton> onPress;
 
-    public PathmindIconButton(int x, int y, int size, Identifier texture, PressAction onPress, Text tooltip) {
+    public PathmindIconButton(int x, int y, int size, Identifier texture, Consumer<PathmindIconButton> onPress, Text tooltip) {
         super(x, y, size, size, tooltip);
         this.texture = texture;
         this.onPress = onPress;
@@ -28,7 +29,7 @@ public class PathmindIconButton extends PressableWidget {
 
     @Override
     public void onPress() {
-        this.onPress.onPress(this);
+        this.onPress.accept(this);
     }
 
     @Override
