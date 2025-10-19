@@ -43,6 +43,7 @@ import net.minecraft.util.math.Box;
  * Similar to Blender's shader nodes, each node has inputs, outputs, and parameters.
  */
 public class Node {
+    public static final int NO_OUTPUT = -1;
     private final String id;
     private final NodeType type;
     private NodeMode mode;
@@ -321,7 +322,7 @@ public class Node {
         if (type == NodeType.CONTROL_FOREVER) {
             return 0;
         }
-        if (type == NodeType.CONTROL_IF_ELSE || type == NodeType.CONTROL_IF) {
+        if (type == NodeType.CONTROL_IF_ELSE) {
             return 2;
         }
         return 1;
@@ -333,12 +334,6 @@ public class Node {
                 return 0xFF4CAF50; // Green for true branch
             } else if (socketIndex == 1) {
                 return 0xFFF44336; // Red for false branch
-            }
-        } else if (type == NodeType.CONTROL_IF) {
-            if (socketIndex == 0) {
-                return 0xFF4CAF50;
-            } else if (socketIndex == 1) {
-                return 0xFFB0BEC5; // Neutral grey for skipped branch
             }
         }
         return getType().getColor();
@@ -361,9 +356,9 @@ public class Node {
     }
     
     public void setNextOutputSocket(int socketIndex) {
-        this.nextOutputSocket = Math.max(0, socketIndex);
+        this.nextOutputSocket = socketIndex < 0 ? NO_OUTPUT : Math.max(0, socketIndex);
     }
-    
+
     public int consumeNextOutputSocket() {
         int value = this.nextOutputSocket;
         this.nextOutputSocket = 0;
@@ -535,6 +530,9 @@ public class Node {
 
     public boolean canAcceptActionNode(Node node) {
         if (!canAcceptActionNode() || node == null || node == this || node.isSensorNode()) {
+            return false;
+        }
+        if (node.getType() == NodeType.EVENT_FUNCTION) {
             return false;
         }
         if (attachedActionNode != null && attachedActionNode != node) {
@@ -927,17 +925,6 @@ public class Node {
         if (type == NodeType.START) {
             this.width = START_END_SIZE;
             this.height = START_END_SIZE;
-            return;
-        }
-
-        if (type == NodeType.EVENT_FUNCTION) {
-            NodeParameter nameParam = getParameter("Name");
-            String label = nameParam != null ? nameParam.getDisplayValue() : "";
-            String text = "Function: " + label;
-            int computedSize = Math.max(MIN_WIDTH, text.length() * CHAR_PIXEL_WIDTH + 32);
-            computedSize = Math.max(computedSize, START_END_SIZE + 12);
-            this.width = computedSize;
-            this.height = computedSize;
             return;
         }
 
@@ -1597,7 +1584,7 @@ public class Node {
 
     private void executeControlIf(CompletableFuture<Void> future) {
         boolean condition = evaluateConditionFromParameters();
-        setNextOutputSocket(condition ? 0 : 1);
+        setNextOutputSocket(condition ? 0 : NO_OUTPUT);
         future.complete(null);
     }
 
