@@ -22,6 +22,10 @@ import java.util.List;
  * Handles node rendering, connections, and interactions.
  */
 public class NodeGraph {
+    private static final int CONNECTION_DOT_SPACING = 12;
+    private static final int CONNECTION_DOT_LENGTH = 4;
+    private static final int CONNECTION_ANIMATION_STEP_MS = 50;
+
     private final List<Node> nodes;
     private final List<NodeConnection> connections;
     private Node selectedNode;
@@ -53,6 +57,7 @@ public class NodeGraph {
 
     // Start button hover state
     private boolean hoveringStartButton = false;
+    private Node hoveredStartNode = null;
 
     private Node sensorDropTarget = null;
     private Node actionDropTarget = null;
@@ -375,11 +380,13 @@ public class NodeGraph {
         hoveredSocketNode = null;
         hoveredSocketIndex = -1;
         hoveringStartButton = false;
-        
+        hoveredStartNode = null;
+
         // Check for start button hover
         for (Node node : nodes) {
             if (node.getType() == NodeType.START && isMouseOverStartButton(node, mouseX, mouseY)) {
                 hoveringStartButton = true;
+                hoveredStartNode = node;
                 break;
             }
         }
@@ -801,11 +808,11 @@ public class NodeGraph {
                 // Render parameters
                 int paramY = y + 18;
                 List<NodeParameter> parameters = node.getParameters();
-                
+
                 for (NodeParameter param : parameters) {
                     String displayText = param.getName() + ": " + param.getDisplayValue();
                     displayText = trimTextToWidth(displayText, textRenderer, width - 10);
-                    
+
                     int paramTextColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0; // Grey text when over sidebar
                     context.drawTextWithShadow(
                         textRenderer,
@@ -814,7 +821,7 @@ public class NodeGraph {
                         paramY,
                         paramTextColor
                     );
-                    paramY += 12;
+                    paramY += 10;
                 }
             }
 
@@ -917,6 +924,9 @@ public class NodeGraph {
     }
 
     private void renderConnections(DrawContext context) {
+        boolean animateConnections = ExecutionManager.getInstance().isExecuting();
+        long animationTimestamp = System.currentTimeMillis();
+
         for (NodeConnection connection : connections) {
             Node outputNode = connection.getOutputNode();
             Node inputNode = connection.getInputNode();
@@ -931,9 +941,15 @@ public class NodeGraph {
             int inputY = inputNode.getSocketY(connection.getInputSocket(), true) - cameraY;
             
             // Simple bezier-like curve
-            renderConnectionCurve(context, outputX, outputY, inputX, inputY, outputNode.getOutputSocketColor(connection.getOutputSocket()));
+            if (animateConnections) {
+                renderAnimatedConnectionCurve(context, outputX, outputY, inputX, inputY,
+                        outputNode.getOutputSocketColor(connection.getOutputSocket()), animationTimestamp);
+            } else {
+                renderConnectionCurve(context, outputX, outputY, inputX, inputY,
+                        outputNode.getOutputSocketColor(connection.getOutputSocket()));
+            }
         }
-        
+
         // Render dragging connection if active
         if (isDraggingConnection && connectionSourceNode != null) {
             int sourceX = connectionSourceNode.getSocketX(!isOutputSocket) - cameraX;
@@ -952,8 +968,96 @@ public class NodeGraph {
             }
             
             // Render the dragging connection using the source node's color
-            renderConnectionCurve(context, sourceX, sourceY, targetX, targetY, connectionSourceNode.getOutputSocketColor(connectionSourceSocket));
+            if (animateConnections) {
+                renderAnimatedConnectionCurve(context, sourceX, sourceY, targetX, targetY,
+                        connectionSourceNode.getOutputSocketColor(connectionSourceSocket), animationTimestamp);
+            } else {
+                renderConnectionCurve(context, sourceX, sourceY, targetX, targetY,
+                        connectionSourceNode.getOutputSocketColor(connectionSourceSocket));
+            }
         }
+    }
+
+    private void renderAnimatedConnectionCurve(DrawContext context, int x1, int y1, int x2, int y2, int color, long timestamp) {
+        int midX = x1 + (x2 - x1) / 2;
+
+        int firstSegmentLength = Math.abs(midX - x1);
+        int secondSegmentLength = Math.abs(y2 - y1);
+
+        int animationOffset = (int) ((timestamp / CONNECTION_ANIMATION_STEP_MS) % CONNECTION_DOT_SPACING);
+
+        drawAnimatedSegment(context, x1, y1, midX, y1, true, color, animationOffset, 0);
+        drawAnimatedSegment(context, midX, y1, midX, y2, false, color, animationOffset, firstSegmentLength);
+        drawAnimatedSegment(context, midX, y2, x2, y2, true, color, animationOffset,
+                firstSegmentLength + secondSegmentLength);
+    }
+
+    private void drawAnimatedSegment(DrawContext context, int x1, int y1, int x2, int y2, boolean horizontal,
+                                     int color, int animationOffset, int distanceOffset) {
+        int length = horizontal ? Math.abs(x2 - x1) : Math.abs(y2 - y1);
+        if (length == 0) {
+            return;
+        }
+
+        int direction = horizontal ? Integer.compare(x2, x1) : Integer.compare(y2, y1);
+        int start = horizontal ? x1 : y1;
+        int staticCoord = horizontal ? y1 : x1;
+
+        int initialOffset = mod(distanceOffset - animationOffset, CONNECTION_DOT_SPACING);
+        int stepStart = (CONNECTION_DOT_SPACING - initialOffset) % CONNECTION_DOT_SPACING;
+
+        int position = stepStart;
+        while (position > 0) {
+            position -= CONNECTION_DOT_SPACING;
+        }
+
+        boolean drewSegment = false;
+
+        for (; position <= length; position += CONNECTION_DOT_SPACING) {
+            int minDistance = Math.max(position, 0);
+            int maxDistance = Math.min(position + CONNECTION_DOT_LENGTH - 1, length);
+            if (maxDistance < 0 || minDistance > length || minDistance > maxDistance) {
+                continue;
+            }
+
+            drewSegment = true;
+
+            int startPos = start + minDistance * direction;
+            int endPos = start + maxDistance * direction;
+
+            if (horizontal) {
+                int minX = Math.min(startPos, endPos);
+                int maxX = Math.max(startPos, endPos);
+                context.drawHorizontalLine(minX, maxX, staticCoord, color);
+            } else {
+                int minY = Math.min(startPos, endPos);
+                int maxY = Math.max(startPos, endPos);
+                context.drawVerticalLine(staticCoord, minY, maxY, color);
+            }
+        }
+
+        if (!drewSegment) {
+            int fallbackLength = Math.min(CONNECTION_DOT_LENGTH, length);
+            int minDistance = Math.max(0, length - fallbackLength);
+            int maxDistance = length;
+            int startPos = start + minDistance * direction;
+            int endPos = start + maxDistance * direction;
+
+            if (horizontal) {
+                int minX = Math.min(startPos, endPos);
+                int maxX = Math.max(startPos, endPos);
+                context.drawHorizontalLine(minX, maxX, staticCoord, color);
+            } else {
+                int minY = Math.min(startPos, endPos);
+                int maxY = Math.max(startPos, endPos);
+                context.drawVerticalLine(staticCoord, minY, maxY, color);
+            }
+        }
+    }
+
+    private int mod(int value, int mod) {
+        int result = value % mod;
+        return result < 0 ? result + mod : result;
     }
 
     private void renderConnectionCurve(DrawContext context, int x1, int y1, int x2, int y2, int color) {
@@ -1028,11 +1132,18 @@ public class NodeGraph {
     public boolean isHoveringStartButton() {
         return hoveringStartButton;
     }
-    
+
     public boolean handleStartButtonClick() {
-        // Execute the node graph
-        ExecutionManager.getInstance().executeGraph(nodes, connections);
-        return true; // Signal that the click was handled
+        if (!hoveringStartButton || hoveredStartNode == null) {
+            return false;
+        }
+
+        ExecutionManager manager = ExecutionManager.getInstance();
+        if (!manager.isChainActive(hoveredStartNode)) {
+            return false;
+        }
+
+        return manager.requestStopForStart(hoveredStartNode);
     }
     
     
@@ -1107,6 +1218,7 @@ public class NodeGraph {
         hoveredSocket = -1;
         hoveredSocketIsInput = false;
         hoveringStartButton = false;
+        hoveredStartNode = null;
         isDraggingConnection = false;
         connectionSourceNode = null;
         disconnectedConnection = null;
@@ -1226,6 +1338,7 @@ public class NodeGraph {
         hoveredSocket = -1;
         hoveredSocketIsInput = false;
         hoveringStartButton = false;
+        hoveredStartNode = null;
         isDraggingConnection = false;
         connectionSourceNode = null;
         disconnectedConnection = null;
