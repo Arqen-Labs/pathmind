@@ -1064,17 +1064,35 @@ public class Node {
             return false;
         }
 
+        if (candidate.getParameterParent() == this && parameterNode == candidate) {
+            updateAttachedParameterPosition();
+            return true;
+        }
+
         if (candidate.getParameterParent() != null && candidate.getParameterParent() != this) {
             candidate.getParameterParent().detachParameterNode();
         }
+
+        if (parameterNode != null && parameterNode != candidate) {
+            Node previousParameter = parameterNode;
+            previousParameter.setParameterParent(null);
+            previousParameter.setDragging(false);
+            previousParameter.setSelected(false);
+            previousParameter.setPositionSilently(this.x - previousParameter.getWidth() - 12, this.y);
+        }
+
         candidate.setParameterParent(this);
         this.parameterNode = candidate;
+        candidate.setDragging(false);
+        candidate.setSelected(false);
+        candidate.setSocketsHidden(false);
         NodeMode targetMode = determineModeFromParameter(candidate);
         if (targetMode != null && targetMode != this.mode) {
             setMode(targetMode);
         }
         syncParametersFromNode(candidate);
         recalculateDimensions();
+        updateAttachedParameterPosition();
         return true;
     }
 

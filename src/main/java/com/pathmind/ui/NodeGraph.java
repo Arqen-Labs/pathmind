@@ -479,14 +479,9 @@ public class NodeGraph {
             } else if (!node.isSensorNode() && node.getType().getCategory() == NodeCategory.PARAMETERS && parameterDropTarget != null) {
                 Node target = parameterDropTarget;
                 node.setDragging(false);
-                if (target.assignParameterNode(node)) {
-                    int slotTop = target.getParameterSlotTop();
-                    int slotBottom = target.getParameterSlotBottom();
-                    int targetY = slotTop + (slotBottom - slotTop - node.getHeight()) / 2;
-                    int targetX = target.getParameterSlotLeft() - node.getWidth() - 12;
-                    node.setPosition(targetX, targetY);
+                if (!target.assignParameterNode(node)) {
+                    node.setSocketsHidden(false);
                 }
-                node.setSocketsHidden(false);
             } else if (!node.isSensorNode() && actionDropTarget != null) {
                 Node target = actionDropTarget;
                 node.setDragging(false);
