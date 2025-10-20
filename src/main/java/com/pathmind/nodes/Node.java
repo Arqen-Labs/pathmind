@@ -3,6 +3,7 @@ package com.pathmind.nodes;
 import net.minecraft.text.Text;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -49,6 +50,7 @@ import net.minecraft.recipe.CraftingRecipe;
 import net.minecraft.recipe.Ingredient;
 import net.minecraft.recipe.IngredientPlacement;
 import net.minecraft.recipe.RecipeEntry;
+import net.minecraft.recipe.ShapedRecipe;
 import net.minecraft.screen.CraftingScreenHandler;
 import net.minecraft.screen.PlayerScreenHandler;
 import net.minecraft.screen.ScreenHandler;
@@ -1478,7 +1480,7 @@ public class Node {
         int perCraftOutput = Math.max(1, outputTemplate.getCount());
         int craftsRequested = Math.max(1, (int) Math.ceil(desiredCount / (double) perCraftOutput));
 
-        List<GridIngredient> gridIngredients = resolveGridIngredients(recipeEntry.value().getIngredientPlacement(), craftMode);
+        List<GridIngredient> gridIngredients = resolveGridIngredients(recipeEntry.value(), craftMode);
         if (gridIngredients.isEmpty()) {
             sendNodeErrorMessage(client, "Cannot craft " + itemDisplayName + ": the recipe has no ingredients.");
             future.complete(null);
@@ -1941,8 +1943,17 @@ public class Node {
         return -1;
     }
 
-    private List<GridIngredient> resolveGridIngredients(IngredientPlacement placement, NodeMode craftMode) {
+    private List<GridIngredient> resolveGridIngredients(CraftingRecipe recipe, NodeMode craftMode) {
         List<GridIngredient> result = new ArrayList<>();
+        if (recipe == null) {
+            return result;
+        }
+
+        if (craftMode == NodeMode.CRAFT_PLAYER_GUI && recipe instanceof ShapedRecipe shapedRecipe) {
+            return resolvePlayerGridIngredients(shapedRecipe);
+        }
+
+        IngredientPlacement placement = recipe.getIngredientPlacement();
         if (placement == null) {
             return result;
         }
@@ -1994,6 +2005,42 @@ public class Node {
             }
 
             result.add(new GridIngredient(resolvedSlot, ingredient));
+        }
+
+        return result;
+    }
+
+    private List<GridIngredient> resolvePlayerGridIngredients(ShapedRecipe recipe) {
+        List<GridIngredient> result = new ArrayList<>();
+        List<Optional<Ingredient>> ingredients = recipe.getIngredients();
+        if (ingredients == null || ingredients.isEmpty()) {
+            return result;
+        }
+
+        int width = Math.min(recipe.getWidth(), 2);
+        int height = Math.min(recipe.getHeight(), 2);
+        int recipeWidth = Math.max(recipe.getWidth(), 1);
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int index = x + (y * recipeWidth);
+                if (index < 0 || index >= ingredients.size()) {
+                    continue;
+                }
+
+                Optional<Ingredient> optional = ingredients.get(index);
+                if (optional == null || optional.isEmpty()) {
+                    continue;
+                }
+
+                Ingredient ingredient = optional.get();
+                if (ingredient.isEmpty()) {
+                    continue;
+                }
+
+                int slotIndex = 1 + x + (y * 2);
+                result.add(new GridIngredient(slotIndex, ingredient));
+            }
         }
 
         return result;
