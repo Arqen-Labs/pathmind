@@ -61,7 +61,8 @@ public enum NodeType {
     MOVE_ITEM("Move Item", 0xFFFFB74D, "Moves items between inventory slots"),
     SWAP_SLOTS("Swap Slots", 0xFFFFF176, "Swaps items between inventory slots"),
     CLEAR_SLOT("Clear Slot", 0xFFB0BEC5, "Clears a slot and optionally drops its contents"),
-    
+    PLAYER_GUI("Player GUI", 0xFFB0BEC5, "Opens or closes the player's inventory"),
+
     // Equipment Commands
     EQUIP_ARMOR("Equip Armor", 0xFF7E57C2, "Equips armor from an inventory slot"),
     UNEQUIP_ARMOR("Unequip Armor", 0xFF9575CD, "Moves armor into an inventory slot"),
@@ -194,6 +195,7 @@ public enum NodeType {
             case MOVE_ITEM:
             case SWAP_SLOTS:
             case CLEAR_SLOT:
+            case PLAYER_GUI:
             case EQUIP_ARMOR:
             case UNEQUIP_ARMOR:
             case EQUIP_HAND:

@@ -1160,6 +1160,9 @@ public class Node {
             case CRAFT:
                 executeCraftCommand(future);
                 break;
+            case PLAYER_GUI:
+                executePlayerGuiCommand(future);
+                break;
             case SCREEN_CONTROL:
                 executeScreenControlCommand(future);
                 break;
@@ -1517,7 +1520,7 @@ public class Node {
     }
 
     private void executeScreenControlCommand(CompletableFuture<Void> future) {
-        NodeMode screenMode = mode != null ? mode : NodeMode.SCREEN_OPEN_PLAYER_GUI;
+        NodeMode screenMode = mode != null ? mode : NodeMode.SCREEN_OPEN_CHAT;
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
 
         if (client == null) {
@@ -1528,7 +1531,42 @@ public class Node {
         try {
             runOnClientThread(client, () -> {
                 switch (screenMode) {
-                    case SCREEN_OPEN_PLAYER_GUI:
+                    case SCREEN_OPEN_CHAT:
+                        client.setScreen(new ChatScreen(""));
+                        break;
+                    case SCREEN_CLOSE_CURRENT:
+                        if (client.player != null) {
+                            client.player.closeHandledScreen();
+                        }
+                        client.setScreen(null);
+                        break;
+                    default:
+                        throw new IllegalStateException("Unknown screen control mode: " + screenMode);
+                }
+            });
+            future.complete(null);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            future.completeExceptionally(e);
+        } catch (RuntimeException e) {
+            sendNodeErrorMessage(client, e.getMessage());
+            future.complete(null);
+        }
+    }
+
+    private void executePlayerGuiCommand(CompletableFuture<Void> future) {
+        NodeMode playerGuiMode = mode != null ? mode : NodeMode.PLAYER_GUI_OPEN;
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+
+        if (client == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+
+        try {
+            runOnClientThread(client, () -> {
+                switch (playerGuiMode) {
+                    case PLAYER_GUI_OPEN:
                         if (client.player == null || client.player.networkHandler == null) {
                             throw new RuntimeException("Cannot open the player GUI without an active player.");
                         }
@@ -1542,17 +1580,18 @@ public class Node {
                             client.setScreen(new InventoryScreen(client.player));
                         }
                         break;
-                    case SCREEN_OPEN_CHAT:
-                        client.setScreen(new ChatScreen(""));
-                        break;
-                    case SCREEN_CLOSE_CURRENT:
-                        if (client.player != null) {
-                            client.player.closeHandledScreen();
+                    case PLAYER_GUI_CLOSE:
+                        if (client.player == null) {
+                            throw new RuntimeException("Cannot close the player GUI without an active player.");
                         }
-                        client.setScreen(null);
+
+                        if (client.currentScreen instanceof InventoryScreen) {
+                            client.player.closeHandledScreen();
+                            client.setScreen(null);
+                        }
                         break;
                     default:
-                        throw new IllegalStateException("Unknown screen control mode: " + screenMode);
+                        throw new IllegalStateException("Unknown player GUI mode: " + playerGuiMode);
                 }
             });
             future.complete(null);
