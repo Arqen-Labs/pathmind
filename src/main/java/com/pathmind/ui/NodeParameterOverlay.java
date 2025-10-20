@@ -312,17 +312,7 @@ public class NodeParameterOverlay {
 
         updateButtonPositions();
 
-        // Check button clicks
-        if (saveButton != null && saveButton.isMouseOver(mouseX, mouseY)) {
-            saveButton.onPress();
-            return true;
-        }
-        if (cancelButton != null && cancelButton.isMouseOver(mouseX, mouseY)) {
-            cancelButton.onPress();
-            return true;
-        }
-
-        // Check mode selector click
+        // Prepare scrollable bounds for subsequent hit checks
         int contentTop = getScrollAreaTop();
         int contentBottom = getScrollAreaBottom();
         int labelY = contentTop - scrollOffset;
@@ -333,39 +323,46 @@ public class NodeParameterOverlay {
             int modeButtonHeight = FIELD_HEIGHT;
 
             boolean modeVisible = modeButtonY <= contentBottom && modeButtonY + modeButtonHeight >= contentTop;
-            if (modeVisible && mouseX >= modeButtonX && mouseX <= modeButtonX + modeButtonWidth &&
-                mouseY >= Math.max(modeButtonY, contentTop) && mouseY <= Math.min(modeButtonY + modeButtonHeight, contentBottom)) {
-                // Toggle dropdown
-                modeDropdownOpen = !modeDropdownOpen;
-                modeDropdownHoverIndex = -1;
-                return true;
-            }
 
-            // Check dropdown option clicks
             if (modeDropdownOpen) {
                 int dropdownY = modeButtonY + modeButtonHeight;
                 int dropdownHeight = availableModes.size() * DROPDOWN_OPTION_HEIGHT;
 
                 if (mouseX >= modeButtonX && mouseX <= modeButtonX + modeButtonWidth &&
                     mouseY >= dropdownY && mouseY <= dropdownY + dropdownHeight) {
-                    // Calculate which option was clicked
                     int optionIndex = (int) ((mouseY - dropdownY) / DROPDOWN_OPTION_HEIGHT);
                     if (optionIndex >= 0 && optionIndex < availableModes.size()) {
                         selectedMode = availableModes.get(optionIndex);
-                        // Update node mode and reinitialize parameters
                         node.setMode(selectedMode);
                         resetParameterFields();
                         updatePopupDimensions();
                         recreateButtons();
                         updateButtonPositions();
                     }
-                    modeDropdownOpen = false; // Close dropdown
+                    modeDropdownOpen = false;
                     modeDropdownHoverIndex = -1;
                     return true;
                 }
             }
 
+            if (modeVisible && mouseX >= modeButtonX && mouseX <= modeButtonX + modeButtonWidth &&
+                mouseY >= Math.max(modeButtonY, contentTop) && mouseY <= Math.min(modeButtonY + modeButtonHeight, contentBottom)) {
+                modeDropdownOpen = !modeDropdownOpen;
+                modeDropdownHoverIndex = -1;
+                return true;
+            }
+
             labelY = modeButtonY + modeButtonHeight + SECTION_SPACING;
+        }
+
+        // Check button clicks after handling dropdown interactions so dropdown selections aren't swallowed by buttons beneath
+        if (saveButton != null && saveButton.isMouseOver(mouseX, mouseY)) {
+            saveButton.onPress();
+            return true;
+        }
+        if (cancelButton != null && cancelButton.isMouseOver(mouseX, mouseY)) {
+            cancelButton.onPress();
+            return true;
         }
 
         // Check field clicks
