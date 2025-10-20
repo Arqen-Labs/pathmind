@@ -3,6 +3,7 @@ package com.pathmind.ui;
 import com.pathmind.nodes.Node;
 import com.pathmind.nodes.NodeCategory;
 import com.pathmind.nodes.NodeType;
+import com.pathmind.nodes.ParameterProfile;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.text.Text;
@@ -39,9 +40,9 @@ public class Sidebar {
     private static final int GREY_LINE = 0xFF666666;
     private static final int HOVER_COLOR = 0xFF404040;
     
-    private final Map<NodeCategory, List<NodeType>> categoryNodes;
+    private final Map<NodeCategory, List<SidebarEntry>> categoryNodes;
     private final Map<NodeCategory, Boolean> categoryExpanded;
-    private NodeType hoveredNodeType = null;
+    private SidebarEntry hoveredEntry = null;
     private NodeCategory hoveredCategory = null;
     private NodeCategory selectedCategory = null;
     private int scrollOffset = 0;
@@ -64,15 +65,21 @@ public class Sidebar {
     
     private void initializeCategoryNodes() {
         for (NodeCategory category : NodeCategory.values()) {
-            List<NodeType> nodes = new ArrayList<>();
-            
-            for (NodeType nodeType : NodeType.values()) {
-                if (nodeType.getCategory() == category && nodeType.isDraggableFromSidebar()) {
-                    nodes.add(nodeType);
+            List<SidebarEntry> entries = new ArrayList<>();
+
+            if (category == NodeCategory.PARAMETERS) {
+                for (ParameterProfile profile : ParameterProfile.values()) {
+                    entries.add(SidebarEntry.forParameter(profile));
+                }
+            } else {
+                for (NodeType nodeType : NodeType.values()) {
+                    if (nodeType.getCategory() == category && nodeType.isDraggableFromSidebar()) {
+                        entries.add(SidebarEntry.forNode(nodeType));
+                    }
                 }
             }
-            
-            categoryNodes.put(category, nodes);
+
+            categoryNodes.put(category, entries);
         }
     }
     
@@ -84,9 +91,9 @@ public class Sidebar {
             totalHeight += CATEGORY_HEADER_HEIGHT;
             
             // Add space for nodes in selected category
-            List<NodeType> nodes = categoryNodes.get(selectedCategory);
-            if (nodes != null) {
-                totalHeight += nodes.size() * NODE_HEIGHT;
+            List<SidebarEntry> entries = categoryNodes.get(selectedCategory);
+            if (entries != null) {
+                totalHeight += entries.size() * NODE_HEIGHT;
             }
         }
         
@@ -118,6 +125,7 @@ public class Sidebar {
         
         // Render colored tabs
         hoveredCategory = null;
+        hoveredEntry = null;
         NodeCategory[] categories = NodeCategory.values();
         int totalVisibleTabs = 0;
         for (NodeCategory category : categories) {
@@ -200,35 +208,35 @@ public class Sidebar {
             contentY += CATEGORY_HEADER_HEIGHT;
             
             // Render nodes in selected category
-            List<NodeType> nodes = categoryNodes.get(selectedCategory);
-            if (nodes != null) {
-                for (NodeType nodeType : nodes) {
+            List<SidebarEntry> entries = categoryNodes.get(selectedCategory);
+            if (entries != null) {
+                for (SidebarEntry entry : entries) {
                     if (contentY >= sidebarStartY + sidebarHeight) break; // Don't render beyond sidebar
-                    
-                    boolean nodeHovered = mouseX >= INNER_SIDEBAR_WIDTH && mouseX <= totalWidth && 
+
+                    boolean nodeHovered = mouseX >= INNER_SIDEBAR_WIDTH && mouseX <= totalWidth &&
                                         mouseY >= contentY && mouseY < contentY + NODE_HEIGHT;
-                    
+
                     if (nodeHovered) {
-                        hoveredNodeType = nodeType;
+                        hoveredEntry = entry;
                         context.fill(INNER_SIDEBAR_WIDTH, contentY, totalWidth, contentY + NODE_HEIGHT, HOVER_COLOR);
                     }
-                    
+
                     // Node color indicator (using category color) - proper square/rectangle
                     int indicatorSize = 12;
                     int indicatorX = INNER_SIDEBAR_WIDTH + 8; // Align with category title
                     int indicatorY = contentY + 3;
-                    context.fill(indicatorX, indicatorY, indicatorX + indicatorSize, indicatorY + indicatorSize, nodeType.getColor());
+                    context.fill(indicatorX, indicatorY, indicatorX + indicatorSize, indicatorY + indicatorSize, entry.getDisplayColor(selectedCategory));
                     context.drawBorder(indicatorX, indicatorY, indicatorSize, indicatorSize, 0xFF000000);
-                    
+
                     // Node name
                     context.drawTextWithShadow(
                         textRenderer,
-                        Text.literal(nodeType.getDisplayName()),
+                        Text.literal(entry.getDisplayName()),
                         indicatorX + indicatorSize + 4, // Position after the indicator with some spacing
                         contentY + 4,
                         WHITE_MUTED
                     );
-                    
+
                     contentY += NODE_HEIGHT;
                 }
             }
@@ -236,7 +244,7 @@ public class Sidebar {
         
         // Reset hover states if mouse is not in sidebar
         if (mouseX < 0 || mouseX > getWidth()) {
-            hoveredNodeType = null;
+            hoveredEntry = null;
             hoveredCategory = null;
         }
     }
@@ -255,19 +263,19 @@ public class Sidebar {
                     selectedCategory = hoveredCategory;
                 }
                 // Clear any hovered node when switching or collapsing categories
-                hoveredNodeType = null;
+                hoveredEntry = null;
                 // Reset scroll to top when changing categories
                 scrollOffset = 0;
                 calculateMaxScroll(currentSidebarHeight);
                 return true;
             }
-            
+
             // Check node clicks for dragging
-            if (hoveredNodeType != null) {
+            if (hoveredEntry != null) {
                 return true; // Signal that dragging should start
             }
         }
-        
+
         return false;
     }
     
@@ -281,20 +289,32 @@ public class Sidebar {
     }
     
     public NodeType getHoveredNodeType() {
-        return hoveredNodeType;
+        return hoveredEntry != null ? hoveredEntry.getNodeType() : null;
     }
-    
+
+    public ParameterProfile getHoveredParameterProfile() {
+        return hoveredEntry != null ? hoveredEntry.getParameterProfile() : null;
+    }
+
+    public SidebarEntry getHoveredEntry() {
+        return hoveredEntry;
+    }
+
     public boolean isHoveringNode() {
-        return hoveredNodeType != null;
+        return hoveredEntry != null;
     }
-    
+
     public Node createNodeFromSidebar(int x, int y) {
-        if (hoveredNodeType != null) {
-            return new Node(hoveredNodeType, x, y);
+        if (hoveredEntry != null) {
+            Node node = new Node(hoveredEntry.getNodeType(), x, y);
+            if (hoveredEntry.getParameterProfile() != null) {
+                node.setParameterProfile(hoveredEntry.getParameterProfile());
+            }
+            return node;
         }
         return null;
     }
-    
+
     public int getWidth() {
         return selectedCategory != null ? OUTER_SIDEBAR_WIDTH : INNER_SIDEBAR_WIDTH;
     }
@@ -306,6 +326,44 @@ public class Sidebar {
      */
     public static int getCollapsedWidth() {
         return INNER_SIDEBAR_WIDTH;
+    }
+
+    public static class SidebarEntry {
+        private final NodeType nodeType;
+        private final ParameterProfile parameterProfile;
+
+        private SidebarEntry(NodeType nodeType, ParameterProfile parameterProfile) {
+            this.nodeType = nodeType;
+            this.parameterProfile = parameterProfile;
+        }
+
+        public static SidebarEntry forNode(NodeType nodeType) {
+            return new SidebarEntry(nodeType, null);
+        }
+
+        public static SidebarEntry forParameter(ParameterProfile profile) {
+            return new SidebarEntry(NodeType.PARAMETER, profile);
+        }
+
+        public NodeType getNodeType() {
+            return nodeType;
+        }
+
+        public ParameterProfile getParameterProfile() {
+            return parameterProfile;
+        }
+
+        public String getDisplayName() {
+            return parameterProfile != null ? profileLabel() : nodeType.getDisplayName();
+        }
+
+        public int getDisplayColor(NodeCategory category) {
+            return parameterProfile != null ? category.getColor() : nodeType.getColor();
+        }
+
+        private String profileLabel() {
+            return parameterProfile != null ? parameterProfile.getDisplayName() : "";
+        }
     }
     
     /**

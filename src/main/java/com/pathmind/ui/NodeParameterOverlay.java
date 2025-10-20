@@ -67,9 +67,6 @@ public class NodeParameterOverlay {
         
         // Initialize profile selection
         this.availableProfiles = new ArrayList<>();
-        for (ParameterProfile profile : ParameterProfile.values()) {
-            this.availableProfiles.add(profile);
-        }
         this.selectedProfile = node.getParameterProfile();
         
         updatePopupDimensions();
@@ -103,7 +100,7 @@ public class NodeParameterOverlay {
         // Render title
         context.drawTextWithShadow(
             textRenderer,
-            Text.literal("Edit Parameters: " + node.getType().getDisplayName()),
+            Text.literal("Edit Parameters: " + node.getDisplayName().getString()),
             popupX + 20,
             popupY + 15,
             0xFFFFFFFF
@@ -540,7 +537,7 @@ public class NodeParameterOverlay {
     }
     
     private void updatePopupDimensions() {
-        int longestLineLength = ("Edit Parameters: " + node.getType().getDisplayName()).length();
+        int longestLineLength = ("Edit Parameters: " + node.getDisplayName().getString()).length();
 
         if (hasProfileSelection()) {
             longestLineLength = Math.max(longestLineLength, "Profile:".length());
@@ -615,7 +612,7 @@ public class NodeParameterOverlay {
     }
     
     private boolean hasProfileSelection() {
-        return node.isParameterNode() && !availableProfiles.isEmpty();
+        return false;
     }
 
     private int computeButtonY() {

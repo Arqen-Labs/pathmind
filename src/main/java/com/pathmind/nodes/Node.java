@@ -320,8 +320,15 @@ public class Node {
         return pointX >= x && pointX <= x + getWidth() && pointY >= y && pointY <= y + getHeight();
     }
 
+    private String getHeaderTitle() {
+        if (isParameterNode() && parameterProfile != null) {
+            return parameterProfile.getDisplayName();
+        }
+        return type.getDisplayName();
+    }
+
     public Text getDisplayName() {
-        return Text.literal(type.getDisplayName());
+        return Text.literal(getHeaderTitle());
     }
 
     public boolean isSensorNode() {
@@ -916,7 +923,7 @@ public class Node {
         }
 
         if (isParameterNode()) {
-            int maxTextLength = Math.max(type.getDisplayName().length(), 1);
+            int maxTextLength = Math.max(getHeaderTitle().length(), 1);
             for (NodeParameter param : parameters) {
                 String paramText = getParameterLabel(param);
                 if (paramText.length() > maxTextLength) {
@@ -945,7 +952,7 @@ public class Node {
             return;
         }
 
-        int computedWidth = Math.max(MIN_WIDTH, type.getDisplayName().length() * CHAR_PIXEL_WIDTH + 24);
+        int computedWidth = Math.max(MIN_WIDTH, getHeaderTitle().length() * CHAR_PIXEL_WIDTH + 24);
         if (hasParameterSlot()) {
             int parameterContentWidth = PARAMETER_SLOT_MIN_CONTENT_WIDTH;
             if (attachedParameter != null) {

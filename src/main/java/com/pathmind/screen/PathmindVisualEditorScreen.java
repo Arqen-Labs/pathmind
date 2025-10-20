@@ -5,6 +5,7 @@ import com.pathmind.data.PresetManager;
 import com.pathmind.execution.ExecutionManager;
 import com.pathmind.nodes.Node;
 import com.pathmind.nodes.NodeType;
+import com.pathmind.nodes.ParameterProfile;
 import com.pathmind.ui.NodeGraph;
 import com.pathmind.ui.NodeParameterOverlay;
 import com.pathmind.ui.Sidebar;
@@ -66,6 +67,8 @@ public class PathmindVisualEditorScreen extends Screen {
     // Drag and drop state
     private boolean isDraggingFromSidebar = false;
     private NodeType draggingNodeType = null;
+    private ParameterProfile draggingParameterProfile = null;
+    private Sidebar.SidebarEntry draggingSidebarEntry = null;
 
     // Workspace dialogs
     private boolean clearPopupVisible = false;
@@ -216,9 +219,12 @@ public class PathmindVisualEditorScreen extends Screen {
     
     private void renderDraggingNode(DrawContext context, int mouseX, int mouseY) {
         if (draggingNodeType == null) return;
-        
+
         // Create a temporary node for rendering
         Node tempNode = new Node(draggingNodeType, 0, 0);
+        if (draggingParameterProfile != null) {
+            tempNode.setParameterProfile(draggingParameterProfile);
+        }
         tempNode.setDragging(true);
         
         // Calculate proper centering based on node dimensions
@@ -244,7 +250,7 @@ public class PathmindVisualEditorScreen extends Screen {
             context.fill(x + 1, y + 1, x + width - 1, y + 14, nodeColor);
             context.drawTextWithShadow(
                 this.textRenderer,
-                Text.literal(draggingNodeType.getDisplayName()),
+                tempNode.getDisplayName(),
                 x + 4,
                 y + 4,
                 0xFFFFFFFF
@@ -376,7 +382,9 @@ public class PathmindVisualEditorScreen extends Screen {
                 // Check if we should start dragging a node from sidebar
                 if (sidebar.isHoveringNode()) {
                     isDraggingFromSidebar = true;
-                    draggingNodeType = sidebar.getHoveredNodeType();
+                    draggingSidebarEntry = sidebar.getHoveredEntry();
+                    draggingNodeType = draggingSidebarEntry != null ? draggingSidebarEntry.getNodeType() : null;
+                    draggingParameterProfile = draggingSidebarEntry != null ? draggingSidebarEntry.getParameterProfile() : null;
                 }
                 return true;
             }
@@ -396,6 +404,8 @@ public class PathmindVisualEditorScreen extends Screen {
                     dismissParameterOverlay();
                     isDraggingFromSidebar = false;
                     draggingNodeType = null;
+                    draggingParameterProfile = null;
+                    draggingSidebarEntry = null;
                     if (this.client != null) {
                         this.client.setScreen(null);
                     }
@@ -539,6 +549,9 @@ public class PathmindVisualEditorScreen extends Screen {
                 if (mouseX >= sidebar.getWidth() && mouseY > TITLE_BAR_HEIGHT) {
                     // Drop in graph area - create new node with proper centering
                     Node tempNode = new Node(draggingNodeType, 0, 0);
+                    if (draggingParameterProfile != null) {
+                        tempNode.setParameterProfile(draggingParameterProfile);
+                    }
                     int width = tempNode.getWidth();
                     int height = tempNode.getHeight();
                     int worldMouseX = nodeGraph.screenToWorldX((int) mouseX);
@@ -547,12 +560,17 @@ public class PathmindVisualEditorScreen extends Screen {
                     int nodeY = worldMouseY - height / 2;
 
                     Node newNode = new Node(draggingNodeType, nodeX, nodeY);
+                    if (draggingParameterProfile != null) {
+                        newNode.setParameterProfile(draggingParameterProfile);
+                    }
                     nodeGraph.addNode(newNode);
                     nodeGraph.selectNode(newNode);
                 }
                 // Reset drag state
                 isDraggingFromSidebar = false;
                 draggingNodeType = null;
+                draggingParameterProfile = null;
+                draggingSidebarEntry = null;
             } else {
                 // Check if dragging node into sidebar for deletion (only if actually dragging)
                 if (nodeGraph.getSelectedNode() != null && nodeGraph.getSelectedNode().isDragging()) {
@@ -1506,6 +1524,8 @@ public class PathmindVisualEditorScreen extends Screen {
             dismissParameterOverlay();
             isDraggingFromSidebar = false;
             draggingNodeType = null;
+            draggingParameterProfile = null;
+            draggingSidebarEntry = null;
             clearPopupVisible = false;
             clearImportExportStatus();
 
@@ -1544,6 +1564,8 @@ public class PathmindVisualEditorScreen extends Screen {
         dismissParameterOverlay();
         isDraggingFromSidebar = false;
         draggingNodeType = null;
+        draggingParameterProfile = null;
+        draggingSidebarEntry = null;
         if (importExportPopupVisible) {
             closeImportExportPopup();
         }
