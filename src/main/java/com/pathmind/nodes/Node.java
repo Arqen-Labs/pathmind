@@ -1355,9 +1355,10 @@ public class Node {
                 PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
                 getToBlockProcess.getToBlock(new BlockOptionalMeta(block));
                 break;
-                
+
             default:
-                future.completeExceptionally(new RuntimeException("Unknown GOTO mode: " + mode));
+                notifyMissingParameterConfiguration(activeParameterProfile);
+                future.complete(null);
                 break;
         }
     }
@@ -1441,7 +1442,8 @@ public class Node {
     
     private void executeMineCommand(CompletableFuture<Void> future) {
         if (mode == null) {
-            future.completeExceptionally(new RuntimeException("No mode set for MINE node"));
+            notifyMissingParameterConfiguration(activeParameterProfile);
+            future.complete(null);
             return;
         }
         
@@ -1483,7 +1485,8 @@ public class Node {
                 break;
                 
             default:
-                future.completeExceptionally(new RuntimeException("Unknown MINE mode: " + mode));
+                notifyMissingParameterConfiguration(activeParameterProfile);
+                future.complete(null);
                 break;
         }
     }
@@ -2262,7 +2265,8 @@ public class Node {
     
     private void executeBuildCommand(CompletableFuture<Void> future) {
         if (mode == null) {
-            future.completeExceptionally(new RuntimeException("No mode set for BUILD node"));
+            notifyMissingParameterConfiguration(activeParameterProfile);
+            future.complete(null);
             return;
         }
         
@@ -2294,17 +2298,19 @@ public class Node {
                 break;
                 
             default:
-                future.completeExceptionally(new RuntimeException("Unknown BUILD mode: " + mode));
+                notifyMissingParameterConfiguration(activeParameterProfile);
+                future.complete(null);
                 return;
         }
-        
+
         executeCommand(command);
         future.complete(null); // These commands complete immediately
     }
     
     private void executeExploreCommand(CompletableFuture<Void> future) {
         if (mode == null) {
-            future.completeExceptionally(new RuntimeException("No mode set for EXPLORE node"));
+            notifyMissingParameterConfiguration(activeParameterProfile);
+            future.complete(null);
             return;
         }
         
@@ -2350,14 +2356,16 @@ public class Node {
                 return;
                 
             default:
-                future.completeExceptionally(new RuntimeException("Unknown EXPLORE mode: " + mode));
+                notifyMissingParameterConfiguration(activeParameterProfile);
+                future.complete(null);
                 return;
         }
     }
     
     private void executeFollowCommand(CompletableFuture<Void> future) {
         if (mode == null) {
-            future.completeExceptionally(new RuntimeException("No mode set for FOLLOW node"));
+            notifyMissingParameterConfiguration(activeParameterProfile);
+            future.complete(null);
             return;
         }
         
@@ -2396,10 +2404,11 @@ public class Node {
                 break;
                 
             default:
-                future.completeExceptionally(new RuntimeException("Unknown FOLLOW mode: " + mode));
+                notifyMissingParameterConfiguration(activeParameterProfile);
+                future.complete(null);
                 return;
         }
-        
+
         executeCommand(command);
         future.complete(null); // Follow commands complete immediately
     }
@@ -2575,12 +2584,13 @@ public class Node {
                 System.out.println("Clearing current goal");
                 customGoalProcess.setGoal(null);
                 break;
-                
+
             default:
-                future.completeExceptionally(new RuntimeException("Unknown GOAL mode: " + mode));
+                notifyMissingParameterConfiguration(activeParameterProfile);
+                future.complete(null);
                 return;
         }
-        
+
         // Goal setting is immediate, no need to wait
         future.complete(null);
     }
@@ -2683,7 +2693,8 @@ public class Node {
     
     private void executeStopCommand(CompletableFuture<Void> future) {
         if (mode == null) {
-            future.completeExceptionally(new RuntimeException("No mode set for STOP node"));
+            notifyMissingParameterConfiguration(activeParameterProfile);
+            future.complete(null);
             return;
         }
         
@@ -2720,10 +2731,11 @@ public class Node {
                 break;
                 
             default:
-                future.completeExceptionally(new RuntimeException("Unknown STOP mode: " + mode));
+                notifyMissingParameterConfiguration(activeParameterProfile);
+                future.complete(null);
                 return;
         }
-        
+
         // Complete immediately since stop is immediate
         future.complete(null);
     }
@@ -2762,7 +2774,8 @@ public class Node {
     
     private void executeFarmCommand(CompletableFuture<Void> future) {
         if (mode == null) {
-            future.completeExceptionally(new RuntimeException("No mode set for FARM node"));
+            notifyMissingParameterConfiguration(activeParameterProfile);
+            future.complete(null);
             return;
         }
         
@@ -2808,7 +2821,8 @@ public class Node {
                 return;
                 
             default:
-                future.completeExceptionally(new RuntimeException("Unknown FARM mode: " + mode));
+                notifyMissingParameterConfiguration(activeParameterProfile);
+                future.complete(null);
                 return;
         }
     }
