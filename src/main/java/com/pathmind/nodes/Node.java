@@ -1001,6 +1001,13 @@ public class Node {
             }
         }
 
+        if (supportsModeSelection()) {
+            String modeLabel = getModeDisplayLabel();
+            if (!modeLabel.isEmpty()) {
+                maxTextLength = Math.max(maxTextLength, modeLabel.length());
+            }
+        }
+
         int computedWidth = maxTextLength * CHAR_PIXEL_WIDTH + 24; // padding and border allowance
         if (hasSensorSlot()) {
             int sensorContentWidth = SENSOR_SLOT_MIN_CONTENT_WIDTH;
@@ -1022,8 +1029,13 @@ public class Node {
 
         int contentHeight;
         boolean hasSlots = hasSensorSlot() || hasActionSlot();
-        if (hasParameters()) {
-            contentHeight = HEADER_HEIGHT + PARAM_PADDING_TOP + (parameters.size() * PARAM_LINE_HEIGHT) + PARAM_PADDING_BOTTOM;
+        int parameterLineCount = parameters.size();
+        if (supportsModeSelection()) {
+            parameterLineCount++;
+        }
+
+        if (parameterLineCount > 0) {
+            contentHeight = HEADER_HEIGHT + PARAM_PADDING_TOP + (parameterLineCount * PARAM_LINE_HEIGHT) + PARAM_PADDING_BOTTOM;
             if (hasSlots) {
                 contentHeight += SLOT_AREA_PADDING_TOP;
             }
@@ -1062,10 +1074,23 @@ public class Node {
      * Get the height needed to display parameters
      */
     public int getParameterDisplayHeight() {
-        if (!hasParameters()) {
+        if (!hasParameters() && !supportsModeSelection()) {
             return 0;
         }
-        return PARAM_PADDING_TOP + parameters.size() * PARAM_LINE_HEIGHT + PARAM_PADDING_BOTTOM;
+        int parameterLineCount = parameters.size();
+        if (supportsModeSelection()) {
+            parameterLineCount++;
+        }
+        return PARAM_PADDING_TOP + parameterLineCount * PARAM_LINE_HEIGHT + PARAM_PADDING_BOTTOM;
+    }
+
+    public String getModeDisplayLabel() {
+        if (!supportsModeSelection()) {
+            return "";
+        }
+        NodeMode nodeMode = getMode();
+        String modeName = nodeMode != null ? nodeMode.getDisplayName() : "Select Mode";
+        return "Mode: " + modeName;
     }
 
     /**
