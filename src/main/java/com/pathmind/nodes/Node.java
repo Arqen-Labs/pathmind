@@ -163,12 +163,6 @@ public class Node {
         client.player.sendMessage(Text.literal(ERROR_MESSAGE_PREFIX + message), false);
     }
 
-    private void notifyUnsupportedParameterAttachment(ParameterProfile profile) {
-        String profileName = profile != null ? profile.getDisplayName() : "Unknown parameter";
-        sendNodeErrorMessage(net.minecraft.client.MinecraftClient.getInstance(),
-            profileName + " cannot be used with " + type.getDisplayName() + ".");
-    }
-
     private void notifyMissingParameterConfiguration(ParameterProfile profile) {
         String profileName = profile != null ? profile.getDisplayName() : "Parameter";
         sendNodeErrorMessage(net.minecraft.client.MinecraftClient.getInstance(),
@@ -243,9 +237,9 @@ public class Node {
             return;
         }
         ParameterProfile profile = attachedParameter.getParameterProfile();
-        if (profile == null || !profile.supports(this.type)) {
-            notifyUnsupportedParameterAttachment(profile);
-            detachParameter();
+        if (profile == null) {
+            this.activeParameterProfile = null;
+            recalculateDimensions();
             return;
         }
         this.activeParameterProfile = profile;

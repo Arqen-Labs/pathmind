@@ -3,7 +3,6 @@ package com.pathmind.nodes;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
-import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -42,8 +41,8 @@ public enum ParameterProfile {
     ),
     TARGET_BLOCK(
         "target_block",
-        "Target Block",
-        "Targets a single block type.",
+        "Block",
+        "Represents a single block type.",
         new ParameterField[]{ParameterField.BLOCK},
         usage(NodeType.GOTO, NodeMode.GOTO_BLOCK),
         usage(NodeType.MINE, NodeMode.MINE_SINGLE),
@@ -53,127 +52,127 @@ public enum ParameterProfile {
     ),
     PLACE_BLOCK_POSITION(
         "place_block_position",
-        "Place Block",
-        "Places a specific block at explicit coordinates.",
+        "Block Placement",
+        "Describes a block to place along with explicit coordinates.",
         new ParameterField[]{ParameterField.BLOCK, ParameterField.X, ParameterField.Y, ParameterField.Z},
         usage(NodeType.PLACE, null)
     ),
     TARGET_BLOCK_LIST(
         "target_block_list",
         "Block List",
-        "Targets a comma separated list of blocks.",
+        "Represents a comma separated list of blocks.",
         new ParameterField[]{ParameterField.BLOCKS},
         usage(NodeType.MINE, NodeMode.MINE_MULTIPLE)
     ),
     TARGET_ENTITY(
         "target_entity",
-        "Target Entity",
-        "Targets a specific entity type.",
+        "Entity",
+        "Represents a specific entity type.",
         new ParameterField[]{ParameterField.ENTITY},
         usage(NodeType.SENSOR_TOUCHING_ENTITY, null)
     ),
     SCHEMATIC_PLAYER(
         "schematic_player",
-        "Schematic at Player",
-        "Builds the schematic at the player's current position.",
+        "Schematic (Player Position)",
+        "Represents a schematic aligned to the player's current position.",
         new ParameterField[]{ParameterField.SCHEMATIC},
         usage(NodeType.BUILD, NodeMode.BUILD_PLAYER)
     ),
     SCHEMATIC_AT_POSITION(
         "schematic_at_position",
-        "Schematic at Coordinates",
-        "Builds a schematic at explicit coordinates.",
+        "Schematic Placement",
+        "Represents a schematic with explicit placement coordinates.",
         new ParameterField[]{ParameterField.SCHEMATIC, ParameterField.X, ParameterField.Y, ParameterField.Z},
         usage(NodeType.BUILD, NodeMode.BUILD_XYZ)
     ),
     EXPLORE_CURRENT_ORIGIN(
         "explore_current_origin",
-        "Explore from Current",
-        "Explores outward from the player's current position.",
+        "Current Position",
+        "Represents the player's current position as an origin.",
         new ParameterField[0],
         usage(NodeType.EXPLORE, NodeMode.EXPLORE_CURRENT)
     ),
     EXPLORE_FILTER(
         "explore_filter",
-        "Explore Filter",
-        "Explores using a Baritone filter file.",
+        "Filter File",
+        "Provides a Baritone filter file for exploration.",
         new ParameterField[]{ParameterField.FILTER},
         usage(NodeType.EXPLORE, NodeMode.EXPLORE_FILTER)
     ),
     FOLLOW_SPECIFIC_PLAYER(
         "follow_specific_player",
-        "Follow Player",
-        "Follows a player with the provided name.",
+        "Player",
+        "References a player by name.",
         new ParameterField[]{ParameterField.PLAYER},
         usage(NodeType.FOLLOW, NodeMode.FOLLOW_PLAYER)
     ),
     FOLLOW_ANY_PLAYER(
         "follow_any_player",
-        "Follow Players",
-        "Follows any nearby players.",
+        "Nearby Players",
+        "Represents any players in the vicinity.",
         new ParameterField[0],
         usage(NodeType.FOLLOW, NodeMode.FOLLOW_PLAYERS)
     ),
     FOLLOW_ANY_ENTITY(
         "follow_any_entity",
-        "Follow Entities",
-        "Follows any nearby entity.",
+        "Nearby Entities",
+        "Represents any nearby entity.",
         new ParameterField[0],
         usage(NodeType.FOLLOW, NodeMode.FOLLOW_ENTITIES)
     ),
     FOLLOW_ENTITY_TYPE(
         "follow_entity_type",
-        "Follow Entity Type",
-        "Follows entities of the specified type.",
+        "Entity Type",
+        "References entities of a specific type.",
         new ParameterField[]{ParameterField.ENTITY},
         usage(NodeType.FOLLOW, NodeMode.FOLLOW_ENTITY_TYPE)
     ),
     ITEM_TARGET(
         "item_target",
-        "Item Target",
-        "Describes a single target item for sensors or navigation.",
+        "Item",
+        "References a single item for sensors or navigation.",
         new ParameterField[]{ParameterField.ITEM},
         usage(NodeType.GOTO, null),
         usage(NodeType.SENSOR_ITEM_IN_INVENTORY, null)
     ),
     CRAFT_PLAYER_INVENTORY(
         "craft_player_inventory",
-        "Craft (Inventory)",
-        "Crafts an item using the player's inventory grid.",
+        "Inventory Recipe",
+        "Defines an item crafted using the player's inventory grid.",
         new ParameterField[]{ParameterField.ITEM, ParameterField.QUANTITY},
         usage(NodeType.CRAFT, NodeMode.CRAFT_PLAYER_GUI)
     ),
     CRAFT_CRAFTING_TABLE(
         "craft_crafting_table",
-        "Craft (Table)",
-        "Crafts an item using a crafting table GUI.",
+        "Crafting Table Recipe",
+        "Defines an item crafted using a crafting table.",
         new ParameterField[]{ParameterField.ITEM, ParameterField.QUANTITY},
         usage(NodeType.CRAFT, NodeMode.CRAFT_CRAFTING_TABLE)
     ),
     FARM_RANGE(
         "farm_range",
-        "Farm Range",
-        "Farms crops within the provided radius.",
+        "Farming Range",
+        "Specifies the radius used for farming.",
         new ParameterField[]{ParameterField.RANGE},
         usage(NodeType.FARM, NodeMode.FARM_RANGE)
     ),
     FARM_WAYPOINT(
         "farm_waypoint",
-        "Farm Waypoint",
-        "Farms around a waypoint with the provided range.",
+        "Waypoint Farming",
+        "Identifies a waypoint and radius used for farming.",
         new ParameterField[]{ParameterField.WAYPOINT, ParameterField.WAYPOINT_RANGE},
         usage(NodeType.FARM, NodeMode.FARM_WAYPOINT)
     ),
     GOAL_CURRENT(
         "goal_current",
-        "Goal Current Position",
-        "Sets the goal to the player's current position.",
+        "Current Position Goal",
+        "Represents the player's current position as a goal.",
         new ParameterField[0],
         usage(NodeType.GOAL, NodeMode.GOAL_CURRENT)
     ),
     GOAL_CLEAR(
         "goal_clear",
-        "Clear Goal",
+        "Goal Reset",
         "Clears the currently active goal.",
         new ParameterField[0],
         usage(NodeType.GOAL, NodeMode.GOAL_CLEAR)
@@ -181,90 +180,90 @@ public enum ParameterProfile {
     WAIT_DURATION(
         "wait_duration",
         "Wait Duration",
-        "Controls wait time including minimum duration and random variance.",
+        "Configures wait time including minimum duration and random variance.",
         new ParameterField[]{ParameterField.DURATION, ParameterField.MINIMUM_DURATION_SECONDS, ParameterField.RANDOM_VARIANCE_SECONDS},
         usage(NodeType.WAIT, null)
     ),
     MESSAGE_TEXT(
         "message_text",
         "Chat Message",
-        "Sends the provided chat message.",
+        "Provides the chat message text to send.",
         new ParameterField[]{ParameterField.TEXT},
         usage(NodeType.MESSAGE, null)
     ),
     HOTBAR_SLOT(
         "hotbar_slot",
         "Hotbar Slot",
-        "Selects the given hotbar slot.",
+        "Identifies the hotbar slot to select.",
         new ParameterField[]{ParameterField.SLOT},
         usage(NodeType.HOTBAR, null)
     ),
     DROP_ITEM(
         "drop_item",
-        "Drop Current Item",
-        "Drops the currently selected item with optional repetition.",
+        "Held Item Drop",
+        "Configures dropping the currently selected item with optional repetition.",
         new ParameterField[]{ParameterField.ALL, ParameterField.COUNT, ParameterField.INTERVAL_SECONDS},
         usage(NodeType.DROP_ITEM, null)
     ),
     DROP_SLOT(
         "drop_slot",
-        "Drop Slot",
-        "Drops items from a specific slot.",
+        "Slot Drop",
+        "Configures dropping items from a specific slot.",
         new ParameterField[]{ParameterField.SLOT, ParameterField.COUNT, ParameterField.ENTIRE_STACK},
         usage(NodeType.DROP_SLOT, null)
     ),
     MOVE_ITEM(
         "move_item",
-        "Move Item",
-        "Moves items between two slots.",
+        "Item Transfer",
+        "Configures moving items between two slots.",
         new ParameterField[]{ParameterField.SOURCE_SLOT, ParameterField.TARGET_SLOT, ParameterField.COUNT},
         usage(NodeType.MOVE_ITEM, null)
     ),
     SWAP_SLOTS(
         "swap_slots",
-        "Swap Slots",
-        "Swaps items between two inventory slots.",
+        "Slot Swap",
+        "Configures swapping items between two inventory slots.",
         new ParameterField[]{ParameterField.FIRST_SLOT, ParameterField.SECOND_SLOT},
         usage(NodeType.SWAP_SLOTS, null)
     ),
     CLEAR_SLOT(
         "clear_slot",
-        "Clear Slot",
-        "Clears an inventory slot and optionally drops contents.",
+        "Slot Clear",
+        "Configures clearing an inventory slot and optionally dropping contents.",
         new ParameterField[]{ParameterField.SLOT, ParameterField.DROP_ITEMS},
         usage(NodeType.CLEAR_SLOT, null)
     ),
     EQUIP_ARMOR(
         "equip_armor",
-        "Equip Armor",
-        "Equips armor from a slot.",
+        "Armor Equip",
+        "Configures equipping armor from an inventory slot.",
         new ParameterField[]{ParameterField.SOURCE_SLOT, ParameterField.ARMOR_SLOT},
         usage(NodeType.EQUIP_ARMOR, null)
     ),
     UNEQUIP_ARMOR(
         "unequip_armor",
-        "Unequip Armor",
-        "Moves armor into an inventory slot.",
+        "Armor Removal",
+        "Configures moving armor into an inventory slot.",
         new ParameterField[]{ParameterField.ARMOR_SLOT, ParameterField.TARGET_SLOT, ParameterField.DROP_IF_FULL},
         usage(NodeType.UNEQUIP_ARMOR, null)
     ),
     EQUIP_HAND(
         "equip_hand",
-        "Equip Hand",
-        "Moves an item into a hand.",
+        "Hand Equip",
+        "Configures moving an item into a hand.",
         new ParameterField[]{ParameterField.SOURCE_SLOT, ParameterField.HAND},
         usage(NodeType.EQUIP_HAND, null)
     ),
     UNEQUIP_HAND(
         "unequip_hand",
-        "Unequip Hand",
-        "Moves a hand item into an inventory slot.",
+        "Hand Removal",
+        "Configures moving a hand item into an inventory slot.",
         new ParameterField[]{ParameterField.HAND, ParameterField.TARGET_SLOT, ParameterField.DROP_IF_FULL},
         usage(NodeType.UNEQUIP_HAND, null)
     ),
     USE_OPTIONS(
         "use_options",
-        "Use Item Options",
+        "Use Item Settings",
         "Configures how the selected hand is used repeatedly.",
         new ParameterField[]{
             ParameterField.HAND,
@@ -283,7 +282,7 @@ public enum ParameterProfile {
     ),
     INTERACT_OPTIONS(
         "interact_options",
-        "Interact Options",
+        "Interact Settings",
         "Controls how interaction prioritizes blocks or entities.",
         new ParameterField[]{
             ParameterField.HAND,
@@ -298,7 +297,7 @@ public enum ParameterProfile {
     ),
     PLACE_FROM_HAND(
         "place_from_hand",
-        "Place From Hand",
+        "Hand Placement Settings",
         "Configures how blocks are placed from the player's hand.",
         new ParameterField[]{
             ParameterField.HAND,
@@ -311,14 +310,14 @@ public enum ParameterProfile {
     ),
     SWING_OPTIONS(
         "swing_options",
-        "Swing Options",
+        "Swing Settings",
         "Configures swinging a hand repeatedly.",
         new ParameterField[]{ParameterField.HAND, ParameterField.COUNT, ParameterField.INTERVAL_SECONDS},
         usage(NodeType.SWING, null)
     ),
     ATTACK_OPTIONS(
         "attack_options",
-        "Attack Options",
+        "Attack Settings",
         "Configures attack behavior against blocks or entities.",
         new ParameterField[]{
             ParameterField.HAND,
@@ -335,91 +334,91 @@ public enum ParameterProfile {
     LOOK_ROTATION(
         "look_rotation",
         "Look Rotation",
-        "Adjusts the player's yaw and pitch.",
+        "Specifies yaw and pitch rotation values.",
         new ParameterField[]{ParameterField.YAW, ParameterField.PITCH},
         usage(NodeType.LOOK, null)
     ),
     TURN_OFFSET(
         "turn_offset",
         "Turn Offset",
-        "Applies relative yaw and pitch offsets.",
+        "Specifies relative yaw and pitch offsets.",
         new ParameterField[]{ParameterField.YAW_OFFSET, ParameterField.PITCH_OFFSET},
         usage(NodeType.TURN, null)
     ),
     JUMP_OPTIONS(
         "jump_options",
-        "Jump Options",
-        "Controls repeated jumping behavior.",
+        "Jump Settings",
+        "Configures repeated jumping behavior.",
         new ParameterField[]{ParameterField.COUNT, ParameterField.INTERVAL_SECONDS},
         usage(NodeType.JUMP, null)
     ),
     CROUCH_STATE(
         "crouch_state",
         "Crouch State",
-        "Toggles crouching on or off.",
+        "Controls whether crouching is active.",
         new ParameterField[]{ParameterField.ACTIVE, ParameterField.TOGGLE_KEY},
         usage(NodeType.CROUCH, null)
     ),
     SPRINT_STATE(
         "sprint_state",
         "Sprint State",
-        "Toggles sprinting and optional flying.",
+        "Controls whether sprinting and optional flying are active.",
         new ParameterField[]{ParameterField.ACTIVE, ParameterField.ALLOW_FLYING},
         usage(NodeType.SPRINT, null)
     ),
     CONTROL_REPEAT_COUNT(
         "control_repeat_count",
         "Repeat Count",
-        "Controls how many times to repeat the enclosed nodes.",
+        "Specifies how many times to repeat enclosed nodes.",
         new ParameterField[]{ParameterField.COUNT},
         usage(NodeType.CONTROL_REPEAT, null)
     ),
     STOP_NORMAL(
         "stop_normal",
-        "Stop",
-        "Stops the current process.",
+        "Stop (Normal)",
+        "Represents a normal request to stop the current process.",
         new ParameterField[0],
         usage(NodeType.STOP, NodeMode.STOP_NORMAL)
     ),
     STOP_CANCEL(
         "stop_cancel",
-        "Cancel",
-        "Cancels the current process if possible.",
+        "Stop (Cancel)",
+        "Represents a cancel request for the current process.",
         new ParameterField[0],
         usage(NodeType.STOP, NodeMode.STOP_CANCEL)
     ),
     STOP_FORCE(
         "stop_force",
-        "Force Stop",
-        "Forcefully cancels all processes.",
+        "Stop (Force)",
+        "Represents a forceful stop for all processes.",
         new ParameterField[0],
         usage(NodeType.STOP, NodeMode.STOP_FORCE)
     ),
     SCREEN_OPEN_CHAT(
         "screen_open_chat",
-        "Open Chat",
-        "Opens the chat screen.",
+        "Chat Screen",
+        "Represents opening the chat screen.",
         new ParameterField[0],
         usage(NodeType.SCREEN_CONTROL, NodeMode.SCREEN_OPEN_CHAT)
     ),
     SCREEN_CLOSE(
         "screen_close",
-        "Close Screen",
-        "Closes the currently open screen.",
+        "Screen Close",
+        "Represents closing the currently open screen.",
         new ParameterField[0],
         usage(NodeType.SCREEN_CONTROL, NodeMode.SCREEN_CLOSE_CURRENT)
     ),
     PLAYER_GUI_OPEN(
         "player_gui_open",
-        "Open Inventory",
-        "Opens the player's inventory screen.",
+        "Inventory Screen",
+        "Represents opening the player's inventory screen.",
         new ParameterField[0],
         usage(NodeType.PLAYER_GUI, NodeMode.PLAYER_GUI_OPEN)
     ),
     PLAYER_GUI_CLOSE(
         "player_gui_close",
-        "Close Inventory",
-        "Closes the player's inventory screen.",
+        "Inventory Close",
+        "Represents closing the player's inventory screen.",
         new ParameterField[0],
         usage(NodeType.PLAYER_GUI, NodeMode.PLAYER_GUI_CLOSE)
     ),
@@ -477,7 +476,6 @@ public enum ParameterProfile {
     private final String displayName;
     private final String description;
     private final ParameterField[] fields;
-    private final EnumSet<NodeType> supportedTypes;
     private final EnumMap<NodeType, NodeMode> modeOverrides;
 
     ParameterProfile(String id, String displayName, String description, ParameterField[] fields, ParameterUsage... usages) {
@@ -485,13 +483,11 @@ public enum ParameterProfile {
         this.displayName = displayName;
         this.description = description;
         this.fields = fields;
-        this.supportedTypes = EnumSet.noneOf(NodeType.class);
         this.modeOverrides = new EnumMap<>(NodeType.class);
         for (ParameterUsage usage : usages) {
             if (usage == null || usage.type == null) {
                 continue;
             }
-            this.supportedTypes.add(usage.type);
             if (usage.mode != null) {
                 this.modeOverrides.put(usage.type, usage.mode);
             }
@@ -522,7 +518,7 @@ public enum ParameterProfile {
     }
 
     public boolean supports(NodeType type) {
-        return supportedTypes.contains(type);
+        return true;
     }
 
     public Optional<NodeMode> resolveMode(NodeType type) {
