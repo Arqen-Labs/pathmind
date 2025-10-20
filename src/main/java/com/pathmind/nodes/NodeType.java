@@ -91,7 +91,21 @@ public enum NodeType {
     // Utility Commands
     SCREEN_CONTROL("Screen Control", 0xFF9E9E9E, "Open or close in-game screens"),
     WAIT("Wait", 0xFF607D8B, "Waits for specified duration"),
-    MESSAGE("Message", 0xFF9E9E9E, "Sends a chat message");
+    MESSAGE("Message", 0xFF9E9E9E, "Sends a chat message"),
+
+    // Parameter nodes
+    PARAM_COORDINATE("Coordinate", 0xFF8BC34A, "Reusable XYZ coordinate data"),
+    PARAM_BLOCK("Block", 0xFF8BC34A, "Represents a single block type"),
+    PARAM_BLOCK_LIST("Block List", 0xFF8BC34A, "Represents multiple block types"),
+    PARAM_ITEM("Item", 0xFF8BC34A, "Represents an item and quantity"),
+    PARAM_ENTITY("Entity", 0xFF8BC34A, "Represents an entity and range"),
+    PARAM_PLAYER("Player", 0xFF8BC34A, "Represents a specific player target"),
+    PARAM_WAYPOINT("Waypoint", 0xFF8BC34A, "Represents a waypoint name and optional range"),
+    PARAM_SCHEMATIC("Schematic", 0xFF8BC34A, "Represents schematic placement data"),
+    PARAM_INVENTORY_SLOT("Inventory Slot", 0xFF8BC34A, "Represents an inventory slot reference"),
+    PARAM_MESSAGE("Message Text", 0xFF8BC34A, "Represents reusable chat or sign text"),
+    PARAM_DURATION("Duration", 0xFF8BC34A, "Represents a duration or interval"),
+    PARAM_BOOLEAN("Toggle", 0xFF8BC34A, "Represents a boolean toggle value");
 
     private final String displayName;
     private final String description;
@@ -206,6 +220,19 @@ public enum NodeType {
             case WAIT:
             case MESSAGE:
                 return NodeCategory.UTILITY;
+            case PARAM_COORDINATE:
+            case PARAM_BLOCK:
+            case PARAM_BLOCK_LIST:
+            case PARAM_ITEM:
+            case PARAM_ENTITY:
+            case PARAM_PLAYER:
+            case PARAM_WAYPOINT:
+            case PARAM_SCHEMATIC:
+            case PARAM_INVENTORY_SLOT:
+            case PARAM_MESSAGE:
+            case PARAM_DURATION:
+            case PARAM_BOOLEAN:
+                return NodeCategory.PARAMETERS;
             default:
                 return NodeCategory.UTILITY;
         }
@@ -262,6 +289,18 @@ public enum NodeType {
             case SENSOR_ENTITY_NEARBY:
             case SENSOR_ITEM_IN_INVENTORY:
             case SENSOR_IS_FALLING:
+            case PARAM_COORDINATE:
+            case PARAM_BLOCK:
+            case PARAM_BLOCK_LIST:
+            case PARAM_ITEM:
+            case PARAM_ENTITY:
+            case PARAM_PLAYER:
+            case PARAM_WAYPOINT:
+            case PARAM_SCHEMATIC:
+            case PARAM_INVENTORY_SLOT:
+            case PARAM_MESSAGE:
+            case PARAM_DURATION:
+            case PARAM_BOOLEAN:
                 return true;
             default:
                 return false;

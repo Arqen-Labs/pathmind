@@ -688,6 +688,26 @@ public class ExecutionManager {
             }
         }
 
+        for (NodeGraphData.NodeData nodeData : graphData.getNodes()) {
+            if (nodeData.getAttachedParameterId() != null) {
+                Node host = nodeMap.get(nodeData.getId());
+                Node parameter = nodeMap.get(nodeData.getAttachedParameterId());
+                if (host != null && parameter != null) {
+                    host.attachParameter(parameter);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : graphData.getNodes()) {
+            if (nodeData.getParentParameterHostId() != null) {
+                Node parameter = nodeMap.get(nodeData.getId());
+                Node host = nodeMap.get(nodeData.getParentParameterHostId());
+                if (parameter != null && host != null && parameter.isParameterNode()) {
+                    host.attachParameter(parameter);
+                }
+            }
+        }
+
         List<NodeConnection> connections = new ArrayList<>();
         for (NodeGraphData.ConnectionData connData : graphData.getConnections()) {
             Node outputNode = nodeMap.get(connData.getOutputNodeId());
@@ -822,6 +842,8 @@ public class ExecutionManager {
             nodeData.setParentControlId(node.getParentControlId());
             nodeData.setAttachedActionId(node.getAttachedActionId());
             nodeData.setParentActionControlId(node.getParentActionControlId());
+            nodeData.setAttachedParameterId(node.getAttachedParameterId());
+            nodeData.setParentParameterHostId(node.getParentParameterHostId());
 
             snapshot.getNodes().add(nodeData);
         }

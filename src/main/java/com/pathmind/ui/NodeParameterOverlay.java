@@ -496,9 +496,14 @@ public class NodeParameterOverlay {
             String value = parameterValues.get(i);
             param.setStringValue(value);
         }
-        
+
+        if (node.isParameterNode() && node.getParentParameterHost() != null) {
+            Node host = node.getParentParameterHost();
+            host.attachParameter(node);
+        }
+
         node.recalculateDimensions();
-        
+
         close();
     }
 
