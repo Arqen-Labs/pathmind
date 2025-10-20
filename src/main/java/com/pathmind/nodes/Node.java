@@ -1100,11 +1100,14 @@ public class Node {
         if (parameterNode == null || parameterNode.getParameterParent() != this) {
             return;
         }
+        int slotLeft = getParameterSlotLeft();
+        int slotRight = getParameterSlotRight();
         int slotTop = getParameterSlotTop();
-        int slotBottom = getParameterSlotBottom();
-        int targetY = slotTop + (slotBottom - slotTop - parameterNode.getHeight()) / 2;
-        int targetX = getParameterSlotLeft() - parameterNode.getWidth() - 12;
-        parameterNode.setPosition(targetX, targetY);
+        int slotHeight = getParameterSlotHeight();
+        int slotWidth = Math.max(0, slotRight - slotLeft);
+        int targetX = slotLeft + Math.max(0, (slotWidth - parameterNode.getWidth()) / 2);
+        int targetY = slotTop + Math.max(0, (slotHeight - parameterNode.getHeight()) / 2);
+        parameterNode.setPositionSilently(targetX, targetY);
     }
 
     private void syncParametersFromNode(Node candidate) {
