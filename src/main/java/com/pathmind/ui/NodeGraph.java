@@ -995,10 +995,12 @@ public class NodeGraph {
         String displayText = trimTextToWidth(label, textRenderer, availableWidth);
         int textColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0;
         int textY = slotTop + ((slotBottom - slotTop) - textRenderer.fontHeight) / 2 + 1;
+        int textWidth = textRenderer.getWidth(displayText);
+        int centeredOffset = Math.max(4, (slotRight - slotLeft - textWidth) / 2);
         context.drawTextWithShadow(
             textRenderer,
             Text.literal(displayText),
-            slotLeft + 4,
+            slotLeft + centeredOffset,
             textY,
             textColor
         );

@@ -97,7 +97,7 @@ public class Node {
     private static final int SLOT_AREA_PADDING_TOP = 0;
     private static final int SLOT_AREA_PADDING_BOTTOM = 6;
     private static final int SLOT_VERTICAL_SPACING = 6;
-    private static final int PARAMETER_SLOT_HEIGHT = 26;
+    private static final int PARAMETER_SLOT_MIN_HEIGHT = 26;
     private static final int PARAMETER_SLOT_MARGIN_HORIZONTAL = 6;
     private static final int PARAMETER_SLOT_MARGIN_VERTICAL = 4;
     private int width;
@@ -203,13 +203,7 @@ public class Node {
         if (attachedActionNode != null) {
             updateAttachedActionPosition();
         }
-        if (parameterNode != null && parameterNode.getParameterParent() == this) {
-            int slotTop = getParameterSlotTop();
-            int slotBottom = getParameterSlotBottom();
-            int targetY = slotTop + (slotBottom - slotTop - parameterNode.getHeight()) / 2;
-            int targetX = getParameterSlotLeft() - parameterNode.getWidth() - 12;
-            parameterNode.setPosition(targetX, targetY);
-        }
+        updateAttachedParameterPosition();
     }
 
     private void setPositionSilently(int x, int y) {
@@ -1084,6 +1078,17 @@ public class Node {
         return true;
     }
 
+    private void updateAttachedParameterPosition() {
+        if (parameterNode == null || parameterNode.getParameterParent() != this) {
+            return;
+        }
+        int slotTop = getParameterSlotTop();
+        int slotBottom = getParameterSlotBottom();
+        int targetY = slotTop + (slotBottom - slotTop - parameterNode.getHeight()) / 2;
+        int targetX = getParameterSlotLeft() - parameterNode.getWidth() - 12;
+        parameterNode.setPosition(targetX, targetY);
+    }
+
     private void syncParametersFromNode(Node candidate) {
         if (candidate == null) {
             return;
@@ -1230,7 +1235,15 @@ public class Node {
     }
 
     public int getParameterSlotBottom() {
-        return getParameterSlotTop() + PARAMETER_SLOT_HEIGHT;
+        return getParameterSlotTop() + getParameterSlotHeight();
+    }
+
+    public int getParameterSlotHeight() {
+        int slotHeight = PARAMETER_SLOT_MIN_HEIGHT;
+        if (parameterNode != null) {
+            slotHeight = Math.max(slotHeight, parameterNode.getHeight());
+        }
+        return slotHeight;
     }
 
     public boolean isPointInsideParameterSlot(int worldX, int worldY) {
@@ -1324,7 +1337,7 @@ public class Node {
         }
 
         if (hasParameterSlot()) {
-            contentHeight = HEADER_HEIGHT + 2 * PARAMETER_SLOT_MARGIN_VERTICAL + PARAMETER_SLOT_HEIGHT;
+            contentHeight = HEADER_HEIGHT + 2 * PARAMETER_SLOT_MARGIN_VERTICAL + getParameterSlotHeight();
             if (hasSlots) {
                 contentHeight += SLOT_AREA_PADDING_TOP;
             }
@@ -1362,6 +1375,7 @@ public class Node {
         if (attachedActionNode != null) {
             updateAttachedActionPosition();
         }
+        updateAttachedParameterPosition();
     }
 
     /**
