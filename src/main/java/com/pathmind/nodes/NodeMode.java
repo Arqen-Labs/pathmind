@@ -36,7 +36,11 @@ public enum NodeMode {
     FOLLOW_PLAYERS("Follow Any Players", "Follow any players in range"),
     FOLLOW_ENTITIES("Follow Any Entities", "Follow any entities nearby"),
     FOLLOW_ENTITY_TYPE("Follow Entity Type", "Follow entities of specific type"),
-    
+
+    // CRAFT modes
+    CRAFT_PLAYER_GUI("Player Inventory", "Craft using the player's 2x2 grid"),
+    CRAFT_CRAFTING_TABLE("Crafting Table", "Craft using an open crafting table"),
+
     // FARM modes
     FARM_RANGE("Farm in Range", "Farm within specified range"),
     FARM_WAYPOINT("Farm at Waypoint", "Farm around specified waypoint"),
@@ -91,6 +95,10 @@ public enum NodeMode {
                 return new NodeMode[]{
                     FOLLOW_PLAYER, FOLLOW_PLAYERS, FOLLOW_ENTITIES, FOLLOW_ENTITY_TYPE
                 };
+            case CRAFT:
+                return new NodeMode[]{
+                    CRAFT_PLAYER_GUI, CRAFT_CRAFTING_TABLE
+                };
             case FARM:
                 return new NodeMode[]{
                     FARM_RANGE, FARM_WAYPOINT
@@ -121,6 +129,8 @@ public enum NodeMode {
                 return EXPLORE_CURRENT;
             case FOLLOW:
                 return FOLLOW_PLAYER;
+            case CRAFT:
+                return CRAFT_PLAYER_GUI;
             case FARM:
                 return FARM_RANGE;
             case STOP:

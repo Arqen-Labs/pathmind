@@ -41,6 +41,22 @@ import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.math.Box;
+import net.minecraft.client.gui.screen.ingame.CraftingScreen;
+import net.minecraft.client.gui.screen.ingame.InventoryScreen;
+import net.minecraft.recipe.CraftingRecipe;
+import net.minecraft.recipe.Ingredient;
+import net.minecraft.recipe.IngredientPlacement;
+import net.minecraft.recipe.RecipeEntry;
+import net.minecraft.screen.CraftingScreenHandler;
+import net.minecraft.screen.PlayerScreenHandler;
+import net.minecraft.screen.ScreenHandler;
+import net.minecraft.screen.slot.Slot;
+import net.minecraft.recipe.input.CraftingRecipeInput;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.recipe.ServerRecipeManager;
+import it.unimi.dsi.fastutil.ints.IntList;
+import java.util.Collections;
+import java.lang.reflect.Field;
 
 /**
  * Represents a single node in the Pathmind visual editor.
@@ -680,7 +696,14 @@ public class Node {
                 case FOLLOW_ENTITY_TYPE:
                     parameters.add(new NodeParameter("Entity", ParameterType.STRING, "cow"));
                     break;
-                    
+
+                // CRAFT modes
+                case CRAFT_PLAYER_GUI:
+                case CRAFT_CRAFTING_TABLE:
+                    parameters.add(new NodeParameter("Item", ParameterType.STRING, "stick"));
+                    parameters.add(new NodeParameter("Quantity", ParameterType.INTEGER, "1"));
+                    break;
+
                 // FARM modes
                 case FARM_RANGE:
                     parameters.add(new NodeParameter("Range", ParameterType.INTEGER, "10"));
@@ -711,10 +734,6 @@ public class Node {
                 parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
                 parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "0"));
                 parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
-                break;
-            case CRAFT:
-                parameters.add(new NodeParameter("Item", ParameterType.STRING, "stick"));
-                parameters.add(new NodeParameter("Quantity", ParameterType.INTEGER, "1"));
                 break;
             case WAIT:
                 parameters.add(new NodeParameter("Duration", ParameterType.DOUBLE, "1.0"));
@@ -1367,22 +1386,429 @@ public class Node {
     }
     
     private void executeCraftCommand(CompletableFuture<Void> future) {
-        String item = "stick";
+        String itemId = "stick";
         int quantity = 1;
-        
+
         NodeParameter itemParam = getParameter("Item");
         NodeParameter quantityParam = getParameter("Quantity");
-        
-        if (itemParam != null) item = itemParam.getStringValue();
-        if (quantityParam != null) quantity = quantityParam.getIntValue();
-        
-        String command = String.format("#craft %s %d", item, quantity);
-        System.out.println("Executing command: " + command);
-        
-        executeCommand(command);
-        future.complete(null); // These commands complete immediately
+
+        if (itemParam != null) {
+            itemId = itemParam.getStringValue();
+        }
+        if (quantityParam != null) {
+            quantity = quantityParam.getIntValue();
+        }
+
+        NodeMode craftMode = mode != null ? mode : NodeMode.CRAFT_PLAYER_GUI;
+        boolean requireTable = craftMode == NodeMode.CRAFT_CRAFTING_TABLE;
+
+        Identifier identifier = Identifier.tryParse(itemId);
+        if (identifier == null || !Registries.ITEM.containsId(identifier)) {
+            future.completeExceptionally(new RuntimeException("Unknown item: " + itemId));
+            return;
+        }
+
+        Item targetItem = Registries.ITEM.get(identifier);
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || client.world == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+
+        if (!isCraftingScreenAvailable(client, craftMode)) {
+            future.complete(null);
+            return;
+        }
+
+        try {
+            int desiredCount = Math.max(1, quantity);
+            runOnClientThread(client, () -> {
+                ScreenHandler handler = client.player.currentScreenHandler;
+                if (!isCompatibleCraftingHandler(handler, craftMode)) {
+                    return;
+                }
+
+                RecipeEntry<CraftingRecipe> recipeEntry = findCraftingRecipe(client, targetItem, craftMode);
+                if (recipeEntry == null) {
+                    return;
+                }
+
+                List<ItemStack> emptyGrid = new ArrayList<>(Collections.nCopies(9, ItemStack.EMPTY));
+                ItemStack outputTemplate = recipeEntry.value().craft(CraftingRecipeInput.create(3, 3, emptyGrid), client.player.getWorld().getRegistryManager());
+                if (outputTemplate.isEmpty()) {
+                    return;
+                }
+
+                int perCraftOutput = Math.max(1, outputTemplate.getCount());
+                int craftsRequested = Math.max(1, (int) Math.ceil(desiredCount / (double) perCraftOutput));
+
+                int craftsPerformed = reserveAndConsumeCraftIngredients(client.player.getInventory(), handler, recipeEntry, craftsRequested, requireTable);
+                if (craftsPerformed <= 0) {
+                    return;
+                }
+
+                ItemStack produced = outputTemplate.copy();
+                produced.setCount(perCraftOutput * craftsPerformed);
+                if (!produced.isEmpty()) {
+                    client.player.giveItemStack(produced);
+                }
+
+                client.player.getInventory().markDirty();
+                client.player.playerScreenHandler.sendContentUpdates();
+                if (handler != null) {
+                    handler.sendContentUpdates();
+                }
+            });
+            future.complete(null);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            future.completeExceptionally(e);
+        } catch (RuntimeException e) {
+            future.completeExceptionally(e);
+        }
     }
-    
+
+    private boolean isCraftingScreenAvailable(net.minecraft.client.MinecraftClient client, NodeMode craftMode) {
+        if (client == null) {
+            return false;
+        }
+
+        if (craftMode == NodeMode.CRAFT_CRAFTING_TABLE) {
+            return client.currentScreen instanceof CraftingScreen;
+        }
+
+        return client.currentScreen instanceof InventoryScreen;
+    }
+
+    private boolean isCompatibleCraftingHandler(ScreenHandler handler, NodeMode craftMode) {
+        if (handler == null) {
+            return false;
+        }
+
+        if (craftMode == NodeMode.CRAFT_CRAFTING_TABLE) {
+            return handler instanceof CraftingScreenHandler;
+        }
+
+        return handler instanceof PlayerScreenHandler;
+    }
+
+    private RecipeEntry<CraftingRecipe> findCraftingRecipe(net.minecraft.client.MinecraftClient client, Item targetItem, NodeMode craftMode) {
+        MinecraftServer server = client.getServer();
+        if (server == null) {
+            return null;
+        }
+
+        ServerRecipeManager recipeManager = server.getRecipeManager();
+        List<ServerRecipeManager.ServerRecipe> serverRecipes = getServerRecipeList(recipeManager);
+        if (serverRecipes.isEmpty()) {
+            return null;
+        }
+
+        List<ItemStack> emptyGrid = new ArrayList<>(Collections.nCopies(9, ItemStack.EMPTY));
+        for (ServerRecipeManager.ServerRecipe serverRecipe : serverRecipes) {
+            RecipeEntry<?> entry = serverRecipe.parent();
+            if (!(entry.value() instanceof CraftingRecipe craftingRecipe)) {
+                continue;
+            }
+
+            if (craftMode == NodeMode.CRAFT_PLAYER_GUI && !recipeFitsPlayerGrid(craftingRecipe.getIngredientPlacement())) {
+                continue;
+            }
+
+            ItemStack result = craftingRecipe.craft(CraftingRecipeInput.create(3, 3, emptyGrid), client.player.getWorld().getRegistryManager());
+            if (!result.isOf(targetItem)) {
+                continue;
+            }
+
+            @SuppressWarnings("unchecked")
+            RecipeEntry<CraftingRecipe> castEntry = (RecipeEntry<CraftingRecipe>) entry;
+            return castEntry;
+        }
+
+        return null;
+    }
+
+    private List<ServerRecipeManager.ServerRecipe> getServerRecipeList(ServerRecipeManager manager) {
+        if (SERVER_RECIPES_FIELD == null) {
+            return Collections.emptyList();
+        }
+        try {
+            @SuppressWarnings("unchecked")
+            List<ServerRecipeManager.ServerRecipe> recipes = (List<ServerRecipeManager.ServerRecipe>) SERVER_RECIPES_FIELD.get(manager);
+            return recipes != null ? recipes : Collections.emptyList();
+        } catch (IllegalAccessException e) {
+            return Collections.emptyList();
+        }
+    }
+
+    private boolean recipeFitsPlayerGrid(IngredientPlacement placement) {
+        if (placement == null) {
+            return false;
+        }
+
+        if (placement.hasNoPlacement()) {
+            return placement.getIngredients().size() <= 4;
+        }
+
+        IntList slots = placement.getPlacementSlots();
+        if (slots == null || slots.isEmpty()) {
+            return placement.getIngredients().size() <= 4;
+        }
+
+        int minX = 3;
+        int minY = 3;
+        int maxX = -1;
+        int maxY = -1;
+        for (int slot : slots) {
+            int x = slot % 3;
+            int y = slot / 3;
+            if (x < minX) {
+                minX = x;
+            }
+            if (y < minY) {
+                minY = y;
+            }
+            if (x > maxX) {
+                maxX = x;
+            }
+            if (y > maxY) {
+                maxY = y;
+            }
+        }
+
+        int width = maxX - minX + 1;
+        int height = maxY - minY + 1;
+        return width <= 2 && height <= 2;
+    }
+
+    private static Field initServerRecipesField() {
+        try {
+            Field field = ServerRecipeManager.class.getDeclaredField("field_54641");
+            field.setAccessible(true);
+            return field;
+        } catch (NoSuchFieldException e) {
+            return null;
+        }
+    }
+
+    private static final Field SERVER_RECIPES_FIELD = initServerRecipesField();
+
+    private int reserveAndConsumeCraftIngredients(PlayerInventory inventory, ScreenHandler handler, RecipeEntry<CraftingRecipe> recipeEntry, int craftsRequested, boolean requireTable) {
+        if (inventory == null || handler == null || craftsRequested <= 0) {
+            return 0;
+        }
+
+        List<Ingredient> ingredients = recipeEntry.value().getIngredientPlacement().getIngredients();
+        if (ingredients.isEmpty()) {
+            return 0;
+        }
+
+        List<ItemSlotUsage> availableSlots = collectItemSlotUsages(inventory, handler, requireTable);
+        if (availableSlots.isEmpty()) {
+            return 0;
+        }
+
+        int craftsCompleted = 0;
+        for (; craftsCompleted < craftsRequested; craftsCompleted++) {
+            List<ItemSlotUsage> reservations = new ArrayList<>();
+            boolean success = true;
+            for (Ingredient ingredient : ingredients) {
+                if (ingredient == null || ingredient.isEmpty()) {
+                    continue;
+                }
+
+                ItemSlotUsage slot = findSlotForIngredient(ingredient, availableSlots);
+                if (slot == null || !slot.reserve()) {
+                    success = false;
+                    break;
+                }
+                reservations.add(slot);
+            }
+
+            if (!success) {
+                for (ItemSlotUsage reserved : reservations) {
+                    reserved.release();
+                }
+                break;
+            }
+        }
+
+        if (craftsCompleted <= 0) {
+            for (ItemSlotUsage slot : availableSlots) {
+                slot.clearReservations();
+            }
+            return 0;
+        }
+
+        for (ItemSlotUsage slot : availableSlots) {
+            slot.consumeReserved();
+        }
+
+        return craftsCompleted;
+    }
+
+    private ItemSlotUsage findSlotForIngredient(Ingredient ingredient, List<ItemSlotUsage> slots) {
+        for (ItemSlotUsage slot : slots) {
+            if (slot.matches(ingredient) && slot.hasAvailability()) {
+                return slot;
+            }
+        }
+        return null;
+    }
+
+    private List<ItemSlotUsage> collectItemSlotUsages(PlayerInventory inventory, ScreenHandler handler, boolean requireTable) {
+        List<ItemSlotUsage> slots = new ArrayList<>();
+
+        if (handler != null) {
+            int gridSlots = requireTable ? 9 : 4;
+            int startIndex = 1;
+            for (int i = 0; i < gridSlots; i++) {
+                int slotIndex = startIndex + i;
+                Slot slot;
+                try {
+                    slot = handler.getSlot(slotIndex);
+                } catch (IndexOutOfBoundsException e) {
+                    break;
+                }
+
+                ItemStack stack = slot.getStack();
+                if (stack.isEmpty()) {
+                    continue;
+                }
+                slots.add(new ItemSlotUsage(new HandlerSlotRef(handler, slotIndex), stack));
+            }
+        }
+
+        for (int slotIndex = 0; slotIndex < inventory.size(); slotIndex++) {
+            ItemStack stack = inventory.getStack(slotIndex);
+            if (stack.isEmpty()) {
+                continue;
+            }
+            slots.add(new ItemSlotUsage(new InventorySlotRef(inventory, slotIndex), stack));
+        }
+
+        return slots;
+    }
+
+    private interface ItemSlotRef {
+        void consume(int amount);
+    }
+
+    private static class InventorySlotRef implements ItemSlotRef {
+        private final PlayerInventory inventory;
+        private final int index;
+
+        InventorySlotRef(PlayerInventory inventory, int index) {
+            this.inventory = inventory;
+            this.index = index;
+        }
+
+        @Override
+        public void consume(int amount) {
+            if (amount <= 0) {
+                return;
+            }
+
+            ItemStack stack = inventory.getStack(index);
+            if (stack.isEmpty()) {
+                return;
+            }
+
+            stack.decrement(amount);
+            if (stack.isEmpty()) {
+                inventory.setStack(index, ItemStack.EMPTY);
+            } else {
+                inventory.setStack(index, stack);
+            }
+        }
+    }
+
+    private static class HandlerSlotRef implements ItemSlotRef {
+        private final ScreenHandler handler;
+        private final int index;
+
+        HandlerSlotRef(ScreenHandler handler, int index) {
+            this.handler = handler;
+            this.index = index;
+        }
+
+        @Override
+        public void consume(int amount) {
+            if (amount <= 0) {
+                return;
+            }
+
+            Slot slot;
+            try {
+                slot = handler.getSlot(index);
+            } catch (IndexOutOfBoundsException e) {
+                return;
+            }
+
+            ItemStack stack = slot.getStack();
+            if (stack.isEmpty()) {
+                return;
+            }
+
+            stack.decrement(amount);
+            slot.setStack(stack.isEmpty() ? ItemStack.EMPTY : stack);
+            slot.markDirty();
+        }
+    }
+
+    private static class ItemSlotUsage {
+        private final ItemSlotRef reference;
+        private final ItemStack previewStack;
+        private int available;
+        private int reserved;
+
+        ItemSlotUsage(ItemSlotRef reference, ItemStack stack) {
+            this.reference = reference;
+            ItemStack preview = stack.copy();
+            preview.setCount(1);
+            this.previewStack = preview;
+            this.available = stack.getCount();
+            this.reserved = 0;
+        }
+
+        boolean matches(Ingredient ingredient) {
+            return !previewStack.isEmpty() && ingredient.test(previewStack);
+        }
+
+        boolean hasAvailability() {
+            return reserved < available;
+        }
+
+        boolean reserve() {
+            if (!hasAvailability()) {
+                return false;
+            }
+            reserved++;
+            return true;
+        }
+
+        void release() {
+            if (reserved > 0) {
+                reserved--;
+            }
+        }
+
+        void clearReservations() {
+            reserved = 0;
+        }
+
+        void consumeReserved() {
+            if (reserved <= 0) {
+                return;
+            }
+
+            int amount = reserved;
+            reference.consume(amount);
+            available = Math.max(0, available - amount);
+            reserved = 0;
+        }
+    }
+
     private void executePlaceCommand(CompletableFuture<Void> future) {
         String block = "stone";
         int x = 0, y = 0, z = 0;
