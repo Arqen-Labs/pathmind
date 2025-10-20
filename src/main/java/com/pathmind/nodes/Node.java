@@ -1975,11 +1975,25 @@ public class Node {
             }
 
             int logicalSlot = slots.getInt(i);
-            if (craftMode == NodeMode.CRAFT_PLAYER_GUI && logicalSlot >= gridLimit) {
+            int resolvedSlot;
+            if (craftMode == NodeMode.CRAFT_PLAYER_GUI) {
+                int localX = logicalSlot % 3;
+                int localY = logicalSlot / 3;
+
+                if (localX >= 2 || localY >= 2) {
+                    continue;
+                }
+
+                resolvedSlot = 1 + localX + (localY * 2);
+            } else {
+                resolvedSlot = 1 + logicalSlot;
+            }
+
+            if (resolvedSlot > gridLimit) {
                 continue;
             }
 
-            result.add(new GridIngredient(1 + logicalSlot, ingredient));
+            result.add(new GridIngredient(resolvedSlot, ingredient));
         }
 
         return result;
