@@ -25,6 +25,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.entity.Entity;
+import net.minecraft.entity.ItemEntity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.registry.Registries;
 import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
@@ -162,6 +163,18 @@ public class Node {
         client.player.sendMessage(Text.literal(ERROR_MESSAGE_PREFIX + message), false);
     }
 
+    private void notifyUnsupportedParameterAttachment(ParameterProfile profile) {
+        String profileName = profile != null ? profile.getDisplayName() : "Unknown parameter";
+        sendNodeErrorMessage(net.minecraft.client.MinecraftClient.getInstance(),
+            profileName + " cannot be used with " + type.getDisplayName() + ".");
+    }
+
+    private void notifyMissingParameterConfiguration(ParameterProfile profile) {
+        String profileName = profile != null ? profile.getDisplayName() : "Parameter";
+        sendNodeErrorMessage(net.minecraft.client.MinecraftClient.getInstance(),
+            profileName + " cannot configure " + type.getDisplayName() + ".");
+    }
+
     /**
      * Gets the Baritone instance for the current player
      * @return IBaritone instance or null if not available
@@ -231,6 +244,7 @@ public class Node {
         }
         ParameterProfile profile = attachedParameter.getParameterProfile();
         if (profile == null || !profile.supports(this.type)) {
+            notifyUnsupportedParameterAttachment(profile);
             detachParameter();
             return;
         }
@@ -1262,20 +1276,26 @@ public class Node {
     
     // Command execution methods that wait for Baritone completion
     private void executeGotoCommand(CompletableFuture<Void> future) {
-        if (mode == null) {
-            future.completeExceptionally(new RuntimeException("No mode set for GOTO node"));
-            return;
-        }
-        
         IBaritone baritone = getBaritone();
         if (baritone == null) {
             System.err.println("Baritone not available for goto command");
             future.completeExceptionally(new RuntimeException("Baritone not available"));
             return;
         }
-        
+
+        if (activeParameterProfile == ParameterProfile.ITEM_TARGET) {
+            handleGotoItemTarget(baritone, future);
+            return;
+        }
+
+        if (mode == null) {
+            notifyMissingParameterConfiguration(activeParameterProfile);
+            future.complete(null);
+            return;
+        }
+
         ICustomGoalProcess customGoalProcess = baritone.getCustomGoalProcess();
-        
+
         switch (mode) {
             case GOTO_XYZ:
                 int x = 0, y = 64, z = 0;
@@ -1346,6 +1366,83 @@ public class Node {
                 future.completeExceptionally(new RuntimeException("Unknown GOTO mode: " + mode));
                 break;
         }
+    }
+
+    private void handleGotoItemTarget(IBaritone baritone, CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || client.world == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+
+        NodeParameter itemParam = getParameter("Item");
+        String itemIdRaw = itemParam != null ? itemParam.getStringValue() : "";
+        if (itemIdRaw == null || itemIdRaw.isEmpty()) {
+            notifyMissingParameterConfiguration(activeParameterProfile);
+            future.complete(null);
+            return;
+        }
+
+        Identifier itemId = Identifier.tryParse(itemIdRaw.contains(":") ? itemIdRaw : "minecraft:" + itemIdRaw);
+        if (itemId == null) {
+            sendNodeErrorMessage(client, "Invalid item identifier: " + itemIdRaw);
+            future.complete(null);
+            return;
+        }
+
+        if (!Registries.ITEM.containsId(itemId)) {
+            sendNodeErrorMessage(client, "Unknown item: " + itemIdRaw);
+            future.complete(null);
+            return;
+        }
+
+        Item targetItem = Registries.ITEM.get(itemId);
+
+        double searchRadius = 128.0D;
+        Box searchBox = new Box(
+            client.player.getX() - searchRadius, client.player.getY() - searchRadius, client.player.getZ() - searchRadius,
+            client.player.getX() + searchRadius, client.player.getY() + searchRadius, client.player.getZ() + searchRadius
+        );
+
+        List<ItemEntity> candidates = client.world.getEntitiesByClass(
+            ItemEntity.class,
+            searchBox,
+            entity -> entity.getStack() != null && entity.getStack().isOf(targetItem)
+        );
+
+        if (candidates.isEmpty()) {
+            String itemName = new ItemStack(targetItem).getName().getString();
+            sendNodeErrorMessage(client, "Couldn't find a dropped " + itemName + " nearby.");
+            future.complete(null);
+            return;
+        }
+
+        ItemEntity nearest = null;
+        double nearestDistanceSq = Double.MAX_VALUE;
+        for (ItemEntity entity : candidates) {
+            double distanceSq = entity.squaredDistanceTo(client.player);
+            if (distanceSq < nearestDistanceSq) {
+                nearestDistanceSq = distanceSq;
+                nearest = entity;
+            }
+        }
+
+        if (nearest == null) {
+            sendNodeErrorMessage(client, "Couldn't determine a valid item target.");
+            future.complete(null);
+            return;
+        }
+
+        BlockPos goalPos = nearest.getBlockPos();
+        ICustomGoalProcess customGoalProcess = baritone.getCustomGoalProcess();
+        if (customGoalProcess == null) {
+            future.completeExceptionally(new RuntimeException("CustomGoal process not available"));
+            return;
+        }
+
+        PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
+        GoalBlock goal = new GoalBlock(goalPos.getX(), goalPos.getY(), goalPos.getZ());
+        customGoalProcess.setGoalAndPath(goal);
     }
     
     private void executeMineCommand(CompletableFuture<Void> future) {
@@ -2403,20 +2500,26 @@ public class Node {
     }
     
     private void executeGoalCommand(CompletableFuture<Void> future) {
-        if (mode == null) {
-            future.completeExceptionally(new RuntimeException("No mode set for GOAL node"));
-            return;
-        }
-        
         IBaritone baritone = getBaritone();
         if (baritone == null) {
             System.err.println("Baritone not available for goal command");
             future.completeExceptionally(new RuntimeException("Baritone not available"));
             return;
         }
-        
+
+        if (activeParameterProfile == ParameterProfile.ITEM_TARGET) {
+            handleGoalItemTarget(baritone, future);
+            return;
+        }
+
+        if (mode == null) {
+            notifyMissingParameterConfiguration(activeParameterProfile);
+            future.complete(null);
+            return;
+        }
+
         ICustomGoalProcess customGoalProcess = baritone.getCustomGoalProcess();
-        
+
         switch (mode) {
             case GOAL_XYZ:
                 int x = 0, y = 64, z = 0;
@@ -2485,6 +2588,83 @@ public class Node {
         }
         
         // Goal setting is immediate, no need to wait
+        future.complete(null);
+    }
+
+    private void handleGoalItemTarget(IBaritone baritone, CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || client.world == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+
+        NodeParameter itemParam = getParameter("Item");
+        String itemIdRaw = itemParam != null ? itemParam.getStringValue() : "";
+        if (itemIdRaw == null || itemIdRaw.isEmpty()) {
+            notifyMissingParameterConfiguration(activeParameterProfile);
+            future.complete(null);
+            return;
+        }
+
+        Identifier itemId = Identifier.tryParse(itemIdRaw.contains(":") ? itemIdRaw : "minecraft:" + itemIdRaw);
+        if (itemId == null) {
+            sendNodeErrorMessage(client, "Invalid item identifier: " + itemIdRaw);
+            future.complete(null);
+            return;
+        }
+
+        if (!Registries.ITEM.containsId(itemId)) {
+            sendNodeErrorMessage(client, "Unknown item: " + itemIdRaw);
+            future.complete(null);
+            return;
+        }
+
+        Item targetItem = Registries.ITEM.get(itemId);
+
+        double searchRadius = 128.0D;
+        Box searchBox = new Box(
+            client.player.getX() - searchRadius, client.player.getY() - searchRadius, client.player.getZ() - searchRadius,
+            client.player.getX() + searchRadius, client.player.getY() + searchRadius, client.player.getZ() + searchRadius
+        );
+
+        List<ItemEntity> candidates = client.world.getEntitiesByClass(
+            ItemEntity.class,
+            searchBox,
+            entity -> entity.getStack() != null && entity.getStack().isOf(targetItem)
+        );
+
+        if (candidates.isEmpty()) {
+            String itemName = new ItemStack(targetItem).getName().getString();
+            sendNodeErrorMessage(client, "Couldn't find a dropped " + itemName + " nearby.");
+            future.complete(null);
+            return;
+        }
+
+        ItemEntity nearest = null;
+        double nearestDistanceSq = Double.MAX_VALUE;
+        for (ItemEntity entity : candidates) {
+            double distanceSq = entity.squaredDistanceTo(client.player);
+            if (distanceSq < nearestDistanceSq) {
+                nearestDistanceSq = distanceSq;
+                nearest = entity;
+            }
+        }
+
+        if (nearest == null) {
+            sendNodeErrorMessage(client, "Couldn't determine a valid item target.");
+            future.complete(null);
+            return;
+        }
+
+        BlockPos goalPos = nearest.getBlockPos();
+        ICustomGoalProcess customGoalProcess = baritone.getCustomGoalProcess();
+        if (customGoalProcess == null) {
+            future.completeExceptionally(new RuntimeException("CustomGoal process not available"));
+            return;
+        }
+
+        GoalBlock goal = new GoalBlock(goalPos.getX(), goalPos.getY(), goalPos.getZ());
+        customGoalProcess.setGoal(goal);
         future.complete(null);
     }
     
