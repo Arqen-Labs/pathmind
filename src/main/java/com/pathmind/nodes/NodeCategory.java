@@ -11,7 +11,8 @@ public enum NodeCategory {
     INTERACTION("Interaction", 0xFF7E57C2, "Combat and interaction commands", "✋"),
     INVENTORY("Inventory", 0xFF8D6E63, "Inventory and equipment management", "🎒"),
     SENSORS("Sensors", 0xFF64B5F6, "Environment and state checks", "📡"),
-    UTILITY("Utility", 0xFF9E9E9E, "Utility and messaging tools", "⚙");
+    UTILITY("Utility", 0xFF9E9E9E, "Utility and messaging tools", "⚙"),
+    PARAMETERS("Parameters", 0xFF5E35B1, "Reusable parameter nodes", "⌘");
 
     private final String displayName;
     private final int color;

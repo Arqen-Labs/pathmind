@@ -1,5 +1,7 @@
 package com.pathmind.nodes;
 
+import java.util.OptionalDouble;
+
 /**
  * Represents a parameter for a node in the Pathmind visual editor.
  * Each parameter has a name, value, and type.
@@ -11,6 +13,8 @@ public class NodeParameter {
     private int intValue;
     private double doubleValue;
     private boolean boolValue;
+    private Node attachedParameterNode;
+    private String attachedParameterNodeId;
 
     public NodeParameter(String name, ParameterType type, String defaultValue) {
         this.name = name;
@@ -19,6 +23,8 @@ public class NodeParameter {
         this.intValue = 0;
         this.doubleValue = 0.0;
         this.boolValue = false;
+        this.attachedParameterNode = null;
+        this.attachedParameterNodeId = null;
         
         // Try to parse the default value based on type
         if (type == ParameterType.INTEGER) {
@@ -47,6 +53,95 @@ public class NodeParameter {
     }
 
     public String getStringValue() {
+        if (attachedParameterNode != null) {
+            NodeType attachedType = attachedParameterNode.getType();
+            switch (attachedType) {
+                case PARAM_BLOCK_TYPE: {
+                    NodeParameter blockParam = attachedParameterNode.getParameter("Block");
+                    if (blockParam != null) {
+                        return blockParam.getStringValue();
+                    }
+                    break;
+                }
+                case PARAM_ITEM_STACK: {
+                    NodeParameter itemParam = attachedParameterNode.getParameter("Item");
+                    if (itemParam != null) {
+                        return itemParam.getStringValue();
+                    }
+                    break;
+                }
+                case PARAM_NUMBER: {
+                    NodeParameter valueParam = attachedParameterNode.getParameter("Value");
+                    if (valueParam != null) {
+                        return valueParam.getDisplayValue();
+                    }
+                    break;
+                }
+                case PARAM_BOOLEAN: {
+                    NodeParameter valueParam = attachedParameterNode.getParameter("Value");
+                    if (valueParam != null) {
+                        return Boolean.toString(valueParam.getBoolValue());
+                    }
+                    break;
+                }
+                case PARAM_STRING: {
+                    NodeParameter valueParam = attachedParameterNode.getParameter("Value");
+                    if (valueParam != null) {
+                        return valueParam.getStringValue();
+                    }
+                    break;
+                }
+                case PARAM_PLAYER_NAME: {
+                    NodeParameter valueParam = attachedParameterNode.getParameter("Player");
+                    if (valueParam != null) {
+                        return valueParam.getStringValue();
+                    }
+                    break;
+                }
+                case PARAM_ENTITY_TYPE: {
+                    NodeParameter valueParam = attachedParameterNode.getParameter("Entity");
+                    if (valueParam != null) {
+                        return valueParam.getStringValue();
+                    }
+                    break;
+                }
+                case PARAM_WAYPOINT_NAME: {
+                    NodeParameter valueParam = attachedParameterNode.getParameter("Waypoint");
+                    if (valueParam != null) {
+                        return valueParam.getStringValue();
+                    }
+                    break;
+                }
+                case PARAM_WAYPOINT_TAG: {
+                    NodeParameter valueParam = attachedParameterNode.getParameter("Tag");
+                    if (valueParam != null) {
+                        return valueParam.getStringValue();
+                    }
+                    break;
+                }
+                case PARAM_SCHEMATIC: {
+                    NodeParameter valueParam = attachedParameterNode.getParameter("Schematic");
+                    if (valueParam != null) {
+                        return valueParam.getStringValue();
+                    }
+                    break;
+                }
+                case PARAM_COORDINATE:
+                case PARAM_ITEM_LOCATION: {
+                    OptionalDouble component = attachedParameterNode.resolveCoordinateComponent(name);
+                    if (component.isPresent()) {
+                        double value = component.getAsDouble();
+                        if (Math.abs(value - Math.rint(value)) < 1e-6) {
+                            return Integer.toString((int) Math.round(value));
+                        }
+                        return Double.toString(value);
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
         return stringValue;
     }
 
@@ -72,6 +167,35 @@ public class NodeParameter {
     }
 
     public int getIntValue() {
+        if (attachedParameterNode != null) {
+            NodeType attachedType = attachedParameterNode.getType();
+            switch (attachedType) {
+                case PARAM_COORDINATE:
+                case PARAM_ITEM_LOCATION: {
+                    OptionalDouble component = attachedParameterNode.resolveCoordinateComponent(name);
+                    if (component.isPresent()) {
+                        return (int) Math.round(component.getAsDouble());
+                    }
+                    break;
+                }
+                case PARAM_NUMBER: {
+                    NodeParameter valueParam = attachedParameterNode.getParameter("Value");
+                    if (valueParam != null) {
+                        return (int) Math.round(valueParam.getDoubleValue());
+                    }
+                    break;
+                }
+                case PARAM_BOOLEAN: {
+                    NodeParameter valueParam = attachedParameterNode.getParameter("Value");
+                    if (valueParam != null) {
+                        return valueParam.getBoolValue() ? 1 : 0;
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
         return intValue;
     }
 
@@ -81,6 +205,35 @@ public class NodeParameter {
     }
 
     public double getDoubleValue() {
+        if (attachedParameterNode != null) {
+            NodeType attachedType = attachedParameterNode.getType();
+            switch (attachedType) {
+                case PARAM_COORDINATE:
+                case PARAM_ITEM_LOCATION: {
+                    OptionalDouble component = attachedParameterNode.resolveCoordinateComponent(name);
+                    if (component.isPresent()) {
+                        return component.getAsDouble();
+                    }
+                    break;
+                }
+                case PARAM_NUMBER: {
+                    NodeParameter valueParam = attachedParameterNode.getParameter("Value");
+                    if (valueParam != null) {
+                        return valueParam.getDoubleValue();
+                    }
+                    break;
+                }
+                case PARAM_BOOLEAN: {
+                    NodeParameter valueParam = attachedParameterNode.getParameter("Value");
+                    if (valueParam != null) {
+                        return valueParam.getBoolValue() ? 1.0 : 0.0;
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
         return doubleValue;
     }
 
@@ -90,12 +243,71 @@ public class NodeParameter {
     }
 
     public boolean getBoolValue() {
+        if (attachedParameterNode != null) {
+            NodeType attachedType = attachedParameterNode.getType();
+            switch (attachedType) {
+                case PARAM_BOOLEAN: {
+                    NodeParameter valueParam = attachedParameterNode.getParameter("Value");
+                    if (valueParam != null) {
+                        return valueParam.getBoolValue();
+                    }
+                    break;
+                }
+                case PARAM_NUMBER: {
+                    NodeParameter valueParam = attachedParameterNode.getParameter("Value");
+                    if (valueParam != null) {
+                        return valueParam.getDoubleValue() != 0.0;
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
         return boolValue;
     }
 
     public void setBoolValue(boolean value) {
         this.boolValue = value;
         this.stringValue = String.valueOf(value);
+    }
+
+    public boolean hasAttachedParameterNode() {
+        return attachedParameterNode != null;
+    }
+
+    public void attachParameterNode(Node node) {
+        this.attachedParameterNode = node;
+        this.attachedParameterNodeId = node != null ? node.getId() : null;
+    }
+
+    public void detachParameterNode() {
+        if (attachedParameterNode != null) {
+            attachedParameterNode.clearParameterParentAttachment();
+        }
+        this.attachedParameterNode = null;
+        this.attachedParameterNodeId = null;
+    }
+
+    public Node getAttachedParameterNode() {
+        return attachedParameterNode;
+    }
+
+    public String getAttachedParameterNodeId() {
+        return attachedParameterNodeId;
+    }
+
+    public void setAttachedParameterNodeId(String nodeId) {
+        this.attachedParameterNodeId = nodeId;
+    }
+
+    public void setAttachedParameterNode(Node node) {
+        this.attachedParameterNode = node;
+        this.attachedParameterNodeId = node != null ? node.getId() : null;
+    }
+
+    public String getStoredStringValue() {
+        return stringValue;
     }
 
     public String getDisplayValue() {

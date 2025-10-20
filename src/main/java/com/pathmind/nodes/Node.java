@@ -25,6 +25,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.entity.Entity;
+import net.minecraft.entity.ItemEntity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.registry.Registries;
 import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
@@ -61,6 +62,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.recipe.ServerRecipeManager;
 import it.unimi.dsi.fastutil.ints.IntList;
 import java.util.Collections;
+import java.util.OptionalDouble;
 import java.lang.reflect.Field;
 
 /**
@@ -77,9 +79,13 @@ public class Node {
     private static final int MIN_HEIGHT = 44;
     private static final int CHAR_PIXEL_WIDTH = 6;
     private static final int HEADER_HEIGHT = 18;
-    private static final int PARAM_LINE_HEIGHT = 10;
-    private static final int PARAM_PADDING_TOP = 2;
-    private static final int PARAM_PADDING_BOTTOM = 4;
+    private static final int PARAM_LINE_HEIGHT = 16;
+    private static final int PARAM_PADDING_TOP = 6;
+    private static final int PARAM_PADDING_BOTTOM = 6;
+    private static final int PARAM_SLOT_VERTICAL_SPACING = 4;
+    private static final int PARAM_TEXT_PADDING = 4;
+    private static final int PARAM_HORIZONTAL_PADDING = 6;
+    private static final int PARAM_ATTACHMENT_MARGIN = 12;
     private static final int MAX_PARAMETER_LABEL_LENGTH = 20;
     private static final int BODY_PADDING_NO_PARAMS = 10;
     private static final int START_END_SIZE = 36;
@@ -112,6 +118,9 @@ public class Node {
     private Node attachedActionNode;
     private Node parentActionControl;
     private boolean socketsHidden;
+    private final List<ParameterSlot> parameterSlots;
+    private Node parameterParentNode;
+    private NodeParameter parameterParentSlot;
 
     public Node(NodeType type, int x, int y) {
         this.id = java.util.UUID.randomUUID().toString();
@@ -125,6 +134,9 @@ public class Node {
         this.attachedActionNode = null;
         this.parentActionControl = null;
         this.socketsHidden = false;
+        this.parameterSlots = new ArrayList<>();
+        this.parameterParentNode = null;
+        this.parameterParentSlot = null;
         initializeParameters();
         recalculateDimensions();
         resetControlState();
@@ -196,6 +208,7 @@ public class Node {
         if (attachedActionNode != null) {
             updateAttachedActionPosition();
         }
+        updateAttachedParameterPositions();
     }
 
     private void setPositionSilently(int x, int y) {
@@ -273,6 +286,10 @@ public class Node {
             default:
                 return false;
         }
+    }
+
+    public boolean isParameterNode() {
+        return type.isParameterNode();
     }
 
     public boolean canAcceptSensor() {
@@ -428,8 +445,9 @@ public class Node {
     private int getSlotAreaStartY() {
         int top = y + HEADER_HEIGHT;
         boolean hasSlots = hasSensorSlot() || hasActionSlot();
-        if (hasParameters()) {
-            top += PARAM_PADDING_TOP + parameters.size() * PARAM_LINE_HEIGHT + PARAM_PADDING_BOTTOM;
+        int parameterArea = getParameterAreaHeight();
+        if (parameterArea > 0) {
+            top += parameterArea;
             if (hasSlots) {
                 top += SLOT_AREA_PADDING_TOP;
             }
@@ -530,6 +548,32 @@ public class Node {
         int nodeX = slotX + Math.max(0, (availableWidth - attachedActionNode.getWidth()) / 2);
         int nodeY = slotY + Math.max(0, (availableHeight - attachedActionNode.getHeight()) / 2);
         attachedActionNode.setPositionSilently(nodeX, nodeY);
+    }
+
+    private void updateAttachedParameterPositions() {
+        for (NodeParameter parameter : parameters) {
+            if (parameter != null && parameter.hasAttachedParameterNode()) {
+                updateAttachedParameterPosition(parameter);
+            }
+        }
+    }
+
+    private void updateAttachedParameterPosition(NodeParameter parameter) {
+        if (parameter == null) {
+            return;
+        }
+        Node attached = parameter.getAttachedParameterNode();
+        if (attached == null) {
+            return;
+        }
+        ParameterSlot slot = getParameterSlot(parameter);
+        if (slot == null) {
+            return;
+        }
+        int slotTop = this.y + slot.getOffsetY();
+        int targetY = slotTop + (slot.getHeight() - attached.getHeight()) / 2;
+        int targetX = this.x + this.width + PARAM_ATTACHMENT_MARGIN;
+        attached.setPositionSilently(targetX, targetY);
     }
 
     public boolean attachSensor(Node sensor) {
@@ -635,6 +679,30 @@ public class Node {
 
     public boolean shouldRenderSockets() {
         return !socketsHidden;
+    }
+
+    public static class ParameterSlot {
+        private final NodeParameter parameter;
+        private final int offsetY;
+        private final int height;
+
+        public ParameterSlot(NodeParameter parameter, int offsetY, int height) {
+            this.parameter = parameter;
+            this.offsetY = offsetY;
+            this.height = height;
+        }
+
+        public NodeParameter getParameter() {
+            return parameter;
+        }
+
+        public int getOffsetY() {
+            return offsetY;
+        }
+
+        public int getHeight() {
+            return height;
+        }
     }
 
     /**
@@ -934,6 +1002,45 @@ public class Node {
             case SENSOR_IS_FALLING:
                 parameters.add(new NodeParameter("Distance", ParameterType.DOUBLE, "2.0"));
                 break;
+            case PARAM_COORDINATE:
+                parameters.add(new NodeParameter("X", ParameterType.DOUBLE, "0"));
+                parameters.add(new NodeParameter("Y", ParameterType.DOUBLE, "0"));
+                parameters.add(new NodeParameter("Z", ParameterType.DOUBLE, "0"));
+                break;
+            case PARAM_ITEM_LOCATION:
+                parameters.add(new NodeParameter("Item", ParameterType.ITEM, "minecraft:stone"));
+                parameters.add(new NodeParameter("SearchRange", ParameterType.DOUBLE, "32"));
+                break;
+            case PARAM_BLOCK_TYPE:
+                parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, "minecraft:stone"));
+                break;
+            case PARAM_ITEM_STACK:
+                parameters.add(new NodeParameter("Item", ParameterType.ITEM, "minecraft:stone"));
+                break;
+            case PARAM_NUMBER:
+                parameters.add(new NodeParameter("Value", ParameterType.DOUBLE, "0"));
+                break;
+            case PARAM_BOOLEAN:
+                parameters.add(new NodeParameter("Value", ParameterType.BOOLEAN, "false"));
+                break;
+            case PARAM_STRING:
+                parameters.add(new NodeParameter("Value", ParameterType.STRING, ""));
+                break;
+            case PARAM_PLAYER_NAME:
+                parameters.add(new NodeParameter("Player", ParameterType.PLAYER_NAME, "PlayerName"));
+                break;
+            case PARAM_ENTITY_TYPE:
+                parameters.add(new NodeParameter("Entity", ParameterType.ENTITY_TYPE, "minecraft:zombie"));
+                break;
+            case PARAM_WAYPOINT_NAME:
+                parameters.add(new NodeParameter("Waypoint", ParameterType.WAYPOINT_NAME, "home"));
+                break;
+            case PARAM_WAYPOINT_TAG:
+                parameters.add(new NodeParameter("Tag", ParameterType.WAYPOINT_TAG, "base"));
+                break;
+            case PARAM_SCHEMATIC:
+                parameters.add(new NodeParameter("Schematic", ParameterType.SCHEMATIC, "build.schematic"));
+                break;
             default:
                 // No parameters needed
                 break;
@@ -963,12 +1070,369 @@ public class Node {
         if (parameter == null) {
             return "";
         }
+        if (parameter.hasAttachedParameterNode()) {
+            Node attached = parameter.getAttachedParameterNode();
+            String attachedName = attached != null ? attached.getType().getDisplayName() : "Parameter";
+            String text = parameter.getName() + ": [" + attachedName + "]";
+            if (text.length() <= MAX_PARAMETER_LABEL_LENGTH) {
+                return text;
+            }
+            int maxContentLength = Math.max(0, MAX_PARAMETER_LABEL_LENGTH - 3);
+            return text.substring(0, maxContentLength) + "...";
+        }
         String text = parameter.getName() + ": " + parameter.getDisplayValue();
         if (text.length() <= MAX_PARAMETER_LABEL_LENGTH) {
             return text;
         }
         int maxContentLength = Math.max(0, MAX_PARAMETER_LABEL_LENGTH - 3);
         return text.substring(0, maxContentLength) + "...";
+    }
+
+    private void updateParameterSlots() {
+        parameterSlots.clear();
+        if (!hasParameters()) {
+            return;
+        }
+
+        int offsetY = HEADER_HEIGHT + PARAM_PADDING_TOP;
+        if (supportsModeSelection()) {
+            offsetY += PARAM_LINE_HEIGHT;
+            if (!parameters.isEmpty()) {
+                offsetY += PARAM_SLOT_VERTICAL_SPACING;
+            }
+        }
+
+        for (int i = 0; i < parameters.size(); i++) {
+            NodeParameter parameter = parameters.get(i);
+            parameterSlots.add(new ParameterSlot(parameter, offsetY, PARAM_LINE_HEIGHT));
+            offsetY += PARAM_LINE_HEIGHT;
+            if (i < parameters.size() - 1) {
+                offsetY += PARAM_SLOT_VERTICAL_SPACING;
+            }
+        }
+    }
+
+    public List<ParameterSlot> getParameterSlots() {
+        return Collections.unmodifiableList(parameterSlots);
+    }
+
+    public ParameterSlot getParameterSlot(NodeParameter parameter) {
+        for (ParameterSlot slot : parameterSlots) {
+            if (slot.getParameter() == parameter) {
+                return slot;
+            }
+        }
+        return null;
+    }
+
+    public NodeParameter getParameterSlotAt(int pointX, int pointY) {
+        int slotLeft = getParameterSlotLeft();
+        int slotRight = slotLeft + getParameterSlotWidth();
+        for (ParameterSlot slot : parameterSlots) {
+            int slotTop = y + slot.getOffsetY();
+            int slotBottom = slotTop + slot.getHeight();
+            if (pointX >= slotLeft && pointX <= slotRight && pointY >= slotTop && pointY <= slotBottom) {
+                return slot.getParameter();
+            }
+        }
+        return null;
+    }
+
+    public int getParameterSlotLeft() {
+        return x + PARAM_HORIZONTAL_PADDING;
+    }
+
+    public int getParameterSlotWidth() {
+        return Math.max(0, width - PARAM_HORIZONTAL_PADDING * 2);
+    }
+
+    public int getParameterSlotHeight() {
+        return PARAM_LINE_HEIGHT;
+    }
+
+    public int getParameterSlotSpacing() {
+        return PARAM_SLOT_VERTICAL_SPACING;
+    }
+
+    public int getParameterContentTop() {
+        return y + HEADER_HEIGHT + PARAM_PADDING_TOP;
+    }
+
+    public boolean canAcceptParameterNode(NodeParameter slot, Node parameterNode) {
+        if (slot == null || parameterNode == null) {
+            return false;
+        }
+        if (!parameterNode.isParameterNode()) {
+            return false;
+        }
+        ParameterType providedType = parameterNode.getType().getProvidedParameterType();
+        return isParameterTypeCompatible(slot.getType(), providedType, slot.getName());
+    }
+
+    private boolean isParameterTypeCompatible(ParameterType slotType, ParameterType providedType, String slotName) {
+        if (slotType == null || providedType == null) {
+            return false;
+        }
+        if (slotType == providedType) {
+            return true;
+        }
+        switch (slotType) {
+            case INTEGER:
+            case DOUBLE:
+                if (providedType == ParameterType.DOUBLE || providedType == ParameterType.BOOLEAN) {
+                    return true;
+                }
+                if (providedType == ParameterType.COORDINATE && isCoordinateComponent(slotName)) {
+                    return true;
+                }
+                return false;
+            case BOOLEAN:
+                return providedType == ParameterType.BOOLEAN || providedType == ParameterType.DOUBLE;
+            case STRING:
+                return providedType == ParameterType.STRING || providedType == ParameterType.ITEM ||
+                       providedType == ParameterType.BLOCK_TYPE || providedType == ParameterType.WAYPOINT_NAME ||
+                       providedType == ParameterType.WAYPOINT_TAG || providedType == ParameterType.PLAYER_NAME ||
+                       providedType == ParameterType.ENTITY_TYPE || providedType == ParameterType.SCHEMATIC;
+            case BLOCK_TYPE:
+                return providedType == ParameterType.BLOCK_TYPE || providedType == ParameterType.STRING;
+            case ITEM:
+                return providedType == ParameterType.ITEM || providedType == ParameterType.STRING;
+            case COORDINATE:
+                return providedType == ParameterType.COORDINATE;
+            default:
+                return false;
+        }
+    }
+
+    private boolean isCoordinateComponent(String name) {
+        if (name == null) {
+            return false;
+        }
+        String upper = name.toUpperCase(Locale.ROOT);
+        return upper.equals("X") || upper.equals("Y") || upper.equals("Z");
+    }
+
+    public boolean attachParameterNode(Node parameterNode, NodeParameter slot) {
+        if (slot == null || parameterNode == null) {
+            return false;
+        }
+        if (!parameterNode.isParameterNode()) {
+            sendParameterAttachmentError(parameterNode, slot, "Only parameter nodes can fill this slot.");
+            return false;
+        }
+        if (parameterNode == this) {
+            sendParameterAttachmentError(parameterNode, slot, "Cannot attach a node to itself.");
+            return false;
+        }
+        ParameterType providedType = parameterNode.getType().getProvidedParameterType();
+        if (!isParameterTypeCompatible(slot.getType(), providedType, slot.getName())) {
+            sendParameterAttachmentError(parameterNode, slot, "" + parameterNode.getType().getDisplayName() + " cannot fill " + slot.getName() + ".");
+            return false;
+        }
+
+        if (parameterNode.parameterParentNode == this && parameterNode.parameterParentSlot == slot) {
+            updateAttachedParameterPosition(slot);
+            return true;
+        }
+
+        if (parameterNode.parameterParentNode != null) {
+            parameterNode.detachFromParameterParent(false);
+        }
+
+        Node existing = slot.getAttachedParameterNode();
+        if (existing != null && existing != parameterNode) {
+            existing.detachFromParameterParent(true);
+        }
+
+        slot.attachParameterNode(parameterNode);
+        parameterNode.attachToParameterParent(this, slot);
+        parameterNode.setDragging(false);
+        parameterNode.setSocketsHidden(true);
+        updateAttachedParameterPosition(slot);
+        recalculateDimensions();
+        return true;
+    }
+
+    public void detachParameterNode(NodeParameter slot) {
+        detachParameterNode(slot, true);
+    }
+
+    public void detachParameterNode(NodeParameter slot, boolean repositionDetachedNode) {
+        if (slot == null) {
+            return;
+        }
+        Node attached = slot.getAttachedParameterNode();
+        if (attached != null) {
+            if (repositionDetachedNode) {
+                attached.setPosition(this.x + this.width + PARAM_ATTACHMENT_MARGIN, this.y);
+            }
+            attached.clearParameterParentAttachment();
+            attached.setSocketsHidden(false);
+        }
+        slot.detachParameterNode();
+        recalculateDimensions();
+    }
+
+    private void sendParameterAttachmentError(Node parameterNode, NodeParameter slot, String message) {
+        String nodeName = parameterNode != null ? parameterNode.getType().getDisplayName() : "Parameter";
+        String slotName = slot != null ? slot.getName() : "slot";
+        String fullMessage = "Cannot attach " + nodeName + " to " + this.type.getDisplayName() + " (" + slotName + ")";
+        if (message != null && !message.isEmpty()) {
+            fullMessage += ": " + message;
+        }
+        sendNodeErrorMessage(net.minecraft.client.MinecraftClient.getInstance(), fullMessage);
+    }
+
+    public void notifyParameterError(String message) {
+        if (message == null || message.isEmpty()) {
+            return;
+        }
+        sendNodeErrorMessage(net.minecraft.client.MinecraftClient.getInstance(), message);
+    }
+
+    private void attachToParameterParent(Node parent, NodeParameter slot) {
+        this.parameterParentNode = parent;
+        this.parameterParentSlot = slot;
+    }
+
+    public boolean isAttachedToParameterSlot() {
+        return parameterParentNode != null && parameterParentSlot != null;
+    }
+
+    public Node getParameterParentNode() {
+        return parameterParentNode;
+    }
+
+    public NodeParameter getParameterParentSlot() {
+        return parameterParentSlot;
+    }
+
+    public void detachFromParameterParent(boolean reposition) {
+        if (parameterParentNode == null || parameterParentSlot == null) {
+            return;
+        }
+        Node parent = parameterParentNode;
+        NodeParameter slot = parameterParentSlot;
+        parameterParentNode = null;
+        parameterParentSlot = null;
+        setSocketsHidden(false);
+        if (slot.getAttachedParameterNode() == this) {
+            slot.detachParameterNode();
+        }
+        if (reposition) {
+            setPosition(parent.getX() + parent.getWidth() + PARAM_ATTACHMENT_MARGIN, parent.getY());
+        }
+        parent.recalculateDimensions();
+    }
+
+    void clearParameterParentAttachment() {
+        parameterParentNode = null;
+        parameterParentSlot = null;
+        setSocketsHidden(false);
+    }
+
+    public OptionalDouble resolveCoordinateComponent(String componentName) {
+        if (!isParameterNode()) {
+            return OptionalDouble.empty();
+        }
+        switch (type) {
+            case PARAM_COORDINATE: {
+                NodeParameter component = getParameter(componentName);
+                if (component != null) {
+                    if (component.getType() == ParameterType.DOUBLE) {
+                        return OptionalDouble.of(component.getDoubleValue());
+                    }
+                    return OptionalDouble.of(component.getIntValue());
+                }
+                break;
+            }
+            case PARAM_ITEM_LOCATION: {
+                Optional<Vec3d> location = resolveItemLocationCoordinate();
+                if (location.isPresent()) {
+                    Vec3d vec = location.get();
+                    String upper = componentName != null ? componentName.toUpperCase(Locale.ROOT) : "";
+                    switch (upper) {
+                        case "X":
+                            return OptionalDouble.of(vec.x);
+                        case "Y":
+                            return OptionalDouble.of(vec.y);
+                        case "Z":
+                            return OptionalDouble.of(vec.z);
+                        default:
+                            break;
+                    }
+                }
+                break;
+            }
+            default:
+                break;
+        }
+        return OptionalDouble.empty();
+    }
+
+    private Optional<Vec3d> resolveItemLocationCoordinate() {
+        NodeParameter itemParam = getParameter("Item");
+        if (itemParam == null) {
+            notifyParameterError("Item location parameter is missing the item selection.");
+            return Optional.empty();
+        }
+        String itemId = itemParam.getStringValue();
+        if (itemId == null || itemId.isEmpty()) {
+            notifyParameterError("Item location parameter has no item selected.");
+            return Optional.empty();
+        }
+
+        double range = 64.0;
+        NodeParameter rangeParam = getParameter("SearchRange");
+        if (rangeParam != null) {
+            range = Math.max(1.0, rangeParam.getDoubleValue());
+        }
+
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || client.world == null) {
+            notifyParameterError("Cannot resolve item location without an active world.");
+            return Optional.empty();
+        }
+
+        Identifier identifier = Identifier.tryParse(itemId);
+        if (identifier == null) {
+            identifier = Identifier.tryParse("minecraft:" + itemId);
+        }
+        if (identifier == null || !Registries.ITEM.containsId(identifier)) {
+            notifyParameterError("Unknown item: " + itemId);
+            return Optional.empty();
+        }
+
+        Item item = Registries.ITEM.get(identifier);
+        if (item == null) {
+            notifyParameterError("Unknown item: " + itemId);
+            return Optional.empty();
+        }
+
+        Box searchBox = client.player.getBoundingBox().expand(range);
+        List<ItemEntity> entities = client.world.getEntitiesByClass(ItemEntity.class, searchBox, entity -> entity.getStack().isOf(item));
+        if (entities.isEmpty()) {
+            notifyParameterError("No dropped " + itemId + " found within " + (int) Math.round(range) + " blocks.");
+            return Optional.empty();
+        }
+
+        Vec3d playerPos = client.player.getPos();
+        ItemEntity closest = null;
+        double closestDistanceSq = Double.MAX_VALUE;
+        for (ItemEntity entity : entities) {
+            double distanceSq = entity.getPos().squaredDistanceTo(playerPos);
+            if (distanceSq < closestDistanceSq) {
+                closestDistanceSq = distanceSq;
+                closest = entity;
+            }
+        }
+
+        if (closest == null) {
+            notifyParameterError("No dropped " + itemId + " found within " + (int) Math.round(range) + " blocks.");
+            return Optional.empty();
+        }
+
+        return Optional.of(closest.getPos());
     }
 
     /**
@@ -1029,13 +1493,10 @@ public class Node {
 
         int contentHeight;
         boolean hasSlots = hasSensorSlot() || hasActionSlot();
-        int parameterLineCount = parameters.size();
-        if (supportsModeSelection()) {
-            parameterLineCount++;
-        }
+        int parameterAreaHeight = getParameterAreaHeight();
 
-        if (parameterLineCount > 0) {
-            contentHeight = HEADER_HEIGHT + PARAM_PADDING_TOP + (parameterLineCount * PARAM_LINE_HEIGHT) + PARAM_PADDING_BOTTOM;
+        if (parameterAreaHeight > 0) {
+            contentHeight = HEADER_HEIGHT + parameterAreaHeight;
             if (hasSlots) {
                 contentHeight += SLOT_AREA_PADDING_TOP;
             }
@@ -1068,20 +1529,27 @@ public class Node {
         if (attachedActionNode != null) {
             updateAttachedActionPosition();
         }
+        updateParameterSlots();
+        updateAttachedParameterPositions();
     }
 
     /**
      * Get the height needed to display parameters
      */
     public int getParameterDisplayHeight() {
-        if (!hasParameters() && !supportsModeSelection()) {
+        return getParameterAreaHeight();
+    }
+
+    private int getParameterAreaHeight() {
+        int lineCount = parameters.size();
+        if (supportsModeSelection()) {
+            lineCount++;
+        }
+        if (lineCount <= 0) {
             return 0;
         }
-        int parameterLineCount = parameters.size();
-        if (supportsModeSelection()) {
-            parameterLineCount++;
-        }
-        return PARAM_PADDING_TOP + parameterLineCount * PARAM_LINE_HEIGHT + PARAM_PADDING_BOTTOM;
+        int spacing = Math.max(0, lineCount - 1) * PARAM_SLOT_VERTICAL_SPACING;
+        return PARAM_PADDING_TOP + (lineCount * PARAM_LINE_HEIGHT) + spacing + PARAM_PADDING_BOTTOM;
     }
 
     public String getModeDisplayLabel() {

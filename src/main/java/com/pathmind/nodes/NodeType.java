@@ -91,14 +91,34 @@ public enum NodeType {
     // Utility Commands
     SCREEN_CONTROL("Screen Control", 0xFF9E9E9E, "Open or close in-game screens"),
     WAIT("Wait", 0xFF607D8B, "Waits for specified duration"),
-    MESSAGE("Message", 0xFF9E9E9E, "Sends a chat message");
+    MESSAGE("Message", 0xFF9E9E9E, "Sends a chat message"),
+
+    // Parameter nodes
+    PARAM_COORDINATE("Coordinate", 0xFF5E35B1, "Provides an XYZ coordinate parameter", ParameterType.COORDINATE),
+    PARAM_ITEM_LOCATION("Item Location", 0xFF5E35B1, "Finds the location of a dropped item", ParameterType.COORDINATE),
+    PARAM_BLOCK_TYPE("Block Parameter", 0xFF5E35B1, "Defines a reusable block type", ParameterType.BLOCK_TYPE),
+    PARAM_ITEM_STACK("Item Parameter", 0xFF5E35B1, "Defines a reusable item identifier", ParameterType.ITEM),
+    PARAM_NUMBER("Number", 0xFF5E35B1, "Reusable numeric value", ParameterType.DOUBLE),
+    PARAM_BOOLEAN("Boolean", 0xFF5E35B1, "Reusable true/false flag", ParameterType.BOOLEAN),
+    PARAM_STRING("Text", 0xFF5E35B1, "Reusable string literal", ParameterType.STRING),
+    PARAM_PLAYER_NAME("Player", 0xFF5E35B1, "Reusable player selector", ParameterType.PLAYER_NAME),
+    PARAM_ENTITY_TYPE("Entity", 0xFF5E35B1, "Reusable entity identifier", ParameterType.ENTITY_TYPE),
+    PARAM_WAYPOINT_NAME("Waypoint", 0xFF5E35B1, "Reusable waypoint name", ParameterType.WAYPOINT_NAME),
+    PARAM_WAYPOINT_TAG("Waypoint Tag", 0xFF5E35B1, "Reusable waypoint tag", ParameterType.WAYPOINT_TAG),
+    PARAM_SCHEMATIC("Schematic", 0xFF5E35B1, "Reusable schematic path", ParameterType.SCHEMATIC);
 
     private final String displayName;
     private final String description;
+    private final ParameterType providedParameterType;
 
     NodeType(String displayName, int color, String description) {
+        this(displayName, color, description, null);
+    }
+
+    NodeType(String displayName, int color, String description, ParameterType providedParameterType) {
         this.displayName = displayName;
         this.description = description;
+        this.providedParameterType = providedParameterType;
     }
 
     public String getDisplayName() {
@@ -128,12 +148,33 @@ public enum NodeType {
     public boolean isDraggableFromSidebar() {
         return true; // All nodes including START can be dragged from sidebar
     }
-    
+
+    public boolean isParameterNode() {
+        return getCategory() == NodeCategory.PARAMETERS;
+    }
+
+    public ParameterType getProvidedParameterType() {
+        return providedParameterType;
+    }
+
     /**
      * Get the category this node belongs to for sidebar organization
      */
     public NodeCategory getCategory() {
         switch (this) {
+            case PARAM_COORDINATE:
+            case PARAM_ITEM_LOCATION:
+            case PARAM_BLOCK_TYPE:
+            case PARAM_ITEM_STACK:
+            case PARAM_NUMBER:
+            case PARAM_BOOLEAN:
+            case PARAM_STRING:
+            case PARAM_PLAYER_NAME:
+            case PARAM_ENTITY_TYPE:
+            case PARAM_WAYPOINT_NAME:
+            case PARAM_WAYPOINT_TAG:
+            case PARAM_SCHEMATIC:
+                return NodeCategory.PARAMETERS;
             case START:
             case EVENT_FUNCTION:
             case EVENT_CALL:
@@ -262,6 +303,12 @@ public enum NodeType {
             case SENSOR_ENTITY_NEARBY:
             case SENSOR_ITEM_IN_INVENTORY:
             case SENSOR_IS_FALLING:
+            case PARAM_COORDINATE:
+            case PARAM_ITEM_LOCATION:
+            case PARAM_BLOCK_TYPE:
+            case PARAM_ITEM_STACK:
+            case PARAM_NUMBER:
+            case PARAM_BOOLEAN:
                 return true;
             default:
                 return false;

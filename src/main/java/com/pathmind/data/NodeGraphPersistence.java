@@ -55,8 +55,9 @@ public class NodeGraphPersistence {
                 for (NodeParameter param : node.getParameters()) {
                     NodeGraphData.ParameterData paramData = new NodeGraphData.ParameterData();
                     paramData.setName(param.getName());
-                    paramData.setValue(param.getStringValue());
+                    paramData.setValue(param.getStoredStringValue());
                     paramData.setType(param.getType().name());
+                    paramData.setAttachedNodeId(param.getAttachedParameterNodeId());
                     paramDataList.add(paramData);
                 }
                 nodeData.setParameters(paramDataList);
@@ -161,6 +162,7 @@ public class NodeGraphPersistence {
                 for (NodeGraphData.ParameterData paramData : nodeData.getParameters()) {
                     ParameterType paramType = ParameterType.valueOf(paramData.getType());
                     NodeParameter param = new NodeParameter(paramData.getName(), paramType, paramData.getValue());
+                    param.setAttachedParameterNodeId(paramData.getAttachedNodeId());
                     node.getParameters().add(param);
                 }
             }
@@ -206,6 +208,23 @@ public class NodeGraphPersistence {
                 Node control = nodeMap.get(nodeData.getParentActionControlId());
                 if (child != null && control != null && control.canAcceptActionNode(child)) {
                     control.attachActionNode(child);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            Node node = nodeMap.get(nodeData.getId());
+            if (node == null) {
+                continue;
+            }
+            for (NodeParameter parameter : node.getParameters()) {
+                String attachedId = parameter.getAttachedParameterNodeId();
+                if (attachedId == null) {
+                    continue;
+                }
+                Node attachedNode = nodeMap.get(attachedId);
+                if (attachedNode != null) {
+                    node.attachParameterNode(attachedNode, parameter);
                 }
             }
         }

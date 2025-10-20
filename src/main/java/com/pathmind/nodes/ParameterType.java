@@ -10,6 +10,7 @@ public enum ParameterType {
     BOOLEAN("Boolean"),
     COORDINATE("Coordinate"),
     BLOCK_TYPE("Block Type"),
+    ITEM("Item"),
     PLAYER_NAME("Player Name"),
     ENTITY_TYPE("Entity Type"),
     SCHEMATIC("Schematic"),
