@@ -6,7 +6,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
@@ -161,6 +163,44 @@ public class Node {
         }
 
         client.player.sendMessage(Text.literal(ERROR_MESSAGE_PREFIX + message), false);
+    }
+
+    private void handleExecutionFailure(Throwable throwable) {
+        if (throwable == null) {
+            return;
+        }
+
+        Throwable cause = unwrapExecutionCause(throwable);
+        if (cause instanceof InterruptedException) {
+            Thread.currentThread().interrupt();
+        }
+
+        if (cause instanceof java.util.concurrent.CancellationException) {
+            return;
+        }
+
+        String detail = (cause != null && cause.getMessage() != null && !cause.getMessage().isEmpty())
+            ? cause.getMessage()
+            : "An unexpected error occurred.";
+
+        String message = type.getDisplayName() + " failed: " + detail;
+        sendNodeErrorMessage(net.minecraft.client.MinecraftClient.getInstance(), message);
+
+        System.err.println("Node " + type + " failed: " + detail);
+        if (cause != null) {
+            cause.printStackTrace();
+        }
+    }
+
+    private Throwable unwrapExecutionCause(Throwable throwable) {
+        Throwable current = throwable;
+        while (current instanceof CompletionException || current instanceof ExecutionException) {
+            if (current.getCause() == null) {
+                break;
+            }
+            current = current.getCause();
+        }
+        return current;
     }
 
     private void notifyMissingParameterConfiguration(ParameterProfile profile) {
@@ -1064,7 +1104,7 @@ public class Node {
      */
     public CompletableFuture<Void> execute() {
         CompletableFuture<Void> future = new CompletableFuture<>();
-        
+
         // Execute on the main Minecraft thread
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client != null) {
@@ -1073,15 +1113,17 @@ public class Node {
                     executeNodeCommand(future);
                 } catch (Exception e) {
                     System.err.println("Error executing node " + type + ": " + e.getMessage());
-                    e.printStackTrace();
                     future.completeExceptionally(e);
                 }
             });
         } else {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
         }
-        
-        return future;
+
+        return future.exceptionally(throwable -> {
+            handleExecutionFailure(throwable);
+            return null;
+        });
     }
     
     /**
