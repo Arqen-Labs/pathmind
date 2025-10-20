@@ -240,7 +240,7 @@ public class PathmindVisualEditorScreen extends Screen {
         context.drawBorder(x, y, width, height, 0xFFAAAAAA);
         
         // Node header
-        if (draggingNodeType != NodeType.START && draggingNodeType != NodeType.EVENT_FUNCTION) {
+        if (draggingNodeType != NodeType.START) {
             context.fill(x + 1, y + 1, x + width - 1, y + 14, nodeColor);
             context.drawTextWithShadow(
                 this.textRenderer,

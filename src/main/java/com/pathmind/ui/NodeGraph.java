@@ -803,8 +803,6 @@ public class NodeGraph {
             borderColor = 0xFF87CEEB; // Light blue selection
         } else if (node.getType() == NodeType.START) {
             borderColor = isOverSidebar ? 0xFF2D4A2D : 0xFF2E7D32; // Darker green for START
-        } else if (node.getType() == NodeType.EVENT_FUNCTION) {
-            borderColor = isOverSidebar ? 0xFF5C2C44 : 0xFFAD1457; // Darker pink for event functions
         } else {
             borderColor = node.getType().getColor(); // Regular node type color
         }
@@ -813,8 +811,8 @@ public class NodeGraph {
         }
         context.drawBorder(x, y, width, height, borderColor);
 
-        // Node header (only for non-START/event function nodes)
-        if (node.getType() != NodeType.START && node.getType() != NodeType.EVENT_FUNCTION) {
+        // Node header (only for non-START nodes)
+        if (node.getType() != NodeType.START) {
             int headerColor = node.getType().getColor() & 0x80FFFFFF;
             if (isOverSidebar) {
                 headerColor = 0x80555555; // Grey header when over sidebar
@@ -859,7 +857,7 @@ public class NodeGraph {
             // START node - green square with play button
             int greenColor = isOverSidebar ? 0xFF4A5D23 : 0xFF4CAF50; // Darker green when over sidebar
             context.fill(x + 1, y + 1, x + width - 1, y + height - 1, greenColor);
-            
+
             // Draw play button (triangle pointing right) - with hover effect
             int playColor;
             if (hoveringStartButton) {
@@ -885,42 +883,6 @@ public class NodeGraph {
                 }
             }
             
-        } else if (node.getType() == NodeType.EVENT_FUNCTION) {
-            int baseColor = isOverSidebar ? 0xFF5C2C44 : 0xFFE91E63;
-            context.fill(x + 1, y + 1, x + width - 1, y + height - 1, baseColor);
-
-            int titleColor = isOverSidebar ? 0xFFE3BBCB : 0xFFFFF5F8;
-            context.drawTextWithShadow(
-                textRenderer,
-                Text.literal("Function"),
-                x + 6,
-                y + 4,
-                titleColor
-            );
-
-            int boxLeft = x + 6;
-            int boxRight = x + width - 6;
-            int boxHeight = 16;
-            int boxTop = y + height / 2 - boxHeight / 2;
-            int boxBottom = boxTop + boxHeight;
-            int inputBackground = isOverSidebar ? 0xFF2E2E2E : 0xFF1F1F1F;
-            context.fill(boxLeft, boxTop, boxRight, boxBottom, inputBackground);
-            int inputBorder = isOverSidebar ? 0xFF6A3A50 : 0xFF000000;
-            context.drawBorder(boxLeft, boxTop, boxRight - boxLeft, boxHeight, inputBorder);
-
-            NodeParameter nameParam = node.getParameter("Name");
-            String value = nameParam != null ? nameParam.getDisplayValue() : "";
-            String display = value.isEmpty() ? "enter name" : value;
-            display = trimTextToWidth(display, textRenderer, boxRight - boxLeft - 8);
-            int textY = boxTop + (boxHeight - textRenderer.fontHeight) / 2 + 1;
-            int textColor = isOverSidebar ? 0xFFBFA1AF : 0xFFFFEEF5;
-            context.drawTextWithShadow(
-                textRenderer,
-                Text.literal(display),
-                boxLeft + 4,
-                textY,
-                textColor
-            );
         } else {
             if (node.isParameterNode()) {
                 renderParameterNodeDetails(context, textRenderer, node, isOverSidebar);
