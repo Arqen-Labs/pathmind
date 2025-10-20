@@ -172,6 +172,12 @@ public class PathmindVisualEditorScreen extends Screen {
         // Render workspace controls in bottom right
         renderBottomButtons(context, mouseX, mouseY);
 
+        boolean controlsDisabled = isPopupObscuringWorkspace();
+
+        renderStopButton(context, mouseX, mouseY, controlsDisabled);
+        renderPlayButton(context, mouseX, mouseY, controlsDisabled);
+        renderPresetDropdown(context, mouseX, mouseY, controlsDisabled);
+
         // Render parameter overlay if visible
         if (parameterOverlay != null && parameterOverlay.isVisible()) {
             parameterOverlay.render(context, this.textRenderer, mouseX, mouseY, delta);
@@ -200,11 +206,7 @@ public class PathmindVisualEditorScreen extends Screen {
                 WHITE
         );
 
-        if (!isPopupObscuringWorkspace()) {
-            renderStopButton(context, mouseX, mouseY);
-            renderPlayButton(context, mouseX, mouseY);
-            renderPresetDropdown(context, mouseX, mouseY);
-        }
+        // Controls are already rendered before overlays so they appear dimmed underneath
     }
 
     private boolean isPopupObscuringWorkspace() {
@@ -444,8 +446,8 @@ public class PathmindVisualEditorScreen extends Screen {
             // Node body clicked (not socket)
             if (button == 0) { // Left click - select node or start dragging
                 // Check for double-click to open parameter editor
-                if (nodeGraph.handleNodeClick(clickedNode, (int)mouseX, (int)mouseY) && 
-                    clickedNode.hasParameters()) {
+                if (nodeGraph.handleNodeClick(clickedNode, (int)mouseX, (int)mouseY) &&
+                    (clickedNode.hasParameters() || clickedNode.supportsModeSelection())) {
                     // Open parameter overlay
                     parameterOverlay = new NodeParameterOverlay(
                         clickedNode,
@@ -1066,20 +1068,24 @@ public class PathmindVisualEditorScreen extends Screen {
         parameterOverlay = null;
     }
 
-    private void renderPlayButton(DrawContext context, int mouseX, int mouseY) {
+    private void renderPlayButton(DrawContext context, int mouseX, int mouseY, boolean disabled) {
         int buttonX = getPlayButtonX();
         int buttonY = getPlayButtonY();
-        boolean hovered = isPointInRect(mouseX, mouseY, buttonX, buttonY, PLAY_BUTTON_SIZE, PLAY_BUTTON_SIZE);
+        boolean hovered = !disabled && isPointInRect(mouseX, mouseY, buttonX, buttonY, PLAY_BUTTON_SIZE, PLAY_BUTTON_SIZE);
         boolean executing = ExecutionManager.getInstance().isGlobalExecutionActive();
 
         int bgColor = executing ? 0xFF243224 : 0xFF2A2A2A;
         if (hovered) {
             bgColor = executing ? 0xFF2F4531 : 0xFF353535;
+        } else if (disabled && !executing) {
+            bgColor = 0xFF242424;
         }
 
         int borderColor = executing ? SUCCESS_COLOR : GREY_LINE;
         if (hovered) {
             borderColor = SUCCESS_COLOR;
+        } else if (disabled && !executing) {
+            borderColor = GREY_LINE;
         }
         context.fill(buttonX + 1, buttonY + 1, buttonX + PLAY_BUTTON_SIZE - 1, buttonY + PLAY_BUTTON_SIZE - 1, bgColor);
         context.drawBorder(buttonX, buttonY, PLAY_BUTTON_SIZE, PLAY_BUTTON_SIZE, borderColor);
@@ -1087,6 +1093,8 @@ public class PathmindVisualEditorScreen extends Screen {
         int iconColor = executing ? SUCCESS_COLOR : 0xFF4CAF50;
         if (hovered) {
             iconColor = 0xFF8BE97A;
+        } else if (disabled && !executing) {
+            iconColor = 0xFF4A7C4A;
         }
         drawPlayIcon(context, buttonX, buttonY, iconColor);
     }
@@ -1106,20 +1114,24 @@ public class PathmindVisualEditorScreen extends Screen {
         }
     }
 
-    private void renderStopButton(DrawContext context, int mouseX, int mouseY) {
+    private void renderStopButton(DrawContext context, int mouseX, int mouseY, boolean disabled) {
         int buttonX = getStopButtonX();
         int buttonY = getStopButtonY();
-        boolean hovered = isPointInRect(mouseX, mouseY, buttonX, buttonY, STOP_BUTTON_SIZE, STOP_BUTTON_SIZE);
+        boolean hovered = !disabled && isPointInRect(mouseX, mouseY, buttonX, buttonY, STOP_BUTTON_SIZE, STOP_BUTTON_SIZE);
         boolean executing = ExecutionManager.getInstance().isGlobalExecutionActive();
 
         int bgColor = executing ? 0xFF8C1B1B : 0xFF2A2A2A;
         if (hovered) {
             bgColor = executing ? 0xFFA02525 : 0xFF353535;
+        } else if (disabled && !executing) {
+            bgColor = 0xFF242424;
         }
 
         int borderColor = executing ? 0xFFFF4C4C : GREY_LINE;
         if (hovered) {
             borderColor = executing ? 0xFFFF6666 : ERROR_COLOR;
+        } else if (disabled && !executing) {
+            borderColor = GREY_LINE;
         }
 
         context.fill(buttonX + 1, buttonY + 1, buttonX + STOP_BUTTON_SIZE - 1, buttonY + STOP_BUTTON_SIZE - 1, bgColor);
@@ -1128,6 +1140,8 @@ public class PathmindVisualEditorScreen extends Screen {
         int iconColor = executing ? 0xFFFF6F6F : 0xFFFFA6A6;
         if (hovered) {
             iconColor = executing ? 0xFFFF8A8A : ERROR_COLOR;
+        } else if (disabled && !executing) {
+            iconColor = 0xFFB35E5E;
         }
         drawStopIcon(context, buttonX, buttonY, iconColor);
     }
@@ -1139,14 +1153,24 @@ public class PathmindVisualEditorScreen extends Screen {
         context.fill(left, top, left + squareSize, top + squareSize, color);
     }
 
-    private void renderPresetDropdown(DrawContext context, int mouseX, int mouseY) {
+    private void renderPresetDropdown(DrawContext context, int mouseX, int mouseY, boolean disabled) {
         int dropdownX = getPresetDropdownX();
         int dropdownY = getPresetDropdownY();
 
-        boolean hovered = isPointInRect(mouseX, mouseY, dropdownX, dropdownY, PRESET_DROPDOWN_WIDTH, PRESET_DROPDOWN_HEIGHT);
+        if (disabled && presetDropdownOpen) {
+            presetDropdownOpen = false;
+        }
+
+        boolean hovered = !disabled && isPointInRect(mouseX, mouseY, dropdownX, dropdownY, PRESET_DROPDOWN_WIDTH, PRESET_DROPDOWN_HEIGHT);
         int backgroundColor = (hovered || presetDropdownOpen) ? 0xFF3A3A3A : 0xFF2F2F2F;
+        if (disabled && !presetDropdownOpen) {
+            backgroundColor = 0xFF2A2A2A;
+        }
         context.fill(dropdownX, dropdownY, dropdownX + PRESET_DROPDOWN_WIDTH, dropdownY + PRESET_DROPDOWN_HEIGHT, backgroundColor);
         int borderColor = presetDropdownOpen ? ACCENT_COLOR : GREY_LINE;
+        if (disabled && !presetDropdownOpen) {
+            borderColor = GREY_LINE;
+        }
         context.drawBorder(dropdownX, dropdownY, PRESET_DROPDOWN_WIDTH, PRESET_DROPDOWN_HEIGHT, borderColor);
 
         String displayName = activePresetName == null || activePresetName.isEmpty()

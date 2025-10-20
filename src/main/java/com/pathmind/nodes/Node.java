@@ -936,6 +936,11 @@ public class Node {
         return !parameters.isEmpty();
     }
 
+    public boolean supportsModeSelection() {
+        NodeMode[] modes = NodeMode.getModesForNodeType(type);
+        return modes != null && modes.length > 0;
+    }
+
     /**
      * Recalculate node dimensions based on current content
      */
