@@ -619,6 +619,20 @@ public class ExecutionManager {
         Map<String, Node> nodeMap = new HashMap<>();
         List<Node> nodes = new ArrayList<>();
 
+        class AttachmentInfo {
+            final Node target;
+            final NodeParameter parameter;
+            final String attachedId;
+
+            AttachmentInfo(Node target, NodeParameter parameter, String attachedId) {
+                this.target = target;
+                this.parameter = parameter;
+                this.attachedId = attachedId;
+            }
+        }
+
+        List<AttachmentInfo> pendingAttachments = new ArrayList<>();
+
         for (NodeGraphData.NodeData nodeData : graphData.getNodes()) {
             Node node = new Node(nodeData.getType(), nodeData.getX(), nodeData.getY());
 
@@ -640,12 +654,23 @@ public class ExecutionManager {
                     ParameterType paramType = ParameterType.valueOf(paramData.getType());
                     NodeParameter param = new NodeParameter(paramData.getName(), paramType, paramData.getValue());
                     node.getParameters().add(param);
+                    if (paramData.getAttachedNodeId() != null) {
+                        pendingAttachments.add(new AttachmentInfo(node, param, paramData.getAttachedNodeId()));
+                    }
                 }
             }
             node.recalculateDimensions();
 
             nodes.add(node);
             nodeMap.put(nodeData.getId(), node);
+        }
+
+        for (AttachmentInfo attachment : pendingAttachments) {
+            Node provider = nodeMap.get(attachment.attachedId);
+            if (provider != null) {
+                attachment.parameter.attachNode(provider);
+                attachment.target.getParameter(attachment.parameter.getName());
+            }
         }
 
         for (NodeGraphData.NodeData nodeData : graphData.getNodes()) {
@@ -815,6 +840,9 @@ public class ExecutionManager {
                 parameterData.setName(parameter.getName());
                 parameterData.setValue(parameter.getStringValue());
                 parameterData.setType(parameter.getType().name());
+                if (parameter.hasAttachedNode()) {
+                    parameterData.setAttachedNodeId(parameter.getAttachedNode().getId());
+                }
                 parameterDataList.add(parameterData);
             }
             nodeData.setParameters(parameterDataList);

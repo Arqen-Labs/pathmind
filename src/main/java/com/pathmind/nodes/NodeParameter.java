@@ -11,6 +11,14 @@ public class NodeParameter {
     private int intValue;
     private double doubleValue;
     private boolean boolValue;
+    private int boxX;
+    private int boxY;
+    private int boxWidth;
+    private int boxHeight;
+    private Node attachedNode;
+    private int coordX;
+    private int coordY;
+    private int coordZ;
 
     public NodeParameter(String name, ParameterType type, String defaultValue) {
         this.name = name;
@@ -35,6 +43,8 @@ public class NodeParameter {
             }
         } else if (type == ParameterType.BOOLEAN) {
             this.boolValue = Boolean.parseBoolean(defaultValue);
+        } else if (type == ParameterType.COORDINATE) {
+            parseCoordinate(defaultValue);
         }
     }
 
@@ -68,6 +78,8 @@ public class NodeParameter {
             }
         } else if (type == ParameterType.BOOLEAN) {
             this.boolValue = Boolean.parseBoolean(value);
+        } else if (type == ParameterType.COORDINATE) {
+            parseCoordinate(value);
         }
     }
 
@@ -98,6 +110,25 @@ public class NodeParameter {
         this.stringValue = String.valueOf(value);
     }
 
+    public void setCoordinateValue(int x, int y, int z) {
+        this.coordX = x;
+        this.coordY = y;
+        this.coordZ = z;
+        this.stringValue = x + "," + y + "," + z;
+    }
+
+    public int getCoordX() {
+        return coordX;
+    }
+
+    public int getCoordY() {
+        return coordY;
+    }
+
+    public int getCoordZ() {
+        return coordZ;
+    }
+
     public String getDisplayValue() {
         switch (type) {
             case INTEGER:
@@ -106,9 +137,66 @@ public class NodeParameter {
                 return String.format("%.2f", doubleValue);
             case BOOLEAN:
                 return boolValue ? "True" : "False";
+            case COORDINATE:
+                return "(" + coordX + ", " + coordY + ", " + coordZ + ")";
             case STRING:
             default:
                 return stringValue;
+        }
+    }
+
+    public boolean hasAttachedNode() {
+        return attachedNode != null;
+    }
+
+    public Node getAttachedNode() {
+        return attachedNode;
+    }
+
+    public void attachNode(Node node) {
+        this.attachedNode = node;
+    }
+
+    public void detachNode() {
+        this.attachedNode = null;
+    }
+
+    public void setRenderBounds(int x, int y, int width, int height) {
+        this.boxX = x;
+        this.boxY = y;
+        this.boxWidth = width;
+        this.boxHeight = height;
+    }
+
+    public boolean containsPoint(int px, int py) {
+        return px >= boxX && px <= boxX + boxWidth && py >= boxY && py <= boxY + boxHeight;
+    }
+
+    private void parseCoordinate(String value) {
+        if (value == null) {
+            coordX = 0;
+            coordY = 0;
+            coordZ = 0;
+            stringValue = "0,0,0";
+            return;
+        }
+        String sanitized = value.trim().replace("(", "").replace(")", "");
+        String[] parts = sanitized.split("[ ,]+");
+        if (parts.length >= 3) {
+            coordX = parseCoord(parts[0]);
+            coordY = parseCoord(parts[1]);
+            coordZ = parseCoord(parts[2]);
+        } else {
+            coordX = coordY = coordZ = 0;
+        }
+        this.stringValue = coordX + "," + coordY + "," + coordZ;
+    }
+
+    private int parseCoord(String value) {
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return 0;
         }
     }
 }

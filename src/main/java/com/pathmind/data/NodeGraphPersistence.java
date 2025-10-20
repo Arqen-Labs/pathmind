@@ -24,6 +24,18 @@ public class NodeGraphPersistence {
             .setPrettyPrinting()
             .registerTypeAdapter(NodeType.class, new NodeTypeAdapter())
             .create();
+
+    private static class PendingParameterAttachment {
+        final Node target;
+        final NodeParameter parameter;
+        final String attachedNodeId;
+
+        PendingParameterAttachment(Node target, NodeParameter parameter, String attachedNodeId) {
+            this.target = target;
+            this.parameter = parameter;
+            this.attachedNodeId = attachedNodeId;
+        }
+    }
     
     /**
      * Save the current node graph to disk
@@ -57,6 +69,9 @@ public class NodeGraphPersistence {
                     paramData.setName(param.getName());
                     paramData.setValue(param.getStringValue());
                     paramData.setType(param.getType().name());
+                    if (param.hasAttachedNode()) {
+                        paramData.setAttachedNodeId(param.getAttachedNode().getId());
+                    }
                     paramDataList.add(paramData);
                 }
                 nodeData.setParameters(paramDataList);
@@ -136,6 +151,7 @@ public class NodeGraphPersistence {
     public static List<Node> convertToNodes(NodeGraphData data) {
         List<Node> nodes = new ArrayList<>();
         Map<String, Node> nodeMap = new HashMap<>();
+        List<PendingParameterAttachment> pendingAttachments = new ArrayList<>();
         
         // Create nodes
         for (NodeGraphData.NodeData nodeData : data.getNodes()) {
@@ -162,12 +178,23 @@ public class NodeGraphPersistence {
                     ParameterType paramType = ParameterType.valueOf(paramData.getType());
                     NodeParameter param = new NodeParameter(paramData.getName(), paramType, paramData.getValue());
                     node.getParameters().add(param);
+                    if (paramData.getAttachedNodeId() != null) {
+                        pendingAttachments.add(new PendingParameterAttachment(node, param, paramData.getAttachedNodeId()));
+                    }
                 }
             }
             node.recalculateDimensions();
 
             nodes.add(node);
             nodeMap.put(nodeData.getId(), node);
+        }
+
+        for (PendingParameterAttachment attachment : pendingAttachments) {
+            Node provider = nodeMap.get(attachment.attachedNodeId);
+            if (provider != null) {
+                attachment.parameter.attachNode(provider);
+                attachment.target.getParameter(attachment.parameter.getName());
+            }
         }
 
         for (NodeGraphData.NodeData nodeData : data.getNodes()) {

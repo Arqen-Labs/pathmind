@@ -68,6 +68,8 @@ public class NodeGraph {
 
     private Node sensorDropTarget = null;
     private Node actionDropTarget = null;
+    private Node parameterDropTargetNode = null;
+    private NodeParameter parameterDropTargetParam = null;
     
     // Double-click detection
     private long lastClickTime = 0;
@@ -172,6 +174,14 @@ public class NodeGraph {
             actionDropTarget = null;
         }
 
+        for (Node other : nodes) {
+            for (NodeParameter param : other.getParameters()) {
+                if (param.hasAttachedNode() && param.getAttachedNode() == node) {
+                    param.detachNode();
+                }
+            }
+        }
+
         if (autoReconnect) {
             List<NodeConnection> inputConnections = new ArrayList<>();
             List<NodeConnection> outputConnections = new ArrayList<>();
@@ -249,6 +259,8 @@ public class NodeGraph {
     public void startDragging(Node node, int mouseX, int mouseY) {
         sensorDropTarget = null;
         actionDropTarget = null;
+        parameterDropTargetNode = null;
+        parameterDropTargetParam = null;
 
         draggingNode = node;
         draggingNodeStartX = node.getX();
@@ -312,6 +324,10 @@ public class NodeGraph {
                 draggingNode.setPosition(newX, newY);
 
                 boolean hideSockets = false;
+                if (!draggingNode.isParameterNode()) {
+                    parameterDropTargetNode = null;
+                    parameterDropTargetParam = null;
+                }
                 if (draggingNode.isSensorNode()) {
                     sensorDropTarget = null;
                     actionDropTarget = null;
@@ -322,6 +338,36 @@ public class NodeGraph {
                         if (node.isPointInsideSensorSlot(worldMouseX, worldMouseY)) {
                             sensorDropTarget = node;
                             hideSockets = true;
+                            break;
+                        }
+                    }
+                } else if (draggingNode.isParameterNode()) {
+                    sensorDropTarget = null;
+                    actionDropTarget = null;
+                    parameterDropTargetNode = null;
+                    parameterDropTargetParam = null;
+                    for (Node node : nodes) {
+                        if (node == draggingNode) {
+                            continue;
+                        }
+                        if (!shouldShowParameters(node)) {
+                            continue;
+                        }
+                        for (NodeParameter param : node.getParameters()) {
+                            if (param == null) {
+                                continue;
+                            }
+                            if (!draggingNode.canProvideFor(param)) {
+                                continue;
+                            }
+                            if (param.containsPoint(worldMouseX, worldMouseY)) {
+                                parameterDropTargetNode = node;
+                                parameterDropTargetParam = param;
+                                hideSockets = true;
+                                break;
+                            }
+                        }
+                        if (parameterDropTargetParam != null) {
                             break;
                         }
                     }
@@ -444,6 +490,13 @@ public class NodeGraph {
                 if (!target.attachSensor(node)) {
                     node.setSocketsHidden(false);
                 }
+            } else if (node.isParameterNode() && parameterDropTargetParam != null && parameterDropTargetNode != null) {
+                Node target = parameterDropTargetNode;
+                NodeParameter param = parameterDropTargetParam;
+                node.setDragging(false);
+                node.setSocketsHidden(false);
+                param.attachNode(node);
+                target.getParameter(param.getName()); // Trigger resolution and validation
             } else if (!node.isSensorNode() && actionDropTarget != null) {
                 Node target = actionDropTarget;
                 node.setDragging(false);
@@ -459,6 +512,8 @@ public class NodeGraph {
         draggingNodeDetached = false;
         sensorDropTarget = null;
         actionDropTarget = null;
+        parameterDropTargetNode = null;
+        parameterDropTargetParam = null;
     }
 
     private void detachDraggingNodeFromParents() {
@@ -888,22 +943,61 @@ public class NodeGraph {
                         paramY,
                         paramTextColor
                     );
-                    paramY += 10;
+                    paramY += 12;
                 }
 
                 for (NodeParameter param : parameters) {
-                    String displayText = node.getParameterLabel(param);
-                    displayText = trimTextToWidth(displayText, textRenderer, width - 10);
+                    int boxX = x + 5;
+                    int boxY = paramY;
+                    int boxWidth = width - 10;
+                    int boxHeight = 16;
 
-                    int paramTextColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0; // Grey text when over sidebar
+                    int worldBoxX = node.getX() + (boxX - x);
+                    int worldBoxY = node.getY() + (boxY - y);
+                    param.setRenderBounds(worldBoxX, worldBoxY, boxWidth, boxHeight);
+
+                    int backgroundColor;
+                    if (parameterDropTargetParam == param) {
+                        backgroundColor = 0xFF21303E;
+                    } else if (param.hasAttachedNode()) {
+                        backgroundColor = 0xFF203024;
+                    } else {
+                        backgroundColor = isOverSidebar ? 0xFF2A2A2A : 0xFF1A1A1A;
+                    }
+
+                    int paramBorderColor;
+                    if (parameterDropTargetParam == param) {
+                        paramBorderColor = 0xFF87CEEB;
+                    } else if (param.hasAttachedNode()) {
+                        paramBorderColor = 0xFF4CAF50;
+                    } else {
+                        paramBorderColor = isOverSidebar ? 0xFF555555 : 0xFF333333;
+                    }
+
+                    context.fill(boxX, boxY, boxX + boxWidth, boxY + boxHeight, backgroundColor);
+                    context.drawBorder(boxX, boxY, boxWidth, boxHeight, paramBorderColor);
+
+                    String displayText;
+                    if (param.hasAttachedNode()) {
+                        displayText = param.getName() + " ← " + param.getAttachedNode().getType().getDisplayName();
+                    } else {
+                        displayText = node.getParameterLabel(param);
+                    }
+                    displayText = trimTextToWidth(displayText, textRenderer, boxWidth - 8);
+
+                    int paramTextColor = isOverSidebar ? 0xFFB0B0B0 : 0xFFE0E0E0;
                     context.drawTextWithShadow(
                         textRenderer,
-                        displayText,
-                        x + 5,
-                        paramY,
+                        Text.literal(displayText),
+                        boxX + 4,
+                        boxY + 5,
                         paramTextColor
                     );
-                    paramY += 10;
+                    paramY += boxHeight + 4;
+                }
+            } else {
+                for (NodeParameter param : node.getParameters()) {
+                    param.setRenderBounds(node.getX(), node.getY(), 0, 0);
                 }
             }
 

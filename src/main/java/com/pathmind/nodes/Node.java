@@ -26,6 +26,7 @@ import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
+import net.minecraft.entity.ItemEntity;
 import net.minecraft.registry.Registries;
 import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
 import net.minecraft.network.packet.c2s.play.HandSwingC2SPacket;
@@ -62,6 +63,7 @@ import net.minecraft.recipe.ServerRecipeManager;
 import it.unimi.dsi.fastutil.ints.IntList;
 import java.util.Collections;
 import java.lang.reflect.Field;
+import net.minecraft.client.MinecraftClient;
 
 /**
  * Represents a single node in the Pathmind visual editor.
@@ -275,6 +277,25 @@ public class Node {
         }
     }
 
+    public boolean isParameterNode() {
+        switch (type) {
+            case PARAM_INTEGER:
+            case PARAM_DOUBLE:
+            case PARAM_BOOLEAN:
+            case PARAM_STRING:
+            case PARAM_COORDINATE:
+            case PARAM_ITEM:
+            case PARAM_BLOCK:
+            case PARAM_ENTITY:
+            case PARAM_PLAYER:
+            case PARAM_SCHEMATIC:
+            case PARAM_WAYPOINT:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     public boolean canAcceptSensor() {
         switch (type) {
             case CONTROL_IF:
@@ -354,14 +375,14 @@ public class Node {
     }
 
     public int getInputSocketCount() {
-        if (type == NodeType.START || type == NodeType.EVENT_FUNCTION || isSensorNode()) {
+        if (type == NodeType.START || type == NodeType.EVENT_FUNCTION || isSensorNode() || isParameterNode()) {
             return 0;
         }
         return 1;
     }
 
     public int getOutputSocketCount() {
-        if (isSensorNode()) {
+        if (isSensorNode() || isParameterNode()) {
             return 0;
         }
         if (type == NodeType.CONTROL_FOREVER) {
@@ -934,6 +955,43 @@ public class Node {
             case SENSOR_IS_FALLING:
                 parameters.add(new NodeParameter("Distance", ParameterType.DOUBLE, "2.0"));
                 break;
+
+            case PARAM_INTEGER:
+                parameters.add(new NodeParameter("Value", ParameterType.INTEGER, "0"));
+                break;
+            case PARAM_DOUBLE:
+                parameters.add(new NodeParameter("Value", ParameterType.DOUBLE, "0.0"));
+                break;
+            case PARAM_BOOLEAN:
+                parameters.add(new NodeParameter("Value", ParameterType.BOOLEAN, "false"));
+                break;
+            case PARAM_STRING:
+                parameters.add(new NodeParameter("Value", ParameterType.STRING, ""));
+                break;
+            case PARAM_COORDINATE:
+                parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
+                parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "64"));
+                parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
+                break;
+            case PARAM_ITEM:
+                parameters.add(new NodeParameter("Item", ParameterType.STRING, "minecraft:stone"));
+                break;
+            case PARAM_BLOCK:
+                parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, "minecraft:stone"));
+                break;
+            case PARAM_ENTITY:
+                parameters.add(new NodeParameter("Entity", ParameterType.ENTITY_TYPE, "minecraft:zombie"));
+                break;
+            case PARAM_PLAYER:
+                parameters.add(new NodeParameter("Player", ParameterType.PLAYER_NAME, "Player"));
+                break;
+            case PARAM_SCHEMATIC:
+                parameters.add(new NodeParameter("Schematic", ParameterType.SCHEMATIC, "example.schem"));
+                break;
+            case PARAM_WAYPOINT:
+                parameters.add(new NodeParameter("Waypoint", ParameterType.WAYPOINT_NAME, "home"));
+                parameters.add(new NodeParameter("Tag", ParameterType.WAYPOINT_TAG, ""));
+                break;
             default:
                 // No parameters needed
                 break;
@@ -953,6 +1011,7 @@ public class Node {
     public NodeParameter getParameter(String name) {
         for (NodeParameter param : parameters) {
             if (param.getName().equals(name)) {
+                resolveParameter(param);
                 return param;
             }
         }
@@ -1325,11 +1384,33 @@ public class Node {
                 NodeParameter xParam = getParameter("X");
                 NodeParameter yParam = getParameter("Y");
                 NodeParameter zParam = getParameter("Z");
-                
+
+                NodeParameter attachedItemParam = null;
+                if (xParam != null && xParam.hasAttachedNode() && xParam.getAttachedNode().getType() == NodeType.PARAM_ITEM) {
+                    attachedItemParam = xParam;
+                } else if (yParam != null && yParam.hasAttachedNode() && yParam.getAttachedNode().getType() == NodeType.PARAM_ITEM) {
+                    attachedItemParam = yParam;
+                } else if (zParam != null && zParam.hasAttachedNode() && zParam.getAttachedNode().getType() == NodeType.PARAM_ITEM) {
+                    attachedItemParam = zParam;
+                }
+
                 if (xParam != null) x = xParam.getIntValue();
                 if (yParam != null) y = yParam.getIntValue();
                 if (zParam != null) z = zParam.getIntValue();
-                
+
+                if (attachedItemParam != null) {
+                    Node provider = attachedItemParam.getAttachedNode();
+                    NodeParameter itemParam = provider != null ? provider.getParameter("Item") : null;
+                    BlockPos itemPos = locateNearestItem(itemParam != null ? itemParam.getStringValue() : null);
+                    if (itemPos != null) {
+                        x = itemPos.getX();
+                        y = itemPos.getY();
+                        z = itemPos.getZ();
+                    } else {
+                        sendNodeErrorMessage(MinecraftClient.getInstance(), "Unable to locate item for Goto command");
+                    }
+                }
+
                 System.out.println("Executing goto to: " + x + ", " + y + ", " + z);
                 PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
                 GoalBlock goal = new GoalBlock(x, y, z);
@@ -1340,10 +1421,29 @@ public class Node {
                 int x2 = 0, z2 = 0;
                 NodeParameter xParam2 = getParameter("X");
                 NodeParameter zParam2 = getParameter("Z");
-                
+
                 if (xParam2 != null) x2 = xParam2.getIntValue();
                 if (zParam2 != null) z2 = zParam2.getIntValue();
-                
+
+                NodeParameter itemParamXZ = null;
+                if (xParam2 != null && xParam2.hasAttachedNode() && xParam2.getAttachedNode().getType() == NodeType.PARAM_ITEM) {
+                    itemParamXZ = xParam2;
+                } else if (zParam2 != null && zParam2.hasAttachedNode() && zParam2.getAttachedNode().getType() == NodeType.PARAM_ITEM) {
+                    itemParamXZ = zParam2;
+                }
+
+                if (itemParamXZ != null) {
+                    Node provider = itemParamXZ.getAttachedNode();
+                    NodeParameter itemParam = provider != null ? provider.getParameter("Item") : null;
+                    BlockPos itemPos = locateNearestItem(itemParam != null ? itemParam.getStringValue() : null);
+                    if (itemPos != null) {
+                        x2 = itemPos.getX();
+                        z2 = itemPos.getZ();
+                    } else {
+                        sendNodeErrorMessage(MinecraftClient.getInstance(), "Unable to locate item for Goto command");
+                    }
+                }
+
                 System.out.println("Executing goto to: " + x2 + ", " + z2);
                 PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
                 GoalBlock goal2 = new GoalBlock(x2, 0, z2); // Y will be determined by pathfinding
@@ -3662,6 +3762,217 @@ public class Node {
         }
     }
 
+    private void resolveParameter(NodeParameter parameter) {
+        if (parameter == null || !parameter.hasAttachedNode()) {
+            return;
+        }
+
+        Node provider = parameter.getAttachedNode();
+        if (provider == null) {
+            parameter.detachNode();
+            return;
+        }
+
+        if (!provider.isParameterNode()) {
+            parameter.detachNode();
+            return;
+        }
+
+        if (!provider.applyParameterTo(parameter, this)) {
+            MinecraftClient client = MinecraftClient.getInstance();
+            sendNodeErrorMessage(client, "Cannot use " + provider.getType().getDisplayName() + " for parameter '" + parameter.getName() + "'.");
+            parameter.detachNode();
+        }
+    }
+
+    public boolean canProvideFor(NodeParameter target) {
+        if (target == null) {
+            return false;
+        }
+
+        switch (type) {
+            case PARAM_INTEGER:
+                return true;
+            case PARAM_DOUBLE:
+                return target.getType() == ParameterType.DOUBLE || target.getType() == ParameterType.INTEGER || target.getType() == ParameterType.STRING;
+            case PARAM_BOOLEAN:
+                return target.getType() == ParameterType.BOOLEAN || target.getType() == ParameterType.STRING;
+            case PARAM_STRING:
+                return true;
+            case PARAM_ITEM:
+                return target.getType() == ParameterType.STRING || target.getType() == ParameterType.BLOCK_TYPE;
+            case PARAM_BLOCK:
+                return target.getType() == ParameterType.BLOCK_TYPE || target.getType() == ParameterType.STRING;
+            case PARAM_ENTITY:
+                return target.getType() == ParameterType.ENTITY_TYPE || target.getType() == ParameterType.STRING;
+            case PARAM_PLAYER:
+                return target.getType() == ParameterType.PLAYER_NAME || target.getType() == ParameterType.STRING;
+            case PARAM_SCHEMATIC:
+                return target.getType() == ParameterType.SCHEMATIC || target.getType() == ParameterType.STRING;
+            case PARAM_WAYPOINT:
+                return target.getType() == ParameterType.WAYPOINT_NAME || target.getType() == ParameterType.WAYPOINT_TAG || target.getType() == ParameterType.STRING;
+            case PARAM_COORDINATE:
+                if (target.getType() == ParameterType.COORDINATE) {
+                    return true;
+                }
+                if (target.getType() == ParameterType.INTEGER) {
+                    String name = target.getName().toUpperCase(Locale.ROOT);
+                    return name.equals("X") || name.equals("Y") || name.equals("Z");
+                }
+                return target.getType() == ParameterType.STRING;
+            default:
+                return false;
+        }
+    }
+
+    public boolean applyParameterTo(NodeParameter target, Node consumer) {
+        if (target == null) {
+            return false;
+        }
+
+        if (!canProvideFor(target)) {
+            return false;
+        }
+
+        switch (type) {
+            case PARAM_INTEGER: {
+                NodeParameter value = getParameter("Value");
+                if (value == null) return false;
+                if (target.getType() == ParameterType.INTEGER) {
+                    target.setIntValue(value.getIntValue());
+                    return true;
+                }
+                if (target.getType() == ParameterType.DOUBLE) {
+                    target.setDoubleValue(value.getIntValue());
+                    return true;
+                }
+                target.setStringValue(String.valueOf(value.getIntValue()));
+                return true;
+            }
+            case PARAM_DOUBLE: {
+                NodeParameter value = getParameter("Value");
+                if (value == null) return false;
+                double doubleValue = value.getDoubleValue();
+                if (target.getType() == ParameterType.INTEGER) {
+                    target.setIntValue((int) Math.round(doubleValue));
+                    return true;
+                }
+                if (target.getType() == ParameterType.DOUBLE) {
+                    target.setDoubleValue(doubleValue);
+                    return true;
+                }
+                target.setStringValue(String.valueOf(doubleValue));
+                return true;
+            }
+            case PARAM_BOOLEAN: {
+                NodeParameter value = getParameter("Value");
+                if (value == null) return false;
+                boolean boolValue = value.getBoolValue();
+                if (target.getType() == ParameterType.BOOLEAN) {
+                    target.setBoolValue(boolValue);
+                    return true;
+                }
+                target.setStringValue(String.valueOf(boolValue));
+                return true;
+            }
+            case PARAM_STRING: {
+                NodeParameter value = getParameter("Value");
+                if (value == null) return false;
+                target.setStringValue(value.getStringValue());
+                return true;
+            }
+            case PARAM_ITEM: {
+                NodeParameter item = getParameter("Item");
+                if (item == null) return false;
+                if (target.getType() == ParameterType.STRING) {
+                    target.setStringValue(item.getStringValue());
+                    return true;
+                }
+                if (target.getType() == ParameterType.BLOCK_TYPE) {
+                    target.setStringValue(item.getStringValue());
+                    return true;
+                }
+                return false;
+            }
+            case PARAM_BLOCK: {
+                NodeParameter block = getParameter("Block");
+                if (block == null) return false;
+                target.setStringValue(block.getStringValue());
+                return true;
+            }
+            case PARAM_ENTITY: {
+                NodeParameter entity = getParameter("Entity");
+                if (entity == null) return false;
+                target.setStringValue(entity.getStringValue());
+                return true;
+            }
+            case PARAM_PLAYER: {
+                NodeParameter player = getParameter("Player");
+                if (player == null) return false;
+                target.setStringValue(player.getStringValue());
+                return true;
+            }
+            case PARAM_SCHEMATIC: {
+                NodeParameter schematic = getParameter("Schematic");
+                if (schematic == null) return false;
+                target.setStringValue(schematic.getStringValue());
+                return true;
+            }
+            case PARAM_WAYPOINT: {
+                NodeParameter waypoint = getParameter("Waypoint");
+                NodeParameter tag = getParameter("Tag");
+                if (target.getType() == ParameterType.WAYPOINT_NAME && waypoint != null) {
+                    target.setStringValue(waypoint.getStringValue());
+                    return true;
+                }
+                if (target.getType() == ParameterType.WAYPOINT_TAG && tag != null) {
+                    target.setStringValue(tag.getStringValue());
+                    return true;
+                }
+                if (waypoint != null) {
+                    target.setStringValue(waypoint.getStringValue());
+                    return true;
+                }
+                return false;
+            }
+            case PARAM_COORDINATE: {
+                NodeParameter x = getParameter("X");
+                NodeParameter y = getParameter("Y");
+                NodeParameter z = getParameter("Z");
+                if (x == null || y == null || z == null) {
+                    return false;
+                }
+                int xv = x.getIntValue();
+                int yv = y.getIntValue();
+                int zv = z.getIntValue();
+                if (target.getType() == ParameterType.COORDINATE) {
+                    target.setCoordinateValue(xv, yv, zv);
+                    return true;
+                }
+                if (target.getType() == ParameterType.INTEGER) {
+                    String name = target.getName().toUpperCase(Locale.ROOT);
+                    switch (name) {
+                        case "X":
+                            target.setIntValue(xv);
+                            return true;
+                        case "Y":
+                            target.setIntValue(yv);
+                            return true;
+                        case "Z":
+                            target.setIntValue(zv);
+                            return true;
+                        default:
+                            return false;
+                    }
+                }
+                target.setStringValue(xv + "," + yv + "," + zv);
+                return true;
+            }
+            default:
+                return false;
+        }
+    }
+
     private int getIntParameter(String name, int defaultValue) {
         NodeParameter param = getParameter(name);
         if (param == null) {
@@ -3725,6 +4036,46 @@ public class Node {
             return Hand.OFF_HAND;
         }
         return Hand.MAIN_HAND;
+    }
+
+    private BlockPos locateNearestItem(String itemId) {
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client == null || client.world == null || itemId == null) {
+            return null;
+        }
+
+        Identifier identifier = Identifier.tryParse(itemId.trim());
+        if (identifier == null) {
+            return null;
+        }
+
+        Item item = Registries.ITEM.get(identifier);
+        if (item == null) {
+            return null;
+        }
+
+        Vec3d origin = client.player != null ? client.player.getPos() : Vec3d.ZERO;
+        double searchRadius = 96.0;
+        Box searchBox = new Box(
+                origin.x - searchRadius, origin.y - searchRadius, origin.z - searchRadius,
+                origin.x + searchRadius, origin.y + searchRadius, origin.z + searchRadius
+        );
+
+        double closestDistance = Double.MAX_VALUE;
+        BlockPos closestPos = null;
+
+        for (ItemEntity entity : client.world.getEntitiesByClass(ItemEntity.class, searchBox, e -> e != null && !e.isRemoved())) {
+            if (!entity.getStack().isOf(item)) {
+                continue;
+            }
+            double distance = entity.squaredDistanceTo(origin);
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closestPos = entity.getBlockPos();
+            }
+        }
+
+        return closestPos;
     }
 
     private void resetControlState() {

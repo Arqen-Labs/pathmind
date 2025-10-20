@@ -91,7 +91,20 @@ public enum NodeType {
     // Utility Commands
     SCREEN_CONTROL("Screen Control", 0xFF9E9E9E, "Open or close in-game screens"),
     WAIT("Wait", 0xFF607D8B, "Waits for specified duration"),
-    MESSAGE("Message", 0xFF9E9E9E, "Sends a chat message");
+    MESSAGE("Message", 0xFF9E9E9E, "Sends a chat message"),
+
+    // Parameter nodes
+    PARAM_INTEGER("Integer Parameter", 0xFF26A69A, "Provides a reusable integer value"),
+    PARAM_DOUBLE("Double Parameter", 0xFF26A69A, "Provides a reusable decimal value"),
+    PARAM_BOOLEAN("Boolean Parameter", 0xFF26A69A, "Provides a reusable boolean value"),
+    PARAM_STRING("String Parameter", 0xFF26A69A, "Provides a reusable string value"),
+    PARAM_COORDINATE("Coordinate Parameter", 0xFF26A69A, "Provides X, Y, Z coordinate values"),
+    PARAM_ITEM("Item Parameter", 0xFF26A69A, "Provides a reference to an item"),
+    PARAM_BLOCK("Block Parameter", 0xFF26A69A, "Provides a reference to a block"),
+    PARAM_ENTITY("Entity Parameter", 0xFF26A69A, "Provides a reference to an entity type"),
+    PARAM_PLAYER("Player Parameter", 0xFF26A69A, "Provides a reference to a player"),
+    PARAM_SCHEMATIC("Schematic Parameter", 0xFF26A69A, "Provides a schematic identifier"),
+    PARAM_WAYPOINT("Waypoint Parameter", 0xFF26A69A, "Provides a waypoint name or tag");
 
     private final String displayName;
     private final String description;
@@ -206,6 +219,18 @@ public enum NodeType {
             case WAIT:
             case MESSAGE:
                 return NodeCategory.UTILITY;
+            case PARAM_INTEGER:
+            case PARAM_DOUBLE:
+            case PARAM_BOOLEAN:
+            case PARAM_STRING:
+            case PARAM_COORDINATE:
+            case PARAM_ITEM:
+            case PARAM_BLOCK:
+            case PARAM_ENTITY:
+            case PARAM_PLAYER:
+            case PARAM_SCHEMATIC:
+            case PARAM_WAYPOINT:
+                return NodeCategory.PARAMETERS;
             default:
                 return NodeCategory.UTILITY;
         }
@@ -262,6 +287,17 @@ public enum NodeType {
             case SENSOR_ENTITY_NEARBY:
             case SENSOR_ITEM_IN_INVENTORY:
             case SENSOR_IS_FALLING:
+            case PARAM_INTEGER:
+            case PARAM_DOUBLE:
+            case PARAM_BOOLEAN:
+            case PARAM_STRING:
+            case PARAM_COORDINATE:
+            case PARAM_ITEM:
+            case PARAM_BLOCK:
+            case PARAM_ENTITY:
+            case PARAM_PLAYER:
+            case PARAM_SCHEMATIC:
+            case PARAM_WAYPOINT:
                 return true;
             default:
                 return false;
