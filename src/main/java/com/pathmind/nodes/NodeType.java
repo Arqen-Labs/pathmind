@@ -61,7 +61,8 @@ public enum NodeType {
     MOVE_ITEM("Move Item", 0xFFFFB74D, "Moves items between inventory slots"),
     SWAP_SLOTS("Swap Slots", 0xFFFFF176, "Swaps items between inventory slots"),
     CLEAR_SLOT("Clear Slot", 0xFFB0BEC5, "Clears a slot and optionally drops its contents"),
-    
+    PLAYER_GUI("Player GUI", 0xFFB0BEC5, "Opens or closes the player's inventory"),
+
     // Equipment Commands
     EQUIP_ARMOR("Equip Armor", 0xFF7E57C2, "Equips armor from an inventory slot"),
     UNEQUIP_ARMOR("Unequip Armor", 0xFF9575CD, "Moves armor into an inventory slot"),
@@ -88,6 +89,7 @@ public enum NodeType {
     SENSOR_IS_FALLING("Is Falling", 0xFF64B5F6, "Detect if the player is currently falling"),
 
     // Utility Commands
+    SCREEN_CONTROL("Screen Control", 0xFF9E9E9E, "Open or close in-game screens"),
     WAIT("Wait", 0xFF607D8B, "Waits for specified duration"),
     MESSAGE("Message", 0xFF9E9E9E, "Sends a chat message");
 
@@ -193,12 +195,14 @@ public enum NodeType {
             case MOVE_ITEM:
             case SWAP_SLOTS:
             case CLEAR_SLOT:
+            case PLAYER_GUI:
             case EQUIP_ARMOR:
             case UNEQUIP_ARMOR:
             case EQUIP_HAND:
             case UNEQUIP_HAND:
             case SWAP_HANDS:
                 return NodeCategory.INVENTORY;
+            case SCREEN_CONTROL:
             case WAIT:
             case MESSAGE:
                 return NodeCategory.UTILITY;

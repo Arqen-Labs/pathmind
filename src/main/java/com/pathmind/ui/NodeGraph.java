@@ -873,10 +873,23 @@ public class NodeGraph {
             if (shouldShowParameters(node)) {
                 int paramBgColor = isOverSidebar ? 0xFF2A2A2A : 0xFF1A1A1A; // Grey when over sidebar
                 context.fill(x + 3, y + 16, x + width - 3, y + height - 3, paramBgColor);
-                
+
                 // Render parameters
                 int paramY = y + 18;
                 List<NodeParameter> parameters = node.getParameters();
+
+                if (node.supportsModeSelection()) {
+                    String modeLabel = trimTextToWidth(node.getModeDisplayLabel(), textRenderer, width - 10);
+                    int paramTextColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0; // Grey text when over sidebar
+                    context.drawTextWithShadow(
+                        textRenderer,
+                        Text.literal(modeLabel),
+                        x + 5,
+                        paramY,
+                        paramTextColor
+                    );
+                    paramY += 10;
+                }
 
                 for (NodeParameter param : parameters) {
                     String displayText = node.getParameterLabel(param);
@@ -1243,7 +1256,8 @@ public class NodeGraph {
      * Check if a node should show parameters (Start and End nodes don't)
      */
     public boolean shouldShowParameters(Node node) {
-        return node.hasParameters() && !node.canAcceptSensor() && node.getType() != NodeType.EVENT_FUNCTION;
+        boolean hasDisplayableContent = (node.hasParameters() || node.supportsModeSelection());
+        return hasDisplayableContent && !node.canAcceptSensor() && node.getType() != NodeType.EVENT_FUNCTION;
     }
 
     public boolean didLastStartButtonTriggerExecution() {

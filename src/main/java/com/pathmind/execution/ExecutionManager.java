@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.Objects;
 
 /**
@@ -51,6 +52,8 @@ public class ExecutionManager {
     private final Set<Node> activeEventFunctionNodes;
     private boolean globalExecutionActive;
     private boolean lastSnapshotWasGlobal;
+
+    private static final long NODE_EXECUTION_DELAY_MS = 150L;
 
     private static class ChainController {
         final Node startNode;
@@ -454,20 +457,36 @@ public class ExecutionManager {
             return CompletableFuture.completedFuture(null);
         }
 
-        setActiveNode(currentNode);
-
-        if (cancelRequested || controller.cancelRequested) {
-            return CompletableFuture.completedFuture(null);
-        }
-
-        return currentNode.execute()
+        return scheduleNodeStartDelay()
             .thenCompose(ignored -> {
                 if (cancelRequested || controller.cancelRequested) {
                     return CompletableFuture.completedFuture(null);
                 }
-                return handleEventCallIfNeeded(currentNode, controller);
-            })
-            .thenCompose(ignored -> continueFromNode(currentNode, controller));
+
+                setActiveNode(currentNode);
+
+                if (cancelRequested || controller.cancelRequested) {
+                    return CompletableFuture.completedFuture(null);
+                }
+
+                return currentNode.execute()
+                    .thenCompose(ignoredFuture -> {
+                        if (cancelRequested || controller.cancelRequested) {
+                            return CompletableFuture.completedFuture(null);
+                        }
+                        return handleEventCallIfNeeded(currentNode, controller);
+                    })
+                    .thenCompose(ignoredFuture -> continueFromNode(currentNode, controller));
+            });
+    }
+
+    private CompletableFuture<Void> scheduleNodeStartDelay() {
+        if (NODE_EXECUTION_DELAY_MS <= 0L) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        return CompletableFuture.runAsync(() -> { },
+            CompletableFuture.delayedExecutor(NODE_EXECUTION_DELAY_MS, TimeUnit.MILLISECONDS));
     }
 
     private CompletableFuture<Void> handleEventCallIfNeeded(Node node, ChainController controller) {
