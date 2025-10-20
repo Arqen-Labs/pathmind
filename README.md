@@ -121,8 +121,8 @@ file. In summary:
 
 Found a bug or have an idea? We'd love to hear from you!
 
-- **Bug Reports**: [Open an Issue](https://github.com/ArqenLabs/pathmind/issues/new?template=bug_report.md)
-- **Feature Requests**: [Open an Issue](https://github.com/ArqenLabs/pathmind/issues/new?template=feature_request.md)
+- **Bug Reports**: [Open an Issue](https://github.com/chirolabs/pathmind/issues/new?template=bug_report.md)
+- **Feature Requests**: [Open an Issue](https://github.com/chirolabs/pathmind/issues/new?template=feature_request.md)
 - **General Discussion**: [Join our Discord](https://discord.gg/zWT2zxQm)
 
 ## Acknowledgments
