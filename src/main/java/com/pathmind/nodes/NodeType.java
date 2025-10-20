@@ -105,7 +105,10 @@ public enum NodeType {
     PARAM_INVENTORY_SLOT("Inventory Slot", 0xFF8BC34A, "Represents an inventory slot reference"),
     PARAM_MESSAGE("Message Text", 0xFF8BC34A, "Represents reusable chat or sign text"),
     PARAM_DURATION("Duration", 0xFF8BC34A, "Represents a duration or interval"),
-    PARAM_BOOLEAN("Toggle", 0xFF8BC34A, "Represents a boolean toggle value");
+    PARAM_BOOLEAN("Toggle", 0xFF8BC34A, "Represents a boolean toggle value"),
+    PARAM_HAND("Hand", 0xFF8BC34A, "Represents a preferred hand selection"),
+    PARAM_RANGE("Range", 0xFF8BC34A, "Represents a generic radius or range"),
+    PARAM_ROTATION("Rotation", 0xFF8BC34A, "Represents yaw and pitch angles");
 
     private final String displayName;
     private final String description;
@@ -232,6 +235,9 @@ public enum NodeType {
             case PARAM_MESSAGE:
             case PARAM_DURATION:
             case PARAM_BOOLEAN:
+            case PARAM_HAND:
+            case PARAM_RANGE:
+            case PARAM_ROTATION:
                 return NodeCategory.PARAMETERS;
             default:
                 return NodeCategory.UTILITY;
@@ -301,6 +307,9 @@ public enum NodeType {
             case PARAM_MESSAGE:
             case PARAM_DURATION:
             case PARAM_BOOLEAN:
+            case PARAM_HAND:
+            case PARAM_RANGE:
+            case PARAM_ROTATION:
                 return true;
             default:
                 return false;
