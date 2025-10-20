@@ -3316,7 +3316,7 @@ public class Node {
     }
 
     private void runOnClientThread(net.minecraft.client.MinecraftClient client, Runnable task) throws InterruptedException {
-        if (client == null) {
+        if (client == null || client.isOnThread()) {
             task.run();
             return;
         }
@@ -3339,7 +3339,7 @@ public class Node {
     }
 
     private <T> T supplyFromClient(net.minecraft.client.MinecraftClient client, java.util.function.Supplier<T> supplier) throws InterruptedException {
-        if (client == null) {
+        if (client == null || client.isOnThread()) {
             return supplier.get();
         }
 
