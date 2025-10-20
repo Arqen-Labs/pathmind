@@ -88,6 +88,7 @@ public enum NodeType {
     SENSOR_IS_FALLING("Is Falling", 0xFF64B5F6, "Detect if the player is currently falling"),
 
     // Utility Commands
+    SCREEN_CONTROL("Screen Control", 0xFF9E9E9E, "Open or close in-game screens"),
     WAIT("Wait", 0xFF607D8B, "Waits for specified duration"),
     MESSAGE("Message", 0xFF9E9E9E, "Sends a chat message");
 
@@ -199,6 +200,7 @@ public enum NodeType {
             case UNEQUIP_HAND:
             case SWAP_HANDS:
                 return NodeCategory.INVENTORY;
+            case SCREEN_CONTROL:
             case WAIT:
             case MESSAGE:
                 return NodeCategory.UTILITY;

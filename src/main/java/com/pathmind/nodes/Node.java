@@ -41,6 +41,7 @@ import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.math.Box;
+import net.minecraft.client.gui.screen.ChatScreen;
 import net.minecraft.client.gui.screen.ingame.CraftingScreen;
 import net.minecraft.client.gui.screen.ingame.InventoryScreen;
 import net.minecraft.recipe.CraftingRecipe;
@@ -1153,6 +1154,9 @@ public class Node {
             case CRAFT:
                 executeCraftCommand(future);
                 break;
+            case SCREEN_CONTROL:
+                executeScreenControlCommand(future);
+                break;
             case WAIT:
                 executeWaitCommand(future);
                 break;
@@ -1419,14 +1423,16 @@ public class Node {
         NodeMode craftMode = mode != null ? mode : NodeMode.CRAFT_PLAYER_GUI;
         boolean requireTable = craftMode == NodeMode.CRAFT_CRAFTING_TABLE;
 
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+
         Identifier identifier = Identifier.tryParse(itemId);
         if (identifier == null || !Registries.ITEM.containsId(identifier)) {
-            future.completeExceptionally(new RuntimeException("Unknown item: " + itemId));
+            sendNodeErrorMessage(client, "Cannot craft \"" + itemId + "\": unknown item identifier.");
+            future.complete(null);
             return;
         }
 
         Item targetItem = Registries.ITEM.get(identifier);
-        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null || client.world == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
             return;
@@ -1491,7 +1497,57 @@ public class Node {
             Thread.currentThread().interrupt();
             future.completeExceptionally(e);
         } catch (RuntimeException e) {
+            sendNodeErrorMessage(client, e.getMessage());
+            future.complete(null);
+        }
+    }
+
+    private void executeScreenControlCommand(CompletableFuture<Void> future) {
+        NodeMode screenMode = mode != null ? mode : NodeMode.SCREEN_OPEN_PLAYER_GUI;
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+
+        if (client == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+
+        try {
+            runOnClientThread(client, () -> {
+                switch (screenMode) {
+                    case SCREEN_OPEN_PLAYER_GUI:
+                        if (client.player == null || client.player.networkHandler == null) {
+                            throw new RuntimeException("Cannot open the player GUI without an active player.");
+                        }
+
+                        client.player.networkHandler.sendPacket(new ClientCommandC2SPacket(
+                                client.player,
+                                ClientCommandC2SPacket.Mode.OPEN_INVENTORY
+                        ));
+
+                        if (!(client.currentScreen instanceof InventoryScreen)) {
+                            client.setScreen(new InventoryScreen(client.player));
+                        }
+                        break;
+                    case SCREEN_OPEN_CHAT:
+                        client.setScreen(new ChatScreen(""));
+                        break;
+                    case SCREEN_CLOSE_CURRENT:
+                        if (client.player != null) {
+                            client.player.closeHandledScreen();
+                        }
+                        client.setScreen(null);
+                        break;
+                    default:
+                        throw new IllegalStateException("Unknown screen control mode: " + screenMode);
+                }
+            });
+            future.complete(null);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             future.completeExceptionally(e);
+        } catch (RuntimeException e) {
+            sendNodeErrorMessage(client, e.getMessage());
+            future.complete(null);
         }
     }
 
@@ -1888,7 +1944,8 @@ public class Node {
             Thread.currentThread().interrupt();
             future.completeExceptionally(e);
         } catch (RuntimeException e) {
-            future.completeExceptionally(e);
+            sendNodeErrorMessage(client, e.getMessage());
+            future.complete(null);
         }
     }
     

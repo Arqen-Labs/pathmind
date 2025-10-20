@@ -41,6 +41,11 @@ public enum NodeMode {
     CRAFT_PLAYER_GUI("Player Inventory", "Craft using the player's 2x2 grid"),
     CRAFT_CRAFTING_TABLE("Crafting Table", "Craft using an open crafting table"),
 
+    // Screen control modes
+    SCREEN_OPEN_PLAYER_GUI("Open Player GUI", "Open the player's inventory screen"),
+    SCREEN_OPEN_CHAT("Open Chat", "Open the chat screen for typing"),
+    SCREEN_CLOSE_CURRENT("Close Screen", "Close the currently open screen"),
+
     // FARM modes
     FARM_RANGE("Farm in Range", "Farm within specified range"),
     FARM_WAYPOINT("Farm at Waypoint", "Farm around specified waypoint"),
@@ -99,6 +104,10 @@ public enum NodeMode {
                 return new NodeMode[]{
                     CRAFT_PLAYER_GUI, CRAFT_CRAFTING_TABLE
                 };
+            case SCREEN_CONTROL:
+                return new NodeMode[]{
+                    SCREEN_OPEN_PLAYER_GUI, SCREEN_OPEN_CHAT, SCREEN_CLOSE_CURRENT
+                };
             case FARM:
                 return new NodeMode[]{
                     FARM_RANGE, FARM_WAYPOINT
@@ -131,6 +140,8 @@ public enum NodeMode {
                 return FOLLOW_PLAYER;
             case CRAFT:
                 return CRAFT_PLAYER_GUI;
+            case SCREEN_CONTROL:
+                return SCREEN_OPEN_PLAYER_GUI;
             case FARM:
                 return FARM_RANGE;
             case STOP:
