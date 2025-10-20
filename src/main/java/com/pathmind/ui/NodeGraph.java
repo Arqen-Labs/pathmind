@@ -269,6 +269,7 @@ public class NodeGraph {
     public void startDragging(Node node, int mouseX, int mouseY) {
         sensorDropTarget = null;
         actionDropTarget = null;
+        parameterDropTarget = null;
 
         draggingNode = node;
         draggingNodeStartX = node.getX();
@@ -352,9 +353,6 @@ public class NodeGraph {
                     parameterDropTarget = null;
                     for (Node node : nodes) {
                         if (!node.hasParameterSlot() || node == draggingNode) {
-                            continue;
-                        }
-                        if (!node.canAcceptParameterNode(draggingNode)) {
                             continue;
                         }
                         if (node.isPointInsideParameterSlot(worldMouseX, worldMouseY)) {
