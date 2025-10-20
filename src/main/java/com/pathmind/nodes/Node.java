@@ -44,6 +44,7 @@ import net.minecraft.util.math.Box;
 import net.minecraft.client.gui.screen.ChatScreen;
 import net.minecraft.client.gui.screen.ingame.CraftingScreen;
 import net.minecraft.client.gui.screen.ingame.InventoryScreen;
+import net.minecraft.client.network.ClientPlayerInteractionManager;
 import net.minecraft.recipe.CraftingRecipe;
 import net.minecraft.recipe.Ingredient;
 import net.minecraft.recipe.IngredientPlacement;
@@ -52,6 +53,7 @@ import net.minecraft.screen.CraftingScreenHandler;
 import net.minecraft.screen.PlayerScreenHandler;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.Slot;
+import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.recipe.input.CraftingRecipeInput;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.recipe.ServerRecipeManager;
@@ -80,6 +82,8 @@ public class Node {
     private static final int BODY_PADDING_NO_PARAMS = 10;
     private static final int START_END_SIZE = 36;
     private static final String ERROR_MESSAGE_PREFIX = "\u00A7f⚙ \u00A74[\u00A7cPathmind\u00A74] \u00A77";
+    private static final long CRAFTING_ACTION_DELAY_MS = 75L;
+    private static final int CRAFTING_OUTPUT_POLL_LIMIT = 5;
     private static final int SENSOR_SLOT_MARGIN_HORIZONTAL = 8;
     private static final int SENSOR_SLOT_INNER_PADDING = 4;
     private static final int SENSOR_SLOT_MIN_CONTENT_WIDTH = 60;
@@ -1421,7 +1425,6 @@ public class Node {
         }
 
         NodeMode craftMode = mode != null ? mode : NodeMode.CRAFT_PLAYER_GUI;
-        boolean requireTable = craftMode == NodeMode.CRAFT_CRAFTING_TABLE;
 
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
 
@@ -1447,59 +1450,68 @@ public class Node {
             return;
         }
 
-        try {
-            int desiredCount = Math.max(1, quantity);
-            runOnClientThread(client, () -> {
-                ScreenHandler handler = client.player.currentScreenHandler;
-                String itemDisplayName = targetItem.getName().getString();
+        String itemDisplayName = targetItem.getName().getString();
 
-                if (!isCompatibleCraftingHandler(handler, craftMode)) {
-                    sendNodeErrorMessageOnClientThread(client, "Cannot craft " + itemDisplayName + ": the crafting screen closed.");
-                    return;
-                }
-
-                RecipeEntry<CraftingRecipe> recipeEntry = findCraftingRecipe(client, targetItem, craftMode);
-                if (recipeEntry == null) {
-                    sendNodeErrorMessageOnClientThread(client, "Cannot craft " + itemDisplayName + ": no matching recipe found.");
-                    return;
-                }
-
-                List<ItemStack> emptyGrid = new ArrayList<>(Collections.nCopies(9, ItemStack.EMPTY));
-                ItemStack outputTemplate = recipeEntry.value().craft(CraftingRecipeInput.create(3, 3, emptyGrid), client.player.getWorld().getRegistryManager());
-                if (outputTemplate.isEmpty()) {
-                    sendNodeErrorMessageOnClientThread(client, "Cannot craft " + itemDisplayName + ": the recipe produced no output.");
-                    return;
-                }
-
-                int perCraftOutput = Math.max(1, outputTemplate.getCount());
-                int craftsRequested = Math.max(1, (int) Math.ceil(desiredCount / (double) perCraftOutput));
-
-                int craftsPerformed = reserveAndConsumeCraftIngredients(client.player.getInventory(), handler, recipeEntry, craftsRequested, requireTable);
-                if (craftsPerformed <= 0) {
-                    sendNodeErrorMessageOnClientThread(client, "Cannot craft " + itemDisplayName + ": missing required ingredients.");
-                    return;
-                }
-
-                ItemStack produced = outputTemplate.copy();
-                produced.setCount(perCraftOutput * craftsPerformed);
-                if (!produced.isEmpty()) {
-                    client.player.giveItemStack(produced);
-                }
-
-                client.player.getInventory().markDirty();
-                client.player.playerScreenHandler.sendContentUpdates();
-                if (handler != null) {
-                    handler.sendContentUpdates();
-                }
-            });
+        ScreenHandler handler = client.player.currentScreenHandler;
+        if (!isCompatibleCraftingHandler(handler, craftMode)) {
+            sendNodeErrorMessage(client, "Cannot craft " + itemDisplayName + ": the crafting screen closed.");
             future.complete(null);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            future.completeExceptionally(e);
-        } catch (RuntimeException e) {
-            sendNodeErrorMessage(client, e.getMessage());
-            future.complete(null);
+            return;
         }
+
+        RecipeEntry<CraftingRecipe> recipeEntry = findCraftingRecipe(client, targetItem, craftMode);
+        if (recipeEntry == null) {
+            sendNodeErrorMessage(client, "Cannot craft " + itemDisplayName + ": no matching recipe found.");
+            future.complete(null);
+            return;
+        }
+
+        List<ItemStack> emptyGrid = new ArrayList<>(Collections.nCopies(9, ItemStack.EMPTY));
+        ItemStack outputTemplate = recipeEntry.value().craft(CraftingRecipeInput.create(3, 3, emptyGrid), client.player.getWorld().getRegistryManager());
+        if (outputTemplate.isEmpty()) {
+            sendNodeErrorMessage(client, "Cannot craft " + itemDisplayName + ": the recipe produced no output.");
+            future.complete(null);
+            return;
+        }
+
+        int desiredCount = Math.max(1, quantity);
+        int perCraftOutput = Math.max(1, outputTemplate.getCount());
+        int craftsRequested = Math.max(1, (int) Math.ceil(desiredCount / (double) perCraftOutput));
+
+        List<GridIngredient> gridIngredients = resolveGridIngredients(recipeEntry.value().getIngredientPlacement(), craftMode);
+        if (gridIngredients.isEmpty()) {
+            sendNodeErrorMessage(client, "Cannot craft " + itemDisplayName + ": the recipe has no ingredients.");
+            future.complete(null);
+            return;
+        }
+
+        int[] craftingGridSlots = getCraftingGridSlots(craftMode);
+
+        CompletableFuture
+            .supplyAsync(() -> {
+                try {
+                    return craftRecipeUsingScreen(client, craftMode, recipeEntry, targetItem, craftsRequested, desiredCount, itemDisplayName, gridIngredients, craftingGridSlots);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new java.util.concurrent.CompletionException(e);
+                }
+            })
+            .whenComplete((summary, throwable) -> {
+                if (throwable != null) {
+                    Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
+                    if (!(cause instanceof InterruptedException)) {
+                        sendNodeErrorMessageOnClientThread(client, "Cannot craft " + itemDisplayName + ": " + cause.getMessage());
+                    }
+                    future.complete(null);
+                    return;
+                }
+
+                if (summary.failureMessage != null) {
+                    sendNodeErrorMessageOnClientThread(client, summary.failureMessage);
+                }
+
+                future.complete(null);
+            });
     }
 
     private void executeScreenControlCommand(CompletableFuture<Void> future) {
@@ -1676,219 +1688,345 @@ public class Node {
 
     private static final Field SERVER_RECIPES_FIELD = initServerRecipesField();
 
-    private int reserveAndConsumeCraftIngredients(PlayerInventory inventory, ScreenHandler handler, RecipeEntry<CraftingRecipe> recipeEntry, int craftsRequested, boolean requireTable) {
-        if (inventory == null || handler == null || craftsRequested <= 0) {
-            return 0;
-        }
+    private CraftingSummary craftRecipeUsingScreen(net.minecraft.client.MinecraftClient client,
+                                                   NodeMode craftMode,
+                                                   RecipeEntry<CraftingRecipe> recipeEntry,
+                                                   Item targetItem,
+                                                   int craftsRequested,
+                                                   int desiredCount,
+                                                   String itemDisplayName,
+                                                   List<GridIngredient> gridIngredients,
+                                                   int[] gridSlots) throws InterruptedException {
+        int totalProduced = 0;
+        String failureMessage = null;
 
-        List<Ingredient> ingredients = recipeEntry.value().getIngredientPlacement().getIngredients();
-        if (ingredients.isEmpty()) {
-            return 0;
-        }
-
-        List<ItemSlotUsage> availableSlots = collectItemSlotUsages(inventory, handler, requireTable);
-        if (availableSlots.isEmpty()) {
-            return 0;
-        }
-
-        int craftsCompleted = 0;
-        for (; craftsCompleted < craftsRequested; craftsCompleted++) {
-            List<ItemSlotUsage> reservations = new ArrayList<>();
-            boolean success = true;
-            for (Ingredient ingredient : ingredients) {
-                if (ingredient == null || ingredient.isEmpty()) {
-                    continue;
-                }
-
-                ItemSlotUsage slot = findSlotForIngredient(ingredient, availableSlots);
-                if (slot == null || !slot.reserve()) {
-                    success = false;
-                    break;
-                }
-                reservations.add(slot);
+        for (int attempt = 0; attempt < craftsRequested; attempt++) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new InterruptedException();
             }
 
-            if (!success) {
-                for (ItemSlotUsage reserved : reservations) {
-                    reserved.release();
+            if (!isCraftingScreenAvailable(client, craftMode)) {
+                failureMessage = craftMode == NodeMode.CRAFT_CRAFTING_TABLE
+                        ? "Cannot craft " + itemDisplayName + ": open a crafting table GUI before running this node."
+                        : "Cannot craft " + itemDisplayName + ": open your inventory before running this node.";
+                break;
+            }
+
+            ScreenHandler handler = client.player != null ? client.player.currentScreenHandler : null;
+            if (!isCompatibleCraftingHandler(handler, craftMode)) {
+                failureMessage = "Cannot craft " + itemDisplayName + ": the crafting screen closed.";
+                break;
+            }
+
+            CraftingAttemptResult attemptResult = performCraftingAttempt(client, targetItem, itemDisplayName, gridIngredients, gridSlots);
+            if (attemptResult.errorMessage != null) {
+                failureMessage = attemptResult.errorMessage;
+                if (attemptResult.produced > 0) {
+                    totalProduced += attemptResult.produced;
                 }
+                break;
+            }
+
+            if (attemptResult.produced <= 0) {
+                failureMessage = "Cannot craft " + itemDisplayName + ": missing required ingredients.";
+                break;
+            }
+
+            totalProduced += attemptResult.produced;
+
+            if (totalProduced >= desiredCount) {
                 break;
             }
         }
 
-        if (craftsCompleted <= 0) {
-            for (ItemSlotUsage slot : availableSlots) {
-                slot.clearReservations();
-            }
-            return 0;
+        if (totalProduced <= 0 && failureMessage == null) {
+            failureMessage = "Cannot craft " + itemDisplayName + ": missing required ingredients.";
         }
 
-        for (ItemSlotUsage slot : availableSlots) {
-            slot.consumeReserved();
-        }
-
-        return craftsCompleted;
+        return new CraftingSummary(totalProduced, failureMessage);
     }
 
-    private ItemSlotUsage findSlotForIngredient(Ingredient ingredient, List<ItemSlotUsage> slots) {
-        for (ItemSlotUsage slot : slots) {
-            if (slot.matches(ingredient) && slot.hasAvailability()) {
-                return slot;
+    private CraftingAttemptResult performCraftingAttempt(net.minecraft.client.MinecraftClient client,
+                                                         Item targetItem,
+                                                         String itemDisplayName,
+                                                         List<GridIngredient> gridIngredients,
+                                                         int[] gridSlots) throws InterruptedException {
+        java.util.concurrent.atomic.AtomicReference<String> errorRef = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicInteger producedRef = new java.util.concurrent.atomic.AtomicInteger();
+
+        runOnClientThread(client, () -> {
+            ClientPlayerInteractionManager interactionManager = client.interactionManager;
+            if (interactionManager == null) {
+                errorRef.set("Cannot craft " + itemDisplayName + ": interaction manager unavailable.");
+                return;
             }
-        }
-        return null;
-    }
 
-    private List<ItemSlotUsage> collectItemSlotUsages(PlayerInventory inventory, ScreenHandler handler, boolean requireTable) {
-        List<ItemSlotUsage> slots = new ArrayList<>();
-
-        if (handler != null) {
-            int gridSlots = requireTable ? 9 : 4;
-            int startIndex = 1;
-            for (int i = 0; i < gridSlots; i++) {
-                int slotIndex = startIndex + i;
-                Slot slot;
-                try {
-                    slot = handler.getSlot(slotIndex);
-                } catch (IndexOutOfBoundsException e) {
-                    break;
-                }
-
-                ItemStack stack = slot.getStack();
-                if (stack.isEmpty()) {
-                    continue;
-                }
-                slots.add(new ItemSlotUsage(new HandlerSlotRef(handler, slotIndex), stack));
+            ScreenHandler handler = client.player != null ? client.player.currentScreenHandler : null;
+            if (handler == null) {
+                errorRef.set("Cannot craft " + itemDisplayName + ": the crafting screen closed.");
+                return;
             }
+
+            clearCraftingGrid(client, interactionManager, handler, gridSlots);
+        });
+
+        if (errorRef.get() != null) {
+            return new CraftingAttemptResult(0, errorRef.get());
         }
 
-        for (int slotIndex = 0; slotIndex < inventory.size(); slotIndex++) {
-            ItemStack stack = inventory.getStack(slotIndex);
-            if (stack.isEmpty()) {
+        for (GridIngredient ingredient : gridIngredients) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new InterruptedException();
+            }
+
+            if (ingredient == null || ingredient.ingredient().isEmpty()) {
                 continue;
             }
-            slots.add(new ItemSlotUsage(new InventorySlotRef(inventory, slotIndex), stack));
+
+            java.util.concurrent.atomic.AtomicBoolean placed = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+            runOnClientThread(client, () -> {
+                ClientPlayerInteractionManager interactionManager = client.interactionManager;
+                if (interactionManager == null) {
+                    errorRef.set("Cannot craft " + itemDisplayName + ": interaction manager unavailable.");
+                    return;
+                }
+
+                ScreenHandler handler = client.player != null ? client.player.currentScreenHandler : null;
+                if (handler == null) {
+                    errorRef.set("Cannot craft " + itemDisplayName + ": the crafting screen closed.");
+                    return;
+                }
+
+                int sourceSlot = findIngredientSourceSlot(handler, ingredient.ingredient());
+                if (sourceSlot == -1) {
+                    errorRef.set("Cannot craft " + itemDisplayName + ": missing required ingredients.");
+                    return;
+                }
+
+                interactionManager.clickSlot(handler.syncId, sourceSlot, 0, SlotActionType.PICKUP, client.player);
+                interactionManager.clickSlot(handler.syncId, ingredient.slotIndex(), 1, SlotActionType.PICKUP, client.player);
+                interactionManager.clickSlot(handler.syncId, sourceSlot, 0, SlotActionType.PICKUP, client.player);
+                placed.set(true);
+            });
+
+            if (errorRef.get() != null) {
+                return new CraftingAttemptResult(producedRef.get(), errorRef.get());
+            }
+
+            if (!placed.get()) {
+                return new CraftingAttemptResult(producedRef.get(), "Cannot craft " + itemDisplayName + ": failed to place ingredients.");
+            }
+
+            Thread.sleep(CRAFTING_ACTION_DELAY_MS);
         }
 
-        return slots;
+        for (int poll = 0; poll < CRAFTING_OUTPUT_POLL_LIMIT && producedRef.get() <= 0 && errorRef.get() == null; poll++) {
+            runOnClientThread(client, () -> {
+                ClientPlayerInteractionManager interactionManager = client.interactionManager;
+                if (interactionManager == null) {
+                    errorRef.set("Cannot craft " + itemDisplayName + ": interaction manager unavailable.");
+                    return;
+                }
+
+                ScreenHandler handler = client.player != null ? client.player.currentScreenHandler : null;
+                if (handler == null) {
+                    errorRef.set("Cannot craft " + itemDisplayName + ": the crafting screen closed.");
+                    return;
+                }
+
+                Slot outputSlot;
+                try {
+                    outputSlot = handler.getSlot(0);
+                } catch (IndexOutOfBoundsException e) {
+                    errorRef.set("Cannot craft " + itemDisplayName + ": crafting output unavailable.");
+                    return;
+                }
+
+                ItemStack resultStack = outputSlot.getStack();
+                if (resultStack.isEmpty() || !resultStack.isOf(targetItem)) {
+                    return;
+                }
+
+                producedRef.set(resultStack.getCount());
+                interactionManager.clickSlot(handler.syncId, 0, 0, SlotActionType.QUICK_MOVE, client.player);
+            });
+
+            if (producedRef.get() > 0 || errorRef.get() != null) {
+                break;
+            }
+
+            Thread.sleep(CRAFTING_ACTION_DELAY_MS);
+        }
+
+        if (producedRef.get() > 0) {
+            runOnClientThread(client, () -> {
+                ClientPlayerInteractionManager interactionManager = client.interactionManager;
+                if (interactionManager == null) {
+                    errorRef.set("Cannot craft " + itemDisplayName + ": interaction manager unavailable.");
+                    return;
+                }
+
+                ScreenHandler handler = client.player != null ? client.player.currentScreenHandler : null;
+                if (handler == null) {
+                    errorRef.set("Cannot craft " + itemDisplayName + ": the crafting screen closed.");
+                    return;
+                }
+
+                clearCraftingGrid(client, interactionManager, handler, gridSlots);
+            });
+
+            if (errorRef.get() != null) {
+                return new CraftingAttemptResult(producedRef.get(), errorRef.get());
+            }
+
+            Thread.sleep(CRAFTING_ACTION_DELAY_MS);
+            return new CraftingAttemptResult(producedRef.get(), null);
+        }
+
+        if (errorRef.get() != null) {
+            return new CraftingAttemptResult(producedRef.get(), errorRef.get());
+        }
+
+        return new CraftingAttemptResult(0, "Cannot craft " + itemDisplayName + ": missing required ingredients.");
     }
 
-    private interface ItemSlotRef {
-        void consume(int amount);
-    }
-
-    private static class InventorySlotRef implements ItemSlotRef {
-        private final PlayerInventory inventory;
-        private final int index;
-
-        InventorySlotRef(PlayerInventory inventory, int index) {
-            this.inventory = inventory;
-            this.index = index;
+    private void clearCraftingGrid(net.minecraft.client.MinecraftClient client,
+                                   ClientPlayerInteractionManager interactionManager,
+                                   ScreenHandler handler,
+                                   int[] gridSlots) {
+        if (client.player == null || interactionManager == null || handler == null || gridSlots == null) {
+            return;
         }
 
-        @Override
-        public void consume(int amount) {
-            if (amount <= 0) {
-                return;
-            }
-
-            ItemStack stack = inventory.getStack(index);
-            if (stack.isEmpty()) {
-                return;
-            }
-
-            stack.decrement(amount);
-            if (stack.isEmpty()) {
-                inventory.setStack(index, ItemStack.EMPTY);
-            } else {
-                inventory.setStack(index, stack);
-            }
-        }
-    }
-
-    private static class HandlerSlotRef implements ItemSlotRef {
-        private final ScreenHandler handler;
-        private final int index;
-
-        HandlerSlotRef(ScreenHandler handler, int index) {
-            this.handler = handler;
-            this.index = index;
-        }
-
-        @Override
-        public void consume(int amount) {
-            if (amount <= 0) {
-                return;
-            }
-
-            Slot slot;
+        for (int slotIndex : gridSlots) {
             try {
-                slot = handler.getSlot(index);
-            } catch (IndexOutOfBoundsException e) {
-                return;
+                Slot slot = handler.getSlot(slotIndex);
+                if (slot != null && slot.hasStack()) {
+                    interactionManager.clickSlot(handler.syncId, slotIndex, 0, SlotActionType.QUICK_MOVE, client.player);
+                }
+            } catch (IndexOutOfBoundsException ignored) {
+                // Ignore missing grid slots for the current handler.
+            }
+        }
+    }
+
+    private int findIngredientSourceSlot(ScreenHandler handler, Ingredient ingredient) {
+        if (handler == null || ingredient == null || ingredient.isEmpty()) {
+            return -1;
+        }
+
+        List<Slot> slots = handler.slots;
+        for (int slotIdx = 0; slotIdx < slots.size(); slotIdx++) {
+            Slot slot = slots.get(slotIdx);
+            if (!(slot.inventory instanceof PlayerInventory)) {
+                continue;
+            }
+
+            int inventoryIndex = slot.getIndex();
+            if (inventoryIndex < 0 || inventoryIndex >= PlayerInventory.MAIN_SIZE) {
+                continue;
             }
 
             ItemStack stack = slot.getStack();
             if (stack.isEmpty()) {
-                return;
+                continue;
             }
 
-            stack.decrement(amount);
-            slot.setStack(stack.isEmpty() ? ItemStack.EMPTY : stack);
-            slot.markDirty();
+            if (ingredient.test(stack)) {
+                return slotIdx;
+            }
+        }
+
+        return -1;
+    }
+
+    private List<GridIngredient> resolveGridIngredients(IngredientPlacement placement, NodeMode craftMode) {
+        List<GridIngredient> result = new ArrayList<>();
+        if (placement == null) {
+            return result;
+        }
+
+        List<Ingredient> ingredients = placement.getIngredients();
+        if (ingredients == null || ingredients.isEmpty()) {
+            return result;
+        }
+
+        IntList slots = placement.getPlacementSlots();
+        int gridLimit = craftMode == NodeMode.CRAFT_CRAFTING_TABLE ? 9 : 4;
+
+        if (placement.hasNoPlacement() || slots == null || slots.isEmpty()) {
+            int limit = Math.min(ingredients.size(), gridLimit);
+            for (int i = 0; i < limit; i++) {
+                Ingredient ingredient = ingredients.get(i);
+                if (ingredient == null || ingredient.isEmpty()) {
+                    continue;
+                }
+                result.add(new GridIngredient(1 + i, ingredient));
+            }
+            return result;
+        }
+
+        int limit = Math.min(ingredients.size(), slots.size());
+        for (int i = 0; i < limit; i++) {
+            Ingredient ingredient = ingredients.get(i);
+            if (ingredient == null || ingredient.isEmpty()) {
+                continue;
+            }
+
+            int logicalSlot = slots.getInt(i);
+            if (craftMode == NodeMode.CRAFT_PLAYER_GUI && logicalSlot >= gridLimit) {
+                continue;
+            }
+
+            result.add(new GridIngredient(1 + logicalSlot, ingredient));
+        }
+
+        return result;
+    }
+
+    private int[] getCraftingGridSlots(NodeMode craftMode) {
+        if (craftMode == NodeMode.CRAFT_CRAFTING_TABLE) {
+            return new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9};
+        }
+        return new int[] {1, 2, 3, 4};
+    }
+
+    private static class CraftingSummary {
+        final int produced;
+        final String failureMessage;
+
+        CraftingSummary(int produced, String failureMessage) {
+            this.produced = produced;
+            this.failureMessage = failureMessage;
         }
     }
 
-    private static class ItemSlotUsage {
-        private final ItemSlotRef reference;
-        private final ItemStack previewStack;
-        private int available;
-        private int reserved;
+    private static class GridIngredient {
+        private final int slotIndex;
+        private final Ingredient ingredient;
 
-        ItemSlotUsage(ItemSlotRef reference, ItemStack stack) {
-            this.reference = reference;
-            ItemStack preview = stack.copy();
-            preview.setCount(1);
-            this.previewStack = preview;
-            this.available = stack.getCount();
-            this.reserved = 0;
+        GridIngredient(int slotIndex, Ingredient ingredient) {
+            this.slotIndex = slotIndex;
+            this.ingredient = ingredient;
         }
 
-        boolean matches(Ingredient ingredient) {
-            return !previewStack.isEmpty() && ingredient.test(previewStack);
+        int slotIndex() {
+            return slotIndex;
         }
 
-        boolean hasAvailability() {
-            return reserved < available;
+        Ingredient ingredient() {
+            return ingredient;
         }
+    }
 
-        boolean reserve() {
-            if (!hasAvailability()) {
-                return false;
-            }
-            reserved++;
-            return true;
-        }
+    private static class CraftingAttemptResult {
+        final int produced;
+        final String errorMessage;
 
-        void release() {
-            if (reserved > 0) {
-                reserved--;
-            }
-        }
-
-        void clearReservations() {
-            reserved = 0;
-        }
-
-        void consumeReserved() {
-            if (reserved <= 0) {
-                return;
-            }
-
-            int amount = reserved;
-            reference.consume(amount);
-            available = Math.max(0, available - amount);
-            reserved = 0;
+        CraftingAttemptResult(int produced, String errorMessage) {
+            this.produced = produced;
+            this.errorMessage = errorMessage;
         }
     }
 
