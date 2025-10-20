@@ -29,7 +29,6 @@ import net.minecraft.registry.Registries;
 import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
 import net.minecraft.network.packet.c2s.play.HandSwingC2SPacket;
 import net.minecraft.network.packet.c2s.play.PlayerActionC2SPacket;
-import net.minecraft.network.packet.c2s.play.PlayerInteractBlockC2SPacket;
 import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
@@ -1426,11 +1425,10 @@ public class Node {
                     throw new RuntimeException("No valid placement position at " + targetPos.getX() + ", " + targetPos.getY() + ", " + targetPos.getZ());
                 }
 
-                PlayerInteractBlockC2SPacket packet = new PlayerInteractBlockC2SPacket(hand, hitResult, 0);
-                client.player.networkHandler.sendPacket(packet);
-
-                client.player.swingHand(hand);
-                client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
+                ActionResult result = client.interactionManager.interactBlock(client.player, hand, hitResult);
+                if (!result.isAccepted()) {
+                    throw new RuntimeException("Block placement rejected: " + result);
+                }
             });
             future.complete(null);
         } catch (InterruptedException e) {
