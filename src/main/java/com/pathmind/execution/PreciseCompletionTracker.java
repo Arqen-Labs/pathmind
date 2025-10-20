@@ -4,6 +4,7 @@ import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.behavior.IPathingBehavior;
 import baritone.api.process.ICustomGoalProcess;
+import baritone.api.process.IGetToBlockProcess;
 import baritone.api.process.IMineProcess;
 import baritone.api.process.IExploreProcess;
 import baritone.api.process.IFarmProcess;
@@ -166,29 +167,31 @@ public class PreciseCompletionTracker {
     private boolean checkPathingCompletion(IBaritone baritone, String taskId) {
         IPathingBehavior pathingBehavior = baritone.getPathingBehavior();
         ICustomGoalProcess customGoalProcess = baritone.getCustomGoalProcess();
-        
+        IGetToBlockProcess getToBlockProcess = baritone.getGetToBlockProcess();
+
         // Check if pathing has stopped and no goal is active
         boolean hasPath = pathingBehavior.hasPath();
         boolean isPathing = pathingBehavior.isPathing();
         boolean isActive = customGoalProcess.isActive();
+        boolean getToBlockActive = getToBlockProcess != null && getToBlockProcess.isActive();
         
         // Get current state
         ProcessState currentState = processStates.get(taskId);
         
-        if (currentState == ProcessState.STARTING && isActive) {
+        if (currentState == ProcessState.STARTING && (isActive || getToBlockActive)) {
             // Task has started
             processStates.put(taskId, ProcessState.ACTIVE);
             System.out.println("PreciseCompletionTracker: " + taskId + " is now active");
-        } else if (currentState == ProcessState.ACTIVE && !isActive && !hasPath && !isPathing) {
+        } else if (currentState == ProcessState.ACTIVE && !isActive && !getToBlockActive && !hasPath && !isPathing) {
             // Task has completed - no longer active and no pathing happening
             System.out.println("PreciseCompletionTracker: " + taskId + " completed - no longer active");
             completeTask(taskId);
             return true;
-        } else if (currentState == ProcessState.ACTIVE && !isActive && hasPath) {
+        } else if (currentState == ProcessState.ACTIVE && !isActive && !getToBlockActive && hasPath) {
             // Task is finishing - no longer active but still has a path (might be reaching goal)
             processStates.put(taskId, ProcessState.COMPLETING);
             System.out.println("PreciseCompletionTracker: " + taskId + " is completing");
-        } else if (currentState == ProcessState.COMPLETING && !hasPath && !isPathing) {
+        } else if (currentState == ProcessState.COMPLETING && !hasPath && !isPathing && !getToBlockActive) {
             // Path finished - task completed
             System.out.println("PreciseCompletionTracker: " + taskId + " completed - path finished");
             completeTask(taskId);

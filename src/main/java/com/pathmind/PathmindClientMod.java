@@ -35,6 +35,7 @@ public class PathmindClientMod implements ClientModInitializer {
         PathmindKeybinds.registerKeybinds();
         KeyBindingHelper.registerKeyBinding(PathmindKeybinds.OPEN_VISUAL_EDITOR);
         KeyBindingHelper.registerKeyBinding(PathmindKeybinds.PLAY_GRAPHS);
+        KeyBindingHelper.registerKeyBinding(PathmindKeybinds.STOP_GRAPHS);
 
         // Hook into the main menu for button and keyboard support
         PathmindMainMenuIntegration.register();
@@ -62,6 +63,10 @@ public class PathmindClientMod implements ClientModInitializer {
                     && (client.currentScreen == null || client.currentScreen instanceof TitleScreen)) {
                 client.setScreen(new PathmindVisualEditorScreen());
             }
+        }
+
+        while (PathmindKeybinds.STOP_GRAPHS.wasPressed()) {
+            ExecutionManager.getInstance().requestStopAll();
         }
 
         if (client.player == null) {

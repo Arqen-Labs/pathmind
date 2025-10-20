@@ -12,9 +12,10 @@ import baritone.api.IBaritone;
 import baritone.api.process.ICustomGoalProcess;
 import baritone.api.process.IMineProcess;
 import baritone.api.process.IExploreProcess;
-import baritone.api.process.IFollowProcess;
+import baritone.api.process.IGetToBlockProcess;
 import baritone.api.process.IFarmProcess;
 import baritone.api.pathing.goals.GoalBlock;
+import baritone.api.utils.BlockOptionalMeta;
 import com.pathmind.execution.PreciseCompletionTracker;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.player.PlayerInventory;
@@ -28,6 +29,7 @@ import net.minecraft.registry.Registries;
 import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
 import net.minecraft.network.packet.c2s.play.HandSwingC2SPacket;
 import net.minecraft.network.packet.c2s.play.PlayerActionC2SPacket;
+import net.minecraft.network.packet.c2s.play.PlayerInteractBlockC2SPacket;
 import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
@@ -1293,11 +1295,16 @@ public class Node {
                 if (blockParam != null) {
                     block = blockParam.getStringValue();
                 }
-                
+
                 System.out.println("Executing goto to block: " + block);
+                IGetToBlockProcess getToBlockProcess = baritone.getGetToBlockProcess();
+                if (getToBlockProcess == null) {
+                    future.completeExceptionally(new RuntimeException("GetToBlock process not available"));
+                    break;
+                }
+
                 PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
-                // Use Baritone's block goal - need to find the block first
-                executeCommand("#goto " + block);
+                getToBlockProcess.getToBlock(new BlockOptionalMeta(block));
                 break;
                 
             default:
@@ -1387,29 +1394,46 @@ public class Node {
         if (yParam != null) y = yParam.getIntValue();
         if (zParam != null) z = zParam.getIntValue();
 
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || client.player.networkHandler == null || client.interactionManager == null || client.world == null) {
+            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+
+        System.out.println("Placing block '" + block + "' at " + x + ", " + y + ", " + z);
+
         BlockPos targetPos = new BlockPos(x, y, z);
+        Block desiredBlock = resolveBlockForPlacement(block);
+        final String resolvedBlockId = block;
 
-        String goalCommand = String.format("#goal %d %d %d", x, y, z);
-        System.out.println("Executing command: " + goalCommand);
-        executeCommand(goalCommand);
+        try {
+            runOnClientThread(client, () -> {
+                if (desiredBlock != null && client.world.getBlockState(targetPos).isOf(desiredBlock)) {
+                    return;
+                }
 
-        CompletableFuture<Void> pathFuture = new CompletableFuture<>();
-        PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_PATH, pathFuture);
+                if (!ensureBlockInHand(client, resolvedBlockId, hand)) {
+                    throw new RuntimeException("Block " + resolvedBlockId + " not found in hotbar");
+                }
 
-        System.out.println("Executing command: #path");
-        executeCommand("#path");
+                BlockHitResult hitResult = createPlacementHitResult(client, targetPos);
+                if (hitResult == null) {
+                    throw new RuntimeException("No valid placement position at " + targetPos.getX() + ", " + targetPos.getY() + ", " + targetPos.getZ());
+                }
 
-        final String resolvedBlock = block;
-        final BlockPos resolvedTargetPos = targetPos;
-        final Hand resolvedHand = hand;
+                PlayerInteractBlockC2SPacket packet = new PlayerInteractBlockC2SPacket(hand, hitResult, 0);
+                client.player.networkHandler.sendPacket(packet);
 
-        pathFuture.whenComplete((ignored, throwable) -> {
-            if (throwable != null) {
-                future.completeExceptionally(throwable);
-            } else {
-                placeBlockAfterPath(resolvedBlock, resolvedTargetPos, resolvedHand, future);
-            }
-        });
+                client.player.swingHand(hand);
+                client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
+            });
+            future.complete(null);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            future.completeExceptionally(e);
+        } catch (RuntimeException e) {
+            future.completeExceptionally(e);
+        }
     }
     
     private void executeBuildCommand(CompletableFuture<Void> future) {
@@ -1521,8 +1545,8 @@ public class Node {
                 if (playerParam != null) {
                     player = playerParam.getStringValue();
                 }
-                
-                command = "#follow " + player;
+
+                command = "#follow player " + player;
                 System.out.println("Executing follow player: " + command);
                 break;
                 
@@ -1542,8 +1566,8 @@ public class Node {
                 if (entityParam != null) {
                     entity = entityParam.getStringValue();
                 }
-                
-                command = "#follow " + entity;
+
+                command = "#follow entity " + entity;
                 System.out.println("Executing follow entity type: " + command);
                 break;
                 
@@ -2252,43 +2276,6 @@ public class Node {
         future.complete(null);
     }
 
-    private void placeBlockAfterPath(String blockId, BlockPos targetPos, Hand hand, CompletableFuture<Void> future) {
-        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
-        if (client == null || client.player == null || client.interactionManager == null) {
-            future.completeExceptionally(new RuntimeException("Minecraft client not available"));
-            return;
-        }
-
-        Block desiredBlock = resolveBlockForPlacement(blockId);
-
-        try {
-            runOnClientThread(client, () -> {
-                if (desiredBlock != null && client.player.getWorld() != null) {
-                    if (client.player.getWorld().getBlockState(targetPos).isOf(desiredBlock)) {
-                        future.complete(null);
-                        return;
-                    }
-                } else if (client.player.getWorld() != null && !isBlockReplaceable(client.player.getWorld(), targetPos)) {
-                    future.complete(null);
-                    return;
-                }
-
-                if (!ensureBlockInHand(client, blockId, hand)) {
-                    throw new RuntimeException("Block " + blockId + " not found in hotbar");
-                }
-                if (!performBlockPlacement(client, targetPos, hand)) {
-                    throw new RuntimeException("Failed to place block at " + targetPos.getX() + ", " + targetPos.getY() + ", " + targetPos.getZ());
-                }
-                future.complete(null);
-            });
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            future.completeExceptionally(e);
-        } catch (RuntimeException e) {
-            future.completeExceptionally(e);
-        }
-    }
-
     private boolean ensureBlockInHand(net.minecraft.client.MinecraftClient client, String blockId, Hand hand) {
         if (blockId == null || blockId.isEmpty()) {
             return true;
@@ -2344,14 +2331,14 @@ public class Node {
         return -1;
     }
 
-    private boolean performBlockPlacement(net.minecraft.client.MinecraftClient client, BlockPos targetPos, Hand hand) {
-        if (client.player.getWorld() == null) {
-            return false;
+    private BlockHitResult createPlacementHitResult(net.minecraft.client.MinecraftClient client, BlockPos targetPos) {
+        if (client.player == null || client.player.getWorld() == null) {
+            return null;
         }
 
         net.minecraft.world.World world = client.player.getWorld();
         if (!isBlockReplaceable(world, targetPos)) {
-            return true;
+            return null;
         }
 
         for (Direction direction : Direction.values()) {
@@ -2366,19 +2353,10 @@ public class Node {
                 placementSide.getOffsetY() * 0.5D,
                 placementSide.getOffsetZ() * 0.5D
             );
-            BlockHitResult hitResult = new BlockHitResult(hitPos, placementSide, clickedPos, false);
-            ActionResult result = client.interactionManager.interactBlock(client.player, hand, hitResult);
-            if (result.isAccepted()) {
-                client.player.swingHand(hand);
-                if (client.player.networkHandler != null) {
-                    client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
-                }
-                return true;
-            }
+            return new BlockHitResult(hitPos, placementSide, clickedPos, false);
         }
 
-        ActionResult fallback = client.interactionManager.interactItem(client.player, hand);
-        return fallback.isAccepted();
+        return null;
     }
 
     private Block resolveBlockForPlacement(String blockId) {
