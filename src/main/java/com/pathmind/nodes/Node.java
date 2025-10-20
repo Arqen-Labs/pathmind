@@ -78,6 +78,7 @@ public class Node {
     private static final int MAX_PARAMETER_LABEL_LENGTH = 20;
     private static final int BODY_PADDING_NO_PARAMS = 10;
     private static final int START_END_SIZE = 36;
+    private static final String ERROR_MESSAGE_PREFIX = "\u00A7f⚙ \u00A74[\u00A7cPathmind\u00A74] \u00A77";
     private static final int SENSOR_SLOT_MARGIN_HORIZONTAL = 8;
     private static final int SENSOR_SLOT_INNER_PADDING = 4;
     private static final int SENSOR_SLOT_MIN_CONTENT_WIDTH = 60;
@@ -120,6 +121,22 @@ public class Node {
         initializeParameters();
         recalculateDimensions();
         resetControlState();
+    }
+
+    private void sendNodeErrorMessage(net.minecraft.client.MinecraftClient client, String message) {
+        if (client == null || message == null || message.isEmpty()) {
+            return;
+        }
+
+        client.execute(() -> sendNodeErrorMessageOnClientThread(client, message));
+    }
+
+    private void sendNodeErrorMessageOnClientThread(net.minecraft.client.MinecraftClient client, String message) {
+        if (client == null || client.player == null || message == null || message.isEmpty()) {
+            return;
+        }
+
+        client.player.sendMessage(Text.literal(ERROR_MESSAGE_PREFIX + message), false);
     }
 
     /**
@@ -1416,6 +1433,10 @@ public class Node {
         }
 
         if (!isCraftingScreenAvailable(client, craftMode)) {
+            String unavailableMessage = craftMode == NodeMode.CRAFT_CRAFTING_TABLE
+                    ? "Cannot craft: open a crafting table GUI before running this node."
+                    : "Cannot craft: open your inventory before running this node.";
+            sendNodeErrorMessage(client, unavailableMessage);
             future.complete(null);
             return;
         }
@@ -1424,18 +1445,23 @@ public class Node {
             int desiredCount = Math.max(1, quantity);
             runOnClientThread(client, () -> {
                 ScreenHandler handler = client.player.currentScreenHandler;
+                String itemDisplayName = targetItem.getName().getString();
+
                 if (!isCompatibleCraftingHandler(handler, craftMode)) {
+                    sendNodeErrorMessageOnClientThread(client, "Cannot craft " + itemDisplayName + ": the crafting screen closed.");
                     return;
                 }
 
                 RecipeEntry<CraftingRecipe> recipeEntry = findCraftingRecipe(client, targetItem, craftMode);
                 if (recipeEntry == null) {
+                    sendNodeErrorMessageOnClientThread(client, "Cannot craft " + itemDisplayName + ": no matching recipe found.");
                     return;
                 }
 
                 List<ItemStack> emptyGrid = new ArrayList<>(Collections.nCopies(9, ItemStack.EMPTY));
                 ItemStack outputTemplate = recipeEntry.value().craft(CraftingRecipeInput.create(3, 3, emptyGrid), client.player.getWorld().getRegistryManager());
                 if (outputTemplate.isEmpty()) {
+                    sendNodeErrorMessageOnClientThread(client, "Cannot craft " + itemDisplayName + ": the recipe produced no output.");
                     return;
                 }
 
@@ -1444,6 +1470,7 @@ public class Node {
 
                 int craftsPerformed = reserveAndConsumeCraftIngredients(client.player.getInventory(), handler, recipeEntry, craftsRequested, requireTable);
                 if (craftsPerformed <= 0) {
+                    sendNodeErrorMessageOnClientThread(client, "Cannot craft " + itemDisplayName + ": missing required ingredients.");
                     return;
                 }
 
