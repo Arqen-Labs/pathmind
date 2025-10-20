@@ -14,7 +14,8 @@ public enum ParameterType {
     ENTITY_TYPE("Entity Type"),
     SCHEMATIC("Schematic"),
     WAYPOINT_TAG("Waypoint Tag"),
-    WAYPOINT_NAME("Waypoint Name");
+    WAYPOINT_NAME("Waypoint Name"),
+    ITEM("Item");
 
     private final String displayName;
 

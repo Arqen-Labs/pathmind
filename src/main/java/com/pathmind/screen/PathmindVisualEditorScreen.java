@@ -447,7 +447,7 @@ public class PathmindVisualEditorScreen extends Screen {
             if (button == 0) { // Left click - select node or start dragging
                 // Check for double-click to open parameter editor
                 if (nodeGraph.handleNodeClick(clickedNode, (int)mouseX, (int)mouseY) &&
-                    (clickedNode.hasParameters() || clickedNode.supportsModeSelection())) {
+                    clickedNode.isParameterNode()) {
                     // Open parameter overlay
                     parameterOverlay = new NodeParameterOverlay(
                         clickedNode,

@@ -9,6 +9,9 @@ public enum NodeType {
     START("Start", 0xFF4CAF50, "Begins the automation sequence"),
     EVENT_FUNCTION("Function", 0xFFE91E63, "Runs a named function body when triggered"),
     EVENT_CALL("Call Function", 0xFFE91E63, "Triggers the execution of a named function"),
+
+    // Parameter nodes
+    PARAMETER("Parameter", 0xFFAB47BC, "Reusable parameter profile that can be attached to other nodes"),
     
     // Navigation Commands
     GOTO("Goto", 0xFF00BCD4, "Moves to specified coordinates"),
@@ -144,6 +147,8 @@ public enum NodeType {
             case CONTROL_IF:
             case CONTROL_IF_ELSE:
                 return NodeCategory.LOGIC;
+            case PARAMETER:
+                return NodeCategory.PARAMETERS;
             case SENSOR_TOUCHING_BLOCK:
             case SENSOR_TOUCHING_ENTITY:
             case SENSOR_AT_COORDINATES:
@@ -262,6 +267,7 @@ public enum NodeType {
             case SENSOR_ENTITY_NEARBY:
             case SENSOR_ITEM_IN_INVENTORY:
             case SENSOR_IS_FALLING:
+            case PARAMETER:
                 return true;
             default:
                 return false;

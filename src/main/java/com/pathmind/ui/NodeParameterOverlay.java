@@ -2,7 +2,7 @@ package com.pathmind.ui;
 
 import com.pathmind.nodes.Node;
 import com.pathmind.nodes.NodeParameter;
-import com.pathmind.nodes.NodeMode;
+import com.pathmind.nodes.ParameterProfile;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.font.TextRenderer;
@@ -50,11 +50,11 @@ public class NodeParameterOverlay {
     private boolean visible = false;
     private int focusedFieldIndex = -1;
     
-    // Mode selection fields
-    private NodeMode selectedMode;
-    private final List<NodeMode> availableModes;
-    private boolean modeDropdownOpen = false;
-    private int modeDropdownHoverIndex = -1;
+    // Profile selection fields
+    private ParameterProfile selectedProfile;
+    private final List<ParameterProfile> availableProfiles;
+    private boolean profileDropdownOpen = false;
+    private int profileDropdownHoverIndex = -1;
 
     public NodeParameterOverlay(Node node, int screenWidth, int screenHeight, int topBarHeight, Runnable onClose) {
         this.node = node;
@@ -65,20 +65,24 @@ public class NodeParameterOverlay {
         this.screenHeight = screenHeight;
         this.topBarHeight = topBarHeight;
         
-        // Initialize mode selection
-        this.availableModes = new ArrayList<>();
-        NodeMode[] modes = NodeMode.getModesForNodeType(node.getType());
-        if (modes != null) {
-            for (NodeMode mode : modes) {
-                this.availableModes.add(mode);
-            }
+        // Initialize profile selection
+        this.availableProfiles = new ArrayList<>();
+        for (ParameterProfile profile : ParameterProfile.values()) {
+            this.availableProfiles.add(profile);
         }
-        this.selectedMode = node.getMode();
+        this.selectedProfile = node.getParameterProfile();
         
         updatePopupDimensions();
     }
 
     public void init() {
+        if (selectedProfile == null) {
+            selectedProfile = node.getParameterProfile();
+            if (selectedProfile == null) {
+                selectedProfile = ParameterProfile.POSITION_XYZ;
+                node.setParameterProfile(selectedProfile);
+            }
+        }
         resetParameterFields();
         updatePopupDimensions();
         recreateButtons();
@@ -114,47 +118,47 @@ public class NodeParameterOverlay {
         context.enableScissor(popupX + 1, contentTop, contentRight - 1, contentBottom);
 
         int sectionY = contentTop - scrollOffset;
-        if (hasModeSelection()) {
+        if (hasProfileSelection()) {
             context.drawTextWithShadow(
                 textRenderer,
-                Text.literal("Mode:"),
+                Text.literal("Profile:"),
                 popupX + 20,
                 sectionY + 4,
                 0xFFE0E0E0
             );
 
-            int modeButtonX = popupX + 20;
-            int modeButtonY = sectionY + LABEL_TO_FIELD_OFFSET;
-            int modeButtonWidth = popupWidth - 40;
-            int modeButtonHeight = FIELD_HEIGHT;
+            int profileButtonX = popupX + 20;
+            int profileButtonY = sectionY + LABEL_TO_FIELD_OFFSET;
+            int profileButtonWidth = popupWidth - 40;
+            int profileButtonHeight = FIELD_HEIGHT;
 
-            boolean modeButtonHovered = mouseX >= modeButtonX && mouseX <= modeButtonX + modeButtonWidth &&
-                                      mouseY >= modeButtonY && mouseY <= modeButtonY + modeButtonHeight;
+            boolean profileButtonHovered = mouseX >= profileButtonX && mouseX <= profileButtonX + profileButtonWidth &&
+                                      mouseY >= profileButtonY && mouseY <= profileButtonY + profileButtonHeight;
 
-            int modeBgColor = modeButtonHovered ? adjustColorBrightness(0xFF1A1A1A, 1.1f) : 0xFF1A1A1A;
-            int modeBorderColor = modeButtonHovered ? 0xFF87CEEB : 0xFF666666;
+            int profileBgColor = profileButtonHovered ? adjustColorBrightness(0xFF1A1A1A, 1.1f) : 0xFF1A1A1A;
+            int profileBorderColor = profileButtonHovered ? 0xFF87CEEB : 0xFF666666;
 
-            context.fill(modeButtonX, modeButtonY, modeButtonX + modeButtonWidth, modeButtonY + modeButtonHeight, modeBgColor);
-            context.drawBorder(modeButtonX, modeButtonY, modeButtonWidth, modeButtonHeight, modeBorderColor);
+            context.fill(profileButtonX, profileButtonY, profileButtonX + profileButtonWidth, profileButtonY + profileButtonHeight, profileBgColor);
+            context.drawBorder(profileButtonX, profileButtonY, profileButtonWidth, profileButtonHeight, profileBorderColor);
 
-            String modeText = selectedMode != null ? selectedMode.getDisplayName() : "Select Mode";
+            String profileText = selectedProfile != null ? selectedProfile.getDisplayName() : "Select Profile";
             context.drawTextWithShadow(
                 textRenderer,
-                Text.literal(modeText),
-                modeButtonX + 4,
-                modeButtonY + 6,
+                Text.literal(profileText),
+                profileButtonX + 4,
+                profileButtonY + 6,
                 0xFFFFFFFF
             );
 
             context.drawTextWithShadow(
                 textRenderer,
                 Text.literal("▼"),
-                modeButtonX + modeButtonWidth - 16,
-                modeButtonY + 6,
+                profileButtonX + profileButtonWidth - 16,
+                profileButtonY + 6,
                 0xFFE0E0E0
             );
 
-            sectionY = modeButtonY + modeButtonHeight + SECTION_SPACING;
+            sectionY = profileButtonY + profileButtonHeight + SECTION_SPACING;
         }
 
         for (int i = 0; i < node.getParameters().size(); i++) {
@@ -215,43 +219,43 @@ public class NodeParameterOverlay {
         renderButton(context, textRenderer, saveButton, mouseX, mouseY);
         renderButton(context, textRenderer, cancelButton, mouseX, mouseY);
 
-        if (hasModeSelection() && modeDropdownOpen) {
-            int modeButtonX = popupX + 20;
-            int modeButtonY = popupY + CONTENT_START_OFFSET + LABEL_TO_FIELD_OFFSET - scrollOffset;
-            int modeButtonWidth = popupWidth - 40;
-            int modeButtonHeight = FIELD_HEIGHT;
+        if (hasProfileSelection() && profileDropdownOpen) {
+            int profileButtonX = popupX + 20;
+            int profileButtonY = popupY + CONTENT_START_OFFSET + LABEL_TO_FIELD_OFFSET - scrollOffset;
+            int profileButtonWidth = popupWidth - 40;
+            int profileButtonHeight = FIELD_HEIGHT;
 
-            int dropdownY = modeButtonY + modeButtonHeight;
-            int dropdownHeight = availableModes.size() * DROPDOWN_OPTION_HEIGHT;
+            int dropdownY = profileButtonY + profileButtonHeight;
+            int dropdownHeight = availableProfiles.size() * DROPDOWN_OPTION_HEIGHT;
 
-            modeDropdownHoverIndex = -1;
-            if (mouseX >= modeButtonX && mouseX <= modeButtonX + modeButtonWidth &&
+            profileDropdownHoverIndex = -1;
+            if (mouseX >= profileButtonX && mouseX <= profileButtonX + profileButtonWidth &&
                 mouseY >= dropdownY && mouseY <= dropdownY + dropdownHeight) {
                 int hoverIndex = (mouseY - dropdownY) / DROPDOWN_OPTION_HEIGHT;
-                if (hoverIndex >= 0 && hoverIndex < availableModes.size()) {
-                    modeDropdownHoverIndex = hoverIndex;
+                if (hoverIndex >= 0 && hoverIndex < availableProfiles.size()) {
+                    profileDropdownHoverIndex = hoverIndex;
                 }
             }
 
-            context.fill(modeButtonX, dropdownY, modeButtonX + modeButtonWidth, dropdownY + dropdownHeight, 0xFF1A1A1A);
-            context.drawBorder(modeButtonX, dropdownY, modeButtonWidth, dropdownHeight, 0xFF666666);
+            context.fill(profileButtonX, dropdownY, profileButtonX + profileButtonWidth, dropdownY + dropdownHeight, 0xFF1A1A1A);
+            context.drawBorder(profileButtonX, dropdownY, profileButtonWidth, dropdownHeight, 0xFF666666);
 
-            for (int i = 0; i < availableModes.size(); i++) {
-                NodeMode mode = availableModes.get(i);
+            for (int i = 0; i < availableProfiles.size(); i++) {
+                ParameterProfile profile = availableProfiles.get(i);
                 int optionY = dropdownY + i * DROPDOWN_OPTION_HEIGHT;
 
-                boolean isSelected = selectedMode == mode;
-                boolean isHovered = i == modeDropdownHoverIndex;
+                boolean isSelected = selectedProfile == profile;
+                boolean isHovered = i == profileDropdownHoverIndex;
                 int optionColor = isSelected ? adjustColorBrightness(0xFF1A1A1A, 0.9f) : 0xFF1A1A1A;
                 if (isHovered) {
                     optionColor = adjustColorBrightness(optionColor, 1.2f);
                 }
-                context.fill(modeButtonX, optionY, modeButtonX + modeButtonWidth, optionY + DROPDOWN_OPTION_HEIGHT, optionColor);
+                context.fill(profileButtonX, optionY, profileButtonX + profileButtonWidth, optionY + DROPDOWN_OPTION_HEIGHT, optionColor);
 
                 context.drawTextWithShadow(
                     textRenderer,
-                    Text.literal(mode.getDisplayName()),
-                    modeButtonX + 4,
+                    Text.literal(profile.getDisplayName()),
+                    profileButtonX + 4,
                     optionY + 6,
                     0xFFFFFFFF
                 );
@@ -316,43 +320,43 @@ public class NodeParameterOverlay {
         int contentTop = getScrollAreaTop();
         int contentBottom = getScrollAreaBottom();
         int labelY = contentTop - scrollOffset;
-        if (hasModeSelection()) {
-            int modeButtonX = popupX + 20;
-            int modeButtonY = labelY + LABEL_TO_FIELD_OFFSET;
-            int modeButtonWidth = popupWidth - 40;
-            int modeButtonHeight = FIELD_HEIGHT;
+        if (hasProfileSelection()) {
+            int profileButtonX = popupX + 20;
+            int profileButtonY = labelY + LABEL_TO_FIELD_OFFSET;
+            int profileButtonWidth = popupWidth - 40;
+            int profileButtonHeight = FIELD_HEIGHT;
 
-            boolean modeVisible = modeButtonY <= contentBottom && modeButtonY + modeButtonHeight >= contentTop;
+            boolean profileVisible = profileButtonY <= contentBottom && profileButtonY + profileButtonHeight >= contentTop;
 
-            if (modeDropdownOpen) {
-                int dropdownY = modeButtonY + modeButtonHeight;
-                int dropdownHeight = availableModes.size() * DROPDOWN_OPTION_HEIGHT;
+            if (profileDropdownOpen) {
+                int dropdownY = profileButtonY + profileButtonHeight;
+                int dropdownHeight = availableProfiles.size() * DROPDOWN_OPTION_HEIGHT;
 
-                if (mouseX >= modeButtonX && mouseX <= modeButtonX + modeButtonWidth &&
+                if (mouseX >= profileButtonX && mouseX <= profileButtonX + profileButtonWidth &&
                     mouseY >= dropdownY && mouseY <= dropdownY + dropdownHeight) {
                     int optionIndex = (int) ((mouseY - dropdownY) / DROPDOWN_OPTION_HEIGHT);
-                    if (optionIndex >= 0 && optionIndex < availableModes.size()) {
-                        selectedMode = availableModes.get(optionIndex);
-                        node.setMode(selectedMode);
+                    if (optionIndex >= 0 && optionIndex < availableProfiles.size()) {
+                        selectedProfile = availableProfiles.get(optionIndex);
+                        node.setParameterProfile(selectedProfile);
                         resetParameterFields();
                         updatePopupDimensions();
                         recreateButtons();
                         updateButtonPositions();
                     }
-                    modeDropdownOpen = false;
-                    modeDropdownHoverIndex = -1;
+                    profileDropdownOpen = false;
+                    profileDropdownHoverIndex = -1;
                     return true;
                 }
             }
 
-            if (modeVisible && mouseX >= modeButtonX && mouseX <= modeButtonX + modeButtonWidth &&
-                mouseY >= Math.max(modeButtonY, contentTop) && mouseY <= Math.min(modeButtonY + modeButtonHeight, contentBottom)) {
-                modeDropdownOpen = !modeDropdownOpen;
-                modeDropdownHoverIndex = -1;
+            if (profileVisible && mouseX >= profileButtonX && mouseX <= profileButtonX + profileButtonWidth &&
+                mouseY >= Math.max(profileButtonY, contentTop) && mouseY <= Math.min(profileButtonY + profileButtonHeight, contentBottom)) {
+                profileDropdownOpen = !profileDropdownOpen;
+                profileDropdownHoverIndex = -1;
                 return true;
             }
 
-            labelY = modeButtonY + modeButtonHeight + SECTION_SPACING;
+            labelY = profileButtonY + profileButtonHeight + SECTION_SPACING;
         }
 
         // Check button clicks after handling dropdown interactions so dropdown selections aren't swallowed by buttons beneath
@@ -382,19 +386,18 @@ public class NodeParameterOverlay {
         }
 
         // Close dropdown if clicking outside of it
-        if (hasModeSelection() && modeDropdownOpen) {
-            int modeButtonX = popupX + 20;
-            int modeButtonY = popupY + CONTENT_START_OFFSET + LABEL_TO_FIELD_OFFSET - scrollOffset;
-            int modeButtonWidth = popupWidth - 40;
-            int modeButtonHeight = FIELD_HEIGHT;
-            int dropdownY = modeButtonY + modeButtonHeight;
-            int dropdownHeight = availableModes.size() * DROPDOWN_OPTION_HEIGHT;
+        if (hasProfileSelection() && profileDropdownOpen) {
+            int profileButtonX = popupX + 20;
+            int profileButtonY = popupY + CONTENT_START_OFFSET + LABEL_TO_FIELD_OFFSET - scrollOffset;
+            int profileButtonWidth = popupWidth - 40;
+            int profileButtonHeight = FIELD_HEIGHT;
+            int dropdownY = profileButtonY + profileButtonHeight;
+            int dropdownHeight = availableProfiles.size() * DROPDOWN_OPTION_HEIGHT;
 
-            // Check if click is outside dropdown area
-            if (!(mouseX >= modeButtonX && mouseX <= modeButtonX + modeButtonWidth &&
-                  mouseY >= modeButtonY && mouseY <= dropdownY + dropdownHeight)) {
-                modeDropdownOpen = false; // Close dropdown
-                modeDropdownHoverIndex = -1;
+            if (!(mouseX >= profileButtonX && mouseX <= profileButtonX + profileButtonWidth &&
+                  mouseY >= profileButtonY && mouseY <= dropdownY + dropdownHeight)) {
+                profileDropdownOpen = false;
+                profileDropdownHoverIndex = -1;
             }
         }
         
@@ -484,11 +487,10 @@ public class NodeParameterOverlay {
     }
 
     private void saveParameters() {
-        // Update node mode if applicable
-        if (hasModeSelection() && selectedMode != null) {
-            node.setMode(selectedMode);
+        if (hasProfileSelection() && selectedProfile != null) {
+            node.setParameterProfile(selectedProfile);
         }
-        
+
         // Update node parameters with field values
         List<NodeParameter> parameters = node.getParameters();
         for (int i = 0; i < parameters.size() && i < parameterValues.size(); i++) {
@@ -496,16 +498,19 @@ public class NodeParameterOverlay {
             String value = parameterValues.get(i);
             param.setStringValue(value);
         }
-        
+
         node.recalculateDimensions();
-        
+        if (node.getParameterConsumer() != null) {
+            node.getParameterConsumer().onAttachedParameterChanged();
+        }
+
         close();
     }
 
     public void close() {
         visible = false;
-        modeDropdownOpen = false;
-        modeDropdownHoverIndex = -1;
+        profileDropdownOpen = false;
+        profileDropdownHoverIndex = -1;
         if (onClose != null) {
             onClose.run();
         }
@@ -514,8 +519,8 @@ public class NodeParameterOverlay {
     public void show() {
         visible = true;
         focusedFieldIndex = -1;
-        modeDropdownOpen = false;
-        modeDropdownHoverIndex = -1;
+        profileDropdownOpen = false;
+        profileDropdownHoverIndex = -1;
         scrollOffset = 0;
         updateButtonPositions();
     }
@@ -537,10 +542,10 @@ public class NodeParameterOverlay {
     private void updatePopupDimensions() {
         int longestLineLength = ("Edit Parameters: " + node.getType().getDisplayName()).length();
 
-        if (hasModeSelection()) {
-            longestLineLength = Math.max(longestLineLength, "Mode:".length());
-            String modeText = selectedMode != null ? selectedMode.getDisplayName() : "Select Mode";
-            longestLineLength = Math.max(longestLineLength, modeText.length());
+        if (hasProfileSelection()) {
+            longestLineLength = Math.max(longestLineLength, "Profile:".length());
+            String profileText = selectedProfile != null ? selectedProfile.getDisplayName() : "Select Profile";
+            longestLineLength = Math.max(longestLineLength, profileText.length());
         }
 
         for (NodeParameter param : node.getParameters()) {
@@ -563,7 +568,7 @@ public class NodeParameterOverlay {
         this.popupWidth = Math.min(Math.max(MIN_POPUP_WIDTH, computedWidth), maxAllowedWidth);
 
         int contentHeight = CONTENT_START_OFFSET;
-        if (hasModeSelection()) {
+        if (hasProfileSelection()) {
             contentHeight += LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT;
             if (!node.getParameters().isEmpty()) {
                 contentHeight += SECTION_SPACING;
@@ -609,13 +614,13 @@ public class NodeParameterOverlay {
         updateButtonPositions();
     }
     
-    private boolean hasModeSelection() {
-        return !availableModes.isEmpty();
+    private boolean hasProfileSelection() {
+        return node.isParameterNode() && !availableProfiles.isEmpty();
     }
 
     private int computeButtonY() {
         int offset = CONTENT_START_OFFSET;
-        if (hasModeSelection()) {
+        if (hasProfileSelection()) {
             offset += LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT + SECTION_SPACING;
         }
         offset += node.getParameters().size() * (LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT + SECTION_SPACING);

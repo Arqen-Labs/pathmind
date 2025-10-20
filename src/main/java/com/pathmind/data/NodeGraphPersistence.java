@@ -6,6 +6,7 @@ import com.pathmind.nodes.Node;
 import com.pathmind.nodes.NodeConnection;
 import com.pathmind.nodes.NodeParameter;
 import com.pathmind.nodes.NodeType;
+import com.pathmind.nodes.ParameterProfile;
 import com.pathmind.nodes.ParameterType;
 
 import java.io.*;
@@ -64,6 +65,11 @@ public class NodeGraphPersistence {
                 nodeData.setParentControlId(node.getParentControlId());
                 nodeData.setAttachedActionId(node.getAttachedActionId());
                 nodeData.setParentActionControlId(node.getParentActionControlId());
+                nodeData.setAttachedParameterId(node.getAttachedParameterId());
+                nodeData.setParameterConsumerId(node.getParameterConsumerId());
+                if (node.isParameterNode() && node.getParameterProfile() != null) {
+                    nodeData.setParameterProfileId(node.getParameterProfile().getId());
+                }
 
                 data.getNodes().add(nodeData);
             }
@@ -154,7 +160,13 @@ public class NodeGraphPersistence {
             if (nodeData.getMode() != null) {
                 node.setMode(nodeData.getMode());
             }
-            
+
+            // Restore the selected parameter profile for parameter nodes
+            if (node.isParameterNode()) {
+                ParameterProfile.fromId(nodeData.getParameterProfileId())
+                    .ifPresent(node::setParameterProfile);
+            }
+
             // Restore parameters (overwrite the default parameters with saved ones)
             node.getParameters().clear();
             if (nodeData.getParameters() != null) {
@@ -206,6 +218,26 @@ public class NodeGraphPersistence {
                 Node control = nodeMap.get(nodeData.getParentActionControlId());
                 if (child != null && control != null && control.canAcceptActionNode(child)) {
                     control.attachActionNode(child);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            if (nodeData.getAttachedParameterId() != null) {
+                Node consumer = nodeMap.get(nodeData.getId());
+                Node parameter = nodeMap.get(nodeData.getAttachedParameterId());
+                if (consumer != null && parameter != null) {
+                    consumer.attachParameter(parameter);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            if (nodeData.getParameterConsumerId() != null) {
+                Node parameter = nodeMap.get(nodeData.getId());
+                Node consumer = nodeMap.get(nodeData.getParameterConsumerId());
+                if (parameter != null && consumer != null && parameter.getParameterConsumer() != consumer) {
+                    consumer.attachParameter(parameter);
                 }
             }
         }
