@@ -91,7 +91,27 @@ public enum NodeType {
     // Utility Commands
     SCREEN_CONTROL("Screen Control", 0xFF9E9E9E, "Open or close in-game screens"),
     WAIT("Wait", 0xFF607D8B, "Waits for specified duration"),
-    MESSAGE("Message", 0xFF9E9E9E, "Sends a chat message");
+    MESSAGE("Message", 0xFF9E9E9E, "Sends a chat message"),
+
+    // Parameter data nodes
+    PARAM_COORDINATE("Coordinate", 0xFF4DD0E1, "Reusable XYZ coordinate parameter"),
+    PARAM_COORDINATE_2D("Coordinate (XZ)", 0xFF4DD0E1, "Reusable XZ coordinate parameter"),
+    PARAM_HEIGHT("Height", 0xFF4DD0E1, "Reusable Y level parameter"),
+    PARAM_BLOCK("Block", 0xFF4DD0E1, "Reusable block parameter"),
+    PARAM_SCHEMATIC("Schematic", 0xFF4DD0E1, "Reusable schematic parameter"),
+    PARAM_ITEM("Item", 0xFF4DD0E1, "Reusable item parameter"),
+    PARAM_ENTITY("Entity", 0xFF4DD0E1, "Reusable entity parameter"),
+    PARAM_PLAYER("Player", 0xFF4DD0E1, "Reusable player parameter"),
+    PARAM_RANGE("Range", 0xFF4DD0E1, "Reusable numeric range parameter"),
+    PARAM_WAYPOINT("Waypoint", 0xFF4DD0E1, "Reusable waypoint parameter"),
+    PARAM_TIME("Duration", 0xFF4DD0E1, "Reusable duration parameter"),
+    PARAM_BOOLEAN("Toggle", 0xFF4DD0E1, "Reusable toggle parameter"),
+    PARAM_FUNCTION("Function Name", 0xFF4DD0E1, "Reusable function name parameter"),
+    PARAM_TEXT("Text", 0xFF4DD0E1, "Reusable text parameter"),
+    PARAM_SLOT("Inventory Slot", 0xFF4DD0E1, "Reusable inventory slot parameter"),
+    PARAM_HAND("Hand", 0xFF4DD0E1, "Reusable hand selection parameter"),
+    PARAM_REPEAT("Repeat", 0xFF4DD0E1, "Reusable repeat configuration parameter"),
+    PARAM_ORIENTATION("Orientation", 0xFF4DD0E1, "Reusable look/turn parameter");
 
     private final String displayName;
     private final String description;
@@ -206,8 +226,53 @@ public enum NodeType {
             case WAIT:
             case MESSAGE:
                 return NodeCategory.UTILITY;
+            case PARAM_COORDINATE:
+            case PARAM_COORDINATE_2D:
+            case PARAM_HEIGHT:
+            case PARAM_BLOCK:
+            case PARAM_SCHEMATIC:
+            case PARAM_ITEM:
+            case PARAM_ENTITY:
+            case PARAM_PLAYER:
+            case PARAM_RANGE:
+            case PARAM_WAYPOINT:
+            case PARAM_TIME:
+            case PARAM_BOOLEAN:
+            case PARAM_FUNCTION:
+            case PARAM_TEXT:
+            case PARAM_SLOT:
+            case PARAM_HAND:
+            case PARAM_REPEAT:
+            case PARAM_ORIENTATION:
+                return NodeCategory.PARAMETERS;
             default:
                 return NodeCategory.UTILITY;
+        }
+    }
+
+    public boolean isParameterNode() {
+        switch (this) {
+            case PARAM_COORDINATE:
+            case PARAM_COORDINATE_2D:
+            case PARAM_HEIGHT:
+            case PARAM_BLOCK:
+            case PARAM_SCHEMATIC:
+            case PARAM_ITEM:
+            case PARAM_ENTITY:
+            case PARAM_PLAYER:
+            case PARAM_RANGE:
+            case PARAM_WAYPOINT:
+            case PARAM_TIME:
+            case PARAM_BOOLEAN:
+            case PARAM_FUNCTION:
+            case PARAM_TEXT:
+            case PARAM_SLOT:
+            case PARAM_HAND:
+            case PARAM_REPEAT:
+            case PARAM_ORIENTATION:
+                return true;
+            default:
+                return false;
         }
     }
     
@@ -262,6 +327,24 @@ public enum NodeType {
             case SENSOR_ENTITY_NEARBY:
             case SENSOR_ITEM_IN_INVENTORY:
             case SENSOR_IS_FALLING:
+            case PARAM_COORDINATE:
+            case PARAM_COORDINATE_2D:
+            case PARAM_HEIGHT:
+            case PARAM_BLOCK:
+            case PARAM_SCHEMATIC:
+            case PARAM_ITEM:
+            case PARAM_ENTITY:
+            case PARAM_PLAYER:
+            case PARAM_RANGE:
+            case PARAM_WAYPOINT:
+            case PARAM_TIME:
+            case PARAM_BOOLEAN:
+            case PARAM_FUNCTION:
+            case PARAM_TEXT:
+            case PARAM_SLOT:
+            case PARAM_HAND:
+            case PARAM_REPEAT:
+            case PARAM_ORIENTATION:
                 return true;
             default:
                 return false;

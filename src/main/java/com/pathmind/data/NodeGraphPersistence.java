@@ -64,6 +64,8 @@ public class NodeGraphPersistence {
                 nodeData.setParentControlId(node.getParentControlId());
                 nodeData.setAttachedActionId(node.getAttachedActionId());
                 nodeData.setParentActionControlId(node.getParentActionControlId());
+                nodeData.setAttachedParameterId(node.getAttachedParameterId());
+                nodeData.setParentParameterConsumerId(node.getParentParameterConsumerId());
 
                 data.getNodes().add(nodeData);
             }
@@ -206,6 +208,26 @@ public class NodeGraphPersistence {
                 Node control = nodeMap.get(nodeData.getParentActionControlId());
                 if (child != null && control != null && control.canAcceptActionNode(child)) {
                     control.attachActionNode(child);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            if (nodeData.getAttachedParameterId() != null) {
+                Node consumer = nodeMap.get(nodeData.getId());
+                Node parameter = nodeMap.get(nodeData.getAttachedParameterId());
+                if (consumer != null && parameter != null) {
+                    consumer.attachParameter(parameter);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            if (nodeData.getParentParameterConsumerId() != null) {
+                Node parameter = nodeMap.get(nodeData.getId());
+                Node consumer = nodeMap.get(nodeData.getParentParameterConsumerId());
+                if (parameter != null && consumer != null && consumer.hasParameterSlot() && !parameter.isAttachedToParameterConsumer()) {
+                    consumer.attachParameter(parameter);
                 }
             }
         }

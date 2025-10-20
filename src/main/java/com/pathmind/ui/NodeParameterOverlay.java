@@ -496,9 +496,10 @@ public class NodeParameterOverlay {
             String value = parameterValues.get(i);
             param.setStringValue(value);
         }
-        
+
+        node.notifyParametersChanged();
         node.recalculateDimensions();
-        
+
         close();
     }
 
