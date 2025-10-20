@@ -3,6 +3,7 @@ package com.pathmind.ui;
 import com.pathmind.nodes.Node;
 import com.pathmind.nodes.NodeParameter;
 import com.pathmind.nodes.NodeMode;
+import com.pathmind.nodes.NodeCategory;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.font.TextRenderer;
@@ -498,7 +499,11 @@ public class NodeParameterOverlay {
         }
         
         node.recalculateDimensions();
-        
+
+        if (node.getType().getCategory() == NodeCategory.PARAMETERS && node.getParameterParent() != null) {
+            node.getParameterParent().assignParameterNode(node);
+        }
+
         close();
     }
 

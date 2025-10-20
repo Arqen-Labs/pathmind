@@ -4,6 +4,7 @@ import com.pathmind.data.NodeGraphPersistence;
 import com.pathmind.data.PresetManager;
 import com.pathmind.execution.ExecutionManager;
 import com.pathmind.nodes.Node;
+import com.pathmind.nodes.NodeCategory;
 import com.pathmind.nodes.NodeType;
 import com.pathmind.ui.NodeGraph;
 import com.pathmind.ui.NodeParameterOverlay;
@@ -446,8 +447,10 @@ public class PathmindVisualEditorScreen extends Screen {
             // Node body clicked (not socket)
             if (button == 0) { // Left click - select node or start dragging
                 // Check for double-click to open parameter editor
-                if (nodeGraph.handleNodeClick(clickedNode, (int)mouseX, (int)mouseY) &&
-                    (clickedNode.hasParameters() || clickedNode.supportsModeSelection())) {
+                boolean allowParameterEditor = clickedNode.getType().getCategory() == NodeCategory.PARAMETERS;
+                if (allowParameterEditor &&
+                    nodeGraph.handleNodeClick(clickedNode, (int)mouseX, (int)mouseY) &&
+                    clickedNode.hasParameters()) {
                     // Open parameter overlay
                     parameterOverlay = new NodeParameterOverlay(
                         clickedNode,

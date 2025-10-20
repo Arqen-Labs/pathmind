@@ -688,6 +688,16 @@ public class ExecutionManager {
             }
         }
 
+        for (NodeGraphData.NodeData nodeData : graphData.getNodes()) {
+            if (nodeData.getParameterNodeId() != null) {
+                Node host = nodeMap.get(nodeData.getId());
+                Node parameter = nodeMap.get(nodeData.getParameterNodeId());
+                if (host != null && parameter != null) {
+                    host.assignParameterNode(parameter);
+                }
+            }
+        }
+
         List<NodeConnection> connections = new ArrayList<>();
         for (NodeGraphData.ConnectionData connData : graphData.getConnections()) {
             Node outputNode = nodeMap.get(connData.getOutputNodeId());

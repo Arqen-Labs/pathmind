@@ -97,6 +97,9 @@ public class Node {
     private static final int SLOT_AREA_PADDING_TOP = 0;
     private static final int SLOT_AREA_PADDING_BOTTOM = 6;
     private static final int SLOT_VERTICAL_SPACING = 6;
+    private static final int PARAMETER_SLOT_HEIGHT = 26;
+    private static final int PARAMETER_SLOT_MARGIN_HORIZONTAL = 6;
+    private static final int PARAMETER_SLOT_MARGIN_VERTICAL = 4;
     private int width;
     private int height;
     private int nextOutputSocket = 0;
@@ -107,11 +110,13 @@ public class Node {
     private boolean dragging = false;
     private int dragOffsetX, dragOffsetY;
     private final List<NodeParameter> parameters;
+    private Node parameterNode;
     private Node attachedSensor;
     private Node parentControl;
     private Node attachedActionNode;
     private Node parentActionControl;
     private boolean socketsHidden;
+    private Node parameterParent;
 
     public Node(NodeType type, int x, int y) {
         this.id = java.util.UUID.randomUUID().toString();
@@ -120,11 +125,13 @@ public class Node {
         this.x = x;
         this.y = y;
         this.parameters = new ArrayList<>();
+        this.parameterNode = null;
         this.attachedSensor = null;
         this.parentControl = null;
         this.attachedActionNode = null;
         this.parentActionControl = null;
         this.socketsHidden = false;
+        this.parameterParent = null;
         initializeParameters();
         recalculateDimensions();
         resetControlState();
@@ -195,6 +202,13 @@ public class Node {
         }
         if (attachedActionNode != null) {
             updateAttachedActionPosition();
+        }
+        if (parameterNode != null && parameterNode.getParameterParent() == this) {
+            int slotTop = getParameterSlotTop();
+            int slotBottom = getParameterSlotBottom();
+            int targetY = slotTop + (slotBottom - slotTop - parameterNode.getHeight()) / 2;
+            int targetX = getParameterSlotLeft() - parameterNode.getWidth() - 12;
+            parameterNode.setPosition(targetX, targetY);
         }
     }
 
@@ -934,6 +948,51 @@ public class Node {
             case SENSOR_IS_FALLING:
                 parameters.add(new NodeParameter("Distance", ParameterType.DOUBLE, "2.0"));
                 break;
+            case PARAMETER_COORDINATE:
+                parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
+                parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "64"));
+                parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
+                break;
+            case PARAMETER_XZ:
+                parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
+                parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
+                break;
+            case PARAMETER_Y:
+                parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "64"));
+                break;
+            case PARAMETER_BLOCK:
+                parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, "minecraft:stone"));
+                break;
+            case PARAMETER_ITEM:
+                parameters.add(new NodeParameter("Item", ParameterType.STRING, "minecraft:stick"));
+                break;
+            case PARAMETER_ENTITY:
+                parameters.add(new NodeParameter("Entity", ParameterType.ENTITY_TYPE, "minecraft:zombie"));
+                break;
+            case PARAMETER_PLAYER:
+                parameters.add(new NodeParameter("Player", ParameterType.PLAYER_NAME, "Player"));
+                break;
+            case PARAMETER_WAYPOINT:
+                parameters.add(new NodeParameter("Waypoint", ParameterType.WAYPOINT_NAME, "home"));
+                break;
+            case PARAMETER_SCHEMATIC:
+                parameters.add(new NodeParameter("Schematic", ParameterType.SCHEMATIC, "build.schem"));
+                break;
+            case PARAMETER_DURATION:
+                parameters.add(new NodeParameter("Seconds", ParameterType.DOUBLE, "1.0"));
+                break;
+            case PARAMETER_INTEGER:
+                parameters.add(new NodeParameter("Value", ParameterType.INTEGER, "0"));
+                break;
+            case PARAMETER_DOUBLE:
+                parameters.add(new NodeParameter("Value", ParameterType.DOUBLE, "0.0"));
+                break;
+            case PARAMETER_BOOLEAN:
+                parameters.add(new NodeParameter("Value", ParameterType.BOOLEAN, "false"));
+                break;
+            case PARAMETER_TEXT:
+                parameters.add(new NodeParameter("Value", ParameterType.STRING, ""));
+                break;
             default:
                 // No parameters needed
                 break;
@@ -957,6 +1016,229 @@ public class Node {
             }
         }
         return null;
+    }
+
+    public Node getParameterNode() {
+        return parameterNode;
+    }
+
+    public boolean hasParameterNode() {
+        return parameterNode != null;
+    }
+
+    public Node getParameterParent() {
+        return parameterParent;
+    }
+
+    public void setParameterParent(Node parent) {
+        this.parameterParent = parent;
+    }
+
+    public boolean hasParameterSlot() {
+        if (type == NodeType.START || type == NodeType.EVENT_FUNCTION) {
+            return false;
+        }
+        if (type.getCategory() == NodeCategory.PARAMETERS) {
+            return false;
+        }
+        return type.hasParameters() || supportsModeSelection();
+    }
+
+    public boolean canAcceptParameterNode(Node candidate) {
+        if (candidate == null) {
+            return false;
+        }
+        if (candidate == this) {
+            return false;
+        }
+        if (candidate.getType().getCategory() != NodeCategory.PARAMETERS) {
+            return false;
+        }
+        return hasParameterSlot();
+    }
+
+    public void detachParameterNode() {
+        if (this.parameterNode != null && this.parameterNode.getParameterParent() == this) {
+            this.parameterNode.setParameterParent(null);
+        }
+        this.parameterNode = null;
+        recalculateDimensions();
+    }
+
+    public boolean assignParameterNode(Node candidate) {
+        if (!canAcceptParameterNode(candidate)) {
+            return false;
+        }
+
+        if (candidate.getParameterParent() != null && candidate.getParameterParent() != this) {
+            candidate.getParameterParent().detachParameterNode();
+        }
+        candidate.setParameterParent(this);
+        this.parameterNode = candidate;
+        NodeMode targetMode = determineModeFromParameter(candidate);
+        if (targetMode != null && targetMode != this.mode) {
+            setMode(targetMode);
+        }
+        syncParametersFromNode(candidate);
+        recalculateDimensions();
+        return true;
+    }
+
+    private void syncParametersFromNode(Node candidate) {
+        if (candidate == null) {
+            return;
+        }
+        for (NodeParameter targetParam : parameters) {
+            NodeParameter source = candidate.getParameter(targetParam.getName());
+            if (source == null) {
+                continue;
+            }
+            copyParameterValue(source, targetParam);
+        }
+    }
+
+    private void copyParameterValue(NodeParameter source, NodeParameter target) {
+        if (source == null || target == null) {
+            return;
+        }
+        String stringValue = source.getStringValue();
+        if (stringValue == null) {
+            stringValue = "";
+        }
+        target.setStringValue(stringValue);
+        switch (target.getType()) {
+            case INTEGER:
+                target.setIntValue(source.getIntValue());
+                break;
+            case DOUBLE:
+                target.setDoubleValue(source.getDoubleValue());
+                break;
+            case BOOLEAN:
+                target.setBoolValue(source.getBoolValue());
+                break;
+            default:
+                break;
+        }
+    }
+
+    private NodeMode determineModeFromParameter(Node candidate) {
+        if (candidate == null) {
+            return NodeMode.getDefaultModeForNodeType(type);
+        }
+
+        switch (type) {
+            case GOTO:
+                return switch (candidate.getType()) {
+                    case PARAMETER_COORDINATE -> NodeMode.GOTO_XYZ;
+                    case PARAMETER_XZ -> NodeMode.GOTO_XZ;
+                    case PARAMETER_Y -> NodeMode.GOTO_Y;
+                    case PARAMETER_BLOCK -> NodeMode.GOTO_BLOCK;
+                    default -> NodeMode.getDefaultModeForNodeType(type);
+                };
+            case GOAL:
+                return switch (candidate.getType()) {
+                    case PARAMETER_COORDINATE -> NodeMode.GOAL_XYZ;
+                    case PARAMETER_XZ -> NodeMode.GOAL_XZ;
+                    case PARAMETER_Y -> NodeMode.GOAL_Y;
+                    default -> NodeMode.getDefaultModeForNodeType(type);
+                };
+            case MINE:
+                return candidate.getType() == NodeType.PARAMETER_BLOCK
+                        ? NodeMode.MINE_SINGLE
+                        : NodeMode.getDefaultModeForNodeType(type);
+            case BUILD:
+                if (candidate.getType() == NodeType.PARAMETER_SCHEMATIC) {
+                    return NodeMode.BUILD_PLAYER;
+                }
+                if (candidate.getType() == NodeType.PARAMETER_COORDINATE) {
+                    return NodeMode.BUILD_XYZ;
+                }
+                return NodeMode.getDefaultModeForNodeType(type);
+            case EXPLORE:
+                if (candidate.getType() == NodeType.PARAMETER_COORDINATE) {
+                    return NodeMode.EXPLORE_XYZ;
+                }
+                if (candidate.getType() == NodeType.PARAMETER_TEXT) {
+                    return NodeMode.EXPLORE_FILTER;
+                }
+                return NodeMode.EXPLORE_CURRENT;
+            case FOLLOW:
+                if (candidate.getType() == NodeType.PARAMETER_PLAYER) {
+                    return NodeMode.FOLLOW_PLAYER;
+                }
+                if (candidate.getType() == NodeType.PARAMETER_ENTITY) {
+                    return NodeMode.FOLLOW_ENTITY_TYPE;
+                }
+                return NodeMode.getDefaultModeForNodeType(type);
+            case FARM:
+                if (candidate.getType() == NodeType.PARAMETER_WAYPOINT) {
+                    return NodeMode.FARM_WAYPOINT;
+                }
+                return NodeMode.getDefaultModeForNodeType(type);
+            case CRAFT:
+                if (candidate.getType() == NodeType.PARAMETER_TEXT) {
+                    return NodeMode.CRAFT_PLAYER_GUI;
+                }
+                return NodeMode.getDefaultModeForNodeType(type);
+            case PLAYER_GUI:
+                return NodeMode.PLAYER_GUI_OPEN;
+            case SCREEN_CONTROL:
+                return NodeMode.SCREEN_OPEN_CHAT;
+            default:
+                return NodeMode.getDefaultModeForNodeType(type);
+        }
+    }
+
+    public String getParameterSlotLabel() {
+        if (!hasParameterSlot()) {
+            return "";
+        }
+        if (parameterNode != null) {
+            StringBuilder builder = new StringBuilder("Parameter: ");
+            builder.append(parameterNode.getDisplayName());
+            List<NodeParameter> paramValues = parameterNode.getParameters();
+            if (paramValues != null && !paramValues.isEmpty()) {
+                builder.append(" (");
+                for (int i = 0; i < paramValues.size(); i++) {
+                    NodeParameter value = paramValues.get(i);
+                    builder.append(value.getDisplayValue());
+                    if (i < paramValues.size() - 1) {
+                        builder.append(", ");
+                    }
+                }
+                builder.append(")");
+            }
+            return builder.toString();
+        }
+        return "Drag parameter";
+    }
+
+    public int getParameterSlotLeft() {
+        return getX() + PARAMETER_SLOT_MARGIN_HORIZONTAL;
+    }
+
+    public int getParameterSlotRight() {
+        return getX() + getWidth() - PARAMETER_SLOT_MARGIN_HORIZONTAL;
+    }
+
+    public int getParameterSlotTop() {
+        int bodyTop = getY() + HEADER_HEIGHT + PARAMETER_SLOT_MARGIN_VERTICAL;
+        if (type == NodeType.START || type == NodeType.EVENT_FUNCTION) {
+            bodyTop = getY() + PARAMETER_SLOT_MARGIN_VERTICAL;
+        }
+        return bodyTop;
+    }
+
+    public int getParameterSlotBottom() {
+        return getParameterSlotTop() + PARAMETER_SLOT_HEIGHT;
+    }
+
+    public boolean isPointInsideParameterSlot(int worldX, int worldY) {
+        if (!hasParameterSlot()) {
+            return false;
+        }
+        return worldX >= getParameterSlotLeft() && worldX <= getParameterSlotRight()
+            && worldY >= getParameterSlotTop() && worldY <= getParameterSlotBottom();
     }
 
     public String getParameterLabel(NodeParameter parameter) {
@@ -994,10 +1276,17 @@ public class Node {
         }
 
         int maxTextLength = Math.max(type.getDisplayName().length(), 1);
-        for (NodeParameter param : parameters) {
-            String paramText = getParameterLabel(param);
-            if (paramText.length() > maxTextLength) {
-                maxTextLength = paramText.length();
+        if (hasParameterSlot()) {
+            String slotLabel = getParameterSlotLabel();
+            if (slotLabel.length() > maxTextLength) {
+                maxTextLength = slotLabel.length();
+            }
+        } else {
+            for (NodeParameter param : parameters) {
+                String paramText = getParameterLabel(param);
+                if (paramText.length() > maxTextLength) {
+                    maxTextLength = paramText.length();
+                }
             }
         }
 
@@ -1029,12 +1318,17 @@ public class Node {
 
         int contentHeight;
         boolean hasSlots = hasSensorSlot() || hasActionSlot();
-        int parameterLineCount = parameters.size();
+        int parameterLineCount = hasParameterSlot() ? 1 : parameters.size();
         if (supportsModeSelection()) {
             parameterLineCount++;
         }
 
-        if (parameterLineCount > 0) {
+        if (hasParameterSlot()) {
+            contentHeight = HEADER_HEIGHT + 2 * PARAMETER_SLOT_MARGIN_VERTICAL + PARAMETER_SLOT_HEIGHT;
+            if (hasSlots) {
+                contentHeight += SLOT_AREA_PADDING_TOP;
+            }
+        } else if (parameterLineCount > 0) {
             contentHeight = HEADER_HEIGHT + PARAM_PADDING_TOP + (parameterLineCount * PARAM_LINE_HEIGHT) + PARAM_PADDING_BOTTOM;
             if (hasSlots) {
                 contentHeight += SLOT_AREA_PADDING_TOP;

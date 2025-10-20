@@ -52,6 +52,7 @@ public class NodeGraphData {
         private String parentControlId;
         private String attachedActionId;
         private String parentActionControlId;
+        private String parameterNodeId;
 
         public NodeData() {
             this.parameters = new ArrayList<>();
@@ -68,6 +69,7 @@ public class NodeGraphData {
             this.parentControlId = null;
             this.attachedActionId = null;
             this.parentActionControlId = null;
+            this.parameterNodeId = null;
         }
 
         // Getters and setters
@@ -100,6 +102,9 @@ public class NodeGraphData {
 
         public String getParentActionControlId() { return parentActionControlId; }
         public void setParentActionControlId(String parentActionControlId) { this.parentActionControlId = parentActionControlId; }
+
+        public String getParameterNodeId() { return parameterNodeId; }
+        public void setParameterNodeId(String parameterNodeId) { this.parameterNodeId = parameterNodeId; }
     }
     
     /**

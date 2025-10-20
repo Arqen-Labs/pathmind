@@ -91,7 +91,23 @@ public enum NodeType {
     // Utility Commands
     SCREEN_CONTROL("Screen Control", 0xFF9E9E9E, "Open or close in-game screens"),
     WAIT("Wait", 0xFF607D8B, "Waits for specified duration"),
-    MESSAGE("Message", 0xFF9E9E9E, "Sends a chat message");
+    MESSAGE("Message", 0xFF9E9E9E, "Sends a chat message"),
+
+    // Parameter nodes
+    PARAMETER_COORDINATE("XYZ", 0xFF5C6BC0, "Reusable X, Y, Z coordinate triple"),
+    PARAMETER_XZ("XZ", 0xFF5C6BC0, "Reusable X, Z coordinate pair"),
+    PARAMETER_Y("Y Level", 0xFF5C6BC0, "Reusable Y level"),
+    PARAMETER_BLOCK("Block", 0xFF5C6BC0, "Select a block type"),
+    PARAMETER_ITEM("Item", 0xFF5C6BC0, "Select an item"),
+    PARAMETER_ENTITY("Entity", 0xFF5C6BC0, "Select an entity type"),
+    PARAMETER_PLAYER("Player", 0xFF5C6BC0, "Reference a player"),
+    PARAMETER_WAYPOINT("Waypoint", 0xFF5C6BC0, "Reference a waypoint name"),
+    PARAMETER_SCHEMATIC("Schematic", 0xFF5C6BC0, "Select a schematic"),
+    PARAMETER_DURATION("Duration", 0xFF5C6BC0, "Reusable duration in seconds"),
+    PARAMETER_INTEGER("Number", 0xFF5C6BC0, "Reusable integer value"),
+    PARAMETER_DOUBLE("Decimal", 0xFF5C6BC0, "Reusable decimal value"),
+    PARAMETER_BOOLEAN("Toggle", 0xFF5C6BC0, "Reusable boolean flag"),
+    PARAMETER_TEXT("Text", 0xFF5C6BC0, "Reusable text value");
 
     private final String displayName;
     private final String description;
@@ -206,6 +222,21 @@ public enum NodeType {
             case WAIT:
             case MESSAGE:
                 return NodeCategory.UTILITY;
+            case PARAMETER_COORDINATE:
+            case PARAMETER_XZ:
+            case PARAMETER_Y:
+            case PARAMETER_BLOCK:
+            case PARAMETER_ITEM:
+            case PARAMETER_ENTITY:
+            case PARAMETER_PLAYER:
+            case PARAMETER_WAYPOINT:
+            case PARAMETER_SCHEMATIC:
+            case PARAMETER_DURATION:
+            case PARAMETER_INTEGER:
+            case PARAMETER_DOUBLE:
+            case PARAMETER_BOOLEAN:
+            case PARAMETER_TEXT:
+                return NodeCategory.PARAMETERS;
             default:
                 return NodeCategory.UTILITY;
         }
@@ -262,6 +293,20 @@ public enum NodeType {
             case SENSOR_ENTITY_NEARBY:
             case SENSOR_ITEM_IN_INVENTORY:
             case SENSOR_IS_FALLING:
+            case PARAMETER_COORDINATE:
+            case PARAMETER_XZ:
+            case PARAMETER_Y:
+            case PARAMETER_BLOCK:
+            case PARAMETER_ITEM:
+            case PARAMETER_ENTITY:
+            case PARAMETER_PLAYER:
+            case PARAMETER_WAYPOINT:
+            case PARAMETER_SCHEMATIC:
+            case PARAMETER_DURATION:
+            case PARAMETER_INTEGER:
+            case PARAMETER_DOUBLE:
+            case PARAMETER_BOOLEAN:
+            case PARAMETER_TEXT:
                 return true;
             default:
                 return false;
