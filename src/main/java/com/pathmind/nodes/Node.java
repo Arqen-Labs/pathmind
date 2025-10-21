@@ -3539,7 +3539,12 @@ public class Node {
     }
 
     private void executePlaceCommand(CompletableFuture<Void> future) {
-        if (preprocessAttachedParameter(EnumSet.of(ParameterUsage.POSITION), future) == ParameterHandlingResult.COMPLETE) {
+        boolean inheritPlacementCoordinates = shouldInheritPlacementCoordinates();
+        EnumSet<ParameterUsage> placementParameterUsages = inheritPlacementCoordinates
+            ? EnumSet.of(ParameterUsage.POSITION)
+            : EnumSet.noneOf(ParameterUsage.class);
+
+        if (preprocessAttachedParameter(placementParameterUsages, future) == ParameterHandlingResult.COMPLETE) {
             return;
         }
         String block = "stone";
@@ -3562,7 +3567,7 @@ public class Node {
                 block = parameterData.targetBlockId;
                 setParameterValueAndPropagate("Block", block);
             }
-            if (parameterData.targetBlockPos != null) {
+            if (inheritPlacementCoordinates && parameterData.targetBlockPos != null) {
                 BlockPos resolved = parameterData.targetBlockPos;
                 x = resolved.getX();
                 y = resolved.getY();
@@ -3591,6 +3596,12 @@ public class Node {
         System.out.println("Placing block '" + block + "' at " + x + ", " + y + ", " + z);
 
         BlockPos targetPos = new BlockPos(x, y, z);
+        if (parameterData != null) {
+            parameterData.targetBlockPos = targetPos;
+            if (parameterData.targetBlockId == null || parameterData.targetBlockId.isEmpty()) {
+                parameterData.targetBlockId = block;
+            }
+        }
         double reachSquared = getPlacementReachSquared(client);
 
         Block desiredBlock = resolveBlockForPlacement(block);
@@ -3643,6 +3654,23 @@ public class Node {
                 future.complete(null);
             }
         }, "Pathmind-Place").start();
+    }
+
+    private boolean shouldInheritPlacementCoordinates() {
+        if (attachedParameter == null) {
+            return false;
+        }
+
+        NodeType parameterType = attachedParameter.getType();
+        switch (parameterType) {
+            case PARAM_COORDINATE:
+            case PARAM_SCHEMATIC:
+            case PARAM_PLACE_TARGET:
+            case PARAM_WAYPOINT:
+                return true;
+            default:
+                return false;
+        }
     }
     
     private void executeBuildCommand(CompletableFuture<Void> future) {
