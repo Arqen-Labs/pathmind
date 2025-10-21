@@ -5,6 +5,8 @@ import baritone.api.process.IMineProcess;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.item.Item;
 
+import java.util.concurrent.CompletableFuture;
+
 /**
  * Watches the player's inventory during mining runs that target a specific quantity
  * and stops Baritone once the requested amount has been gathered.
@@ -56,27 +58,33 @@ public final class MineQuantityMonitor {
             return;
         }
 
-        if (client == null || client.player == null || targetItem == null) {
-            cancel();
-            return;
-        }
+        try {
+            if (client == null || client.player == null || targetItem == null) {
+                cancel();
+                return;
+            }
 
-        if (mineProcess == null) {
-            cancel();
-            return;
-        }
+            if (mineProcess == null) {
+                cancel();
+                return;
+            }
 
-        if (mineProcess.isActive()) {
-            mineProcessStarted = true;
-        } else if (mineProcessStarted) {
-            cancel();
-            return;
-        }
+            if (mineProcess.isActive()) {
+                mineProcessStarted = true;
+            } else if (mineProcessStarted) {
+                cancel();
+                return;
+            }
 
-        int currentCount = client.player.getInventory().count(targetItem);
-        if (currentCount >= targetCount) {
-            System.out.println("MineQuantityMonitor: target met for " + blockDescription + " (" + currentCount + "/" + targetCount + ")");
-            stopMining();
+            int currentCount = client.player.getInventory().count(targetItem);
+            if (currentCount >= targetCount) {
+                System.out.println("MineQuantityMonitor: target met for " + blockDescription + " (" + currentCount + "/" + targetCount + ")");
+                stopMining();
+                cancel();
+            }
+        } catch (Throwable t) {
+            System.err.println("MineQuantityMonitor: Error while monitoring inventory: " + t.getMessage());
+            t.printStackTrace();
             cancel();
         }
     }
@@ -103,15 +111,22 @@ public final class MineQuantityMonitor {
             return;
         }
 
-        try {
-            baritone.getCommandManager().execute("stop");
-        } catch (Exception e) {
-            System.err.println("MineQuantityMonitor: Failed to execute Baritone stop command: " + e.getMessage());
+        final IBaritone baritoneRef = baritone;
+        IMineProcess activeProcess = mineProcess != null ? mineProcess : baritoneRef.getMineProcess();
+        if (activeProcess != null && activeProcess.isActive()) {
+            try {
+                activeProcess.cancel();
+            } catch (Exception e) {
+                System.err.println("MineQuantityMonitor: Failed to cancel active mine process: " + e.getMessage());
+            }
         }
 
-        IMineProcess activeProcess = baritone.getMineProcess();
-        if (activeProcess != null && activeProcess.isActive()) {
-            activeProcess.cancel();
-        }
+        CompletableFuture.runAsync(() -> {
+            try {
+                baritoneRef.getCommandManager().execute("stop");
+            } catch (Exception e) {
+                System.err.println("MineQuantityMonitor: Failed to execute Baritone stop command: " + e.getMessage());
+            }
+        });
     }
 }
