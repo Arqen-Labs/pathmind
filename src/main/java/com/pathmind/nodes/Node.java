@@ -24,7 +24,9 @@ import baritone.api.utils.BlockOptionalMeta;
 import com.pathmind.execution.PreciseCompletionTracker;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.player.PlayerInventory;
+import net.minecraft.item.BlockItem;
 import net.minecraft.item.Item;
+import net.minecraft.item.ItemPlacementContext;
 import net.minecraft.item.ItemStack;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
@@ -47,6 +49,7 @@ import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.math.Box;
+import net.minecraft.world.RaycastContext;
 import net.minecraft.client.gui.screen.ChatScreen;
 import net.minecraft.client.gui.screen.ingame.CraftingScreen;
 import net.minecraft.client.gui.screen.ingame.InventoryScreen;
@@ -3557,6 +3560,7 @@ public class Node {
         if (parameterData != null) {
             if (parameterData.targetBlockId != null && !parameterData.targetBlockId.isEmpty()) {
                 block = parameterData.targetBlockId;
+                setParameterValueAndPropagate("Block", block);
             }
             if (parameterData.targetBlockPos != null) {
                 BlockPos resolved = parameterData.targetBlockPos;
@@ -3587,14 +3591,7 @@ public class Node {
         System.out.println("Placing block '" + block + "' at " + x + ", " + y + ", " + z);
 
         BlockPos targetPos = new BlockPos(x, y, z);
-        Vec3d targetCenter = Vec3d.ofCenter(targetPos);
         double reachSquared = getPlacementReachSquared(client);
-        Vec3d eyePos = client.player.getEyePos();
-        if (eyePos.squaredDistanceTo(targetCenter) > reachSquared) {
-            sendNodeErrorMessage(client, "Cannot place block at " + formatBlockPos(targetPos) + ": target is out of reach.");
-            future.complete(null);
-            return;
-        }
 
         Block desiredBlock = resolveBlockForPlacement(block);
         if (desiredBlock == null) {
@@ -3607,19 +3604,19 @@ public class Node {
         final Block resolvedBlock = desiredBlock;
         final String resolvedBlockId = block;
         final Hand resolvedHand = hand;
+        final double resolvedReachSquared = reachSquared;
 
         new Thread(() -> {
             try {
+                BlockHitResult placementHitResult = supplyFromClient(client, () ->
+                    preparePlacementHitResult(client, placementPos, resolvedBlockId, resolvedHand, resolvedReachSquared)
+                );
                 runOnClientThread(client, () -> {
                     if (client.world.getBlockState(placementPos).isOf(resolvedBlock)) {
                         return;
                     }
 
-                    ensureBlockInHand(client, resolvedBlockId, resolvedHand);
-
-                    BlockHitResult hitResult = createPlacementHitResult(client, placementPos);
-
-                    ActionResult result = client.interactionManager.interactBlock(client.player, resolvedHand, hitResult);
+                    ActionResult result = client.interactionManager.interactBlock(client.player, resolvedHand, placementHitResult);
                     if (!result.isAccepted()) {
                         throw new PlacementFailure("Cannot place block at " + formatBlockPos(placementPos) + ": placement rejected (" + result + ").");
                     }
@@ -4648,36 +4645,129 @@ public class Node {
         return -1;
     }
 
-    private BlockHitResult createPlacementHitResult(net.minecraft.client.MinecraftClient client, BlockPos targetPos) {
-        if (client.player == null || client.player.getWorld() == null) {
+    private BlockHitResult preparePlacementHitResult(net.minecraft.client.MinecraftClient client, BlockPos targetPos, String blockId, Hand hand, double reachSquared) {
+        if (client.player == null || client.world == null) {
             throw new PlacementFailure("Cannot place block at " + formatBlockPos(targetPos) + ": client world is unavailable.");
         }
 
-        net.minecraft.world.World world = client.player.getWorld();
-        BlockState targetState = world.getBlockState(targetPos);
-        if (!isBlockReplaceable(world, targetPos)) {
+        Vec3d eyePos = client.player.getEyePos();
+        Vec3d targetCenter = Vec3d.ofCenter(targetPos);
+        if (eyePos.squaredDistanceTo(targetCenter) > reachSquared) {
+            throw new PlacementFailure("Cannot place block at " + formatBlockPos(targetPos) + ": target is out of reach.");
+        }
+
+        if (!isBlockReplaceable(client.world, targetPos)) {
+            BlockState occupied = client.world.getBlockState(targetPos);
             throw new PlacementFailure(
-                "Cannot place block at " + formatBlockPos(targetPos) + ": target space contains " + describeBlockState(targetState) + "."
+                "Cannot place block at " + formatBlockPos(targetPos) + ": target space contains " + describeBlockState(occupied) + "."
             );
         }
 
+        BlockHitResult surface = createPlacementHitResult(client, targetPos, eyePos, reachSquared);
+        if (surface == null) {
+            throw new PlacementFailure("Cannot place block at " + formatBlockPos(targetPos) + ": no nearby surface to place against.");
+        }
+
+        ensureBlockInHand(client, blockId, hand);
+
+        ItemStack stack = client.player.getStackInHand(hand);
+        if (stack.isEmpty()) {
+            throw new PlacementFailure("Cannot place block \"" + blockId + "\": the selected hand is empty.");
+        }
+
+        Item heldItem = stack.getItem();
+        if (!(heldItem instanceof BlockItem blockItem)) {
+            throw new PlacementFailure("Cannot place block \"" + blockId + "\": the selected item cannot be placed as a block.");
+        }
+
+        if (!canPlaceBlockAt(client, hand, stack, blockItem, surface)) {
+            throw new PlacementFailure(
+                "Cannot place block at " + formatBlockPos(targetPos) + ": the location is obstructed or lacks support."
+            );
+        }
+
+        return surface;
+    }
+
+    private BlockHitResult createPlacementHitResult(net.minecraft.client.MinecraftClient client, BlockPos targetPos, Vec3d eyePos, double reachSquared) {
+        if (client.player == null || client.world == null) {
+            return null;
+        }
+
+        BlockHitResult bestResult = null;
+        double bestDistance = Double.MAX_VALUE;
+
         for (Direction direction : Direction.values()) {
-            BlockPos clickedPos = targetPos.offset(direction);
-            BlockState clickedState = world.getBlockState(clickedPos);
-            if (clickedState.isAir()) {
+            BlockPos supportPos = targetPos.offset(direction);
+            BlockState supportState = client.world.getBlockState(supportPos);
+            if (supportState.isAir()) {
+                continue;
+            }
+            if (supportState.getCollisionShape(client.world, supportPos).isEmpty()) {
                 continue;
             }
 
             Direction placementSide = direction.getOpposite();
-            Vec3d hitPos = Vec3d.ofCenter(clickedPos).add(
+            Vec3d faceCenter = Vec3d.ofCenter(supportPos).add(
                 placementSide.getOffsetX() * 0.5D,
                 placementSide.getOffsetY() * 0.5D,
                 placementSide.getOffsetZ() * 0.5D
             );
-            return new BlockHitResult(hitPos, placementSide, clickedPos, false);
+            Vec3d rayEnd = faceCenter.subtract(
+                placementSide.getOffsetX() * 0.001D,
+                placementSide.getOffsetY() * 0.001D,
+                placementSide.getOffsetZ() * 0.001D
+            );
+
+            double distance = eyePos.squaredDistanceTo(rayEnd);
+            if (distance > reachSquared) {
+                continue;
+            }
+
+            RaycastContext context = new RaycastContext(
+                eyePos,
+                rayEnd,
+                RaycastContext.ShapeType.COLLIDER,
+                RaycastContext.FluidHandling.NONE,
+                client.player
+            );
+            BlockHitResult raycast = client.world.raycast(context);
+            if (raycast.getType() != HitResult.Type.BLOCK) {
+                continue;
+            }
+            if (!raycast.getBlockPos().equals(supportPos)) {
+                continue;
+            }
+            if (raycast.getSide() != placementSide) {
+                continue;
+            }
+
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestResult = new BlockHitResult(faceCenter, placementSide, supportPos, false);
+            }
         }
 
-        throw new PlacementFailure("Cannot place block at " + formatBlockPos(targetPos) + ": no surface to place against.");
+        return bestResult;
+    }
+
+    private boolean canPlaceBlockAt(net.minecraft.client.MinecraftClient client, Hand hand, ItemStack stack, BlockItem blockItem, BlockHitResult hitResult) {
+        if (client.player == null || client.world == null) {
+            return false;
+        }
+
+        ItemPlacementContext placementContext = new ItemPlacementContext(client.player, hand, stack.copy(), hitResult);
+        if (!placementContext.canPlace()) {
+            return false;
+        }
+
+        Block block = blockItem.getBlock();
+        BlockState placementState = block.getPlacementState(placementContext);
+        if (placementState == null) {
+            return false;
+        }
+
+        return placementState.canPlaceAt(client.world, placementContext.getBlockPos());
     }
 
     private String normalizeResourceId(String value, String defaultNamespace) {
