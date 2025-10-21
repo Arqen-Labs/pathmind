@@ -81,6 +81,7 @@ public class Node {
     private int x, y;
     private static final int MIN_WIDTH = 92;
     private static final int MIN_HEIGHT = 44;
+    private static final int EVENT_FUNCTION_MIN_SIZE = 64;
     private static final int CHAR_PIXEL_WIDTH = 6;
     private static final int HEADER_HEIGHT = 18;
     private static final int PARAM_LINE_HEIGHT = 10;
@@ -1511,7 +1512,8 @@ public class Node {
             int requiredWidth = actionContentWidth + 2 * (ACTION_SLOT_INNER_PADDING + ACTION_SLOT_MARGIN_HORIZONTAL);
             computedWidth = Math.max(computedWidth, requiredWidth);
         }
-        this.width = Math.max(MIN_WIDTH, computedWidth);
+        int minWidth = (type == NodeType.EVENT_FUNCTION) ? EVENT_FUNCTION_MIN_SIZE : MIN_WIDTH;
+        this.width = Math.max(minWidth, computedWidth);
 
         int contentHeight = HEADER_HEIGHT;
         boolean hasSlots = hasSensorSlot() || hasActionSlot();
@@ -1561,7 +1563,7 @@ public class Node {
         this.height = Math.max(MIN_HEIGHT, contentHeight);
 
         if (type == NodeType.EVENT_FUNCTION) {
-            int squareSize = Math.max(this.width, this.height);
+            int squareSize = Math.max(EVENT_FUNCTION_MIN_SIZE, Math.max(this.width, this.height));
             this.width = squareSize;
             this.height = squareSize;
         }
