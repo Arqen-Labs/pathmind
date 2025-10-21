@@ -3,6 +3,7 @@ package com.pathmind.ui;
 import com.pathmind.nodes.Node;
 import com.pathmind.nodes.NodeParameter;
 import com.pathmind.nodes.NodeMode;
+import com.pathmind.nodes.NodeType;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.font.TextRenderer;
@@ -30,10 +31,13 @@ public class NodeParameterOverlay {
     private static final int POPUP_VERTICAL_MARGIN = 40;
     private static final int SCROLL_STEP = 18;
     private static final int SCROLLBAR_WIDTH = 6;
+    private static final int PARAMETER_SLOT_HEIGHT = 48;
+    private static final int COORDINATE_FIELD_SPACING = 12;
 
     private final Node node;
     private final List<String> parameterValues;
     private final List<Boolean> fieldFocused;
+    private final List<FieldBounds> fieldBounds;
     private int popupWidth = MIN_POPUP_WIDTH;
     private final int screenWidth;
     private final int screenHeight;
@@ -61,6 +65,7 @@ public class NodeParameterOverlay {
         this.onClose = onClose;
         this.parameterValues = new ArrayList<>();
         this.fieldFocused = new ArrayList<>();
+        this.fieldBounds = new ArrayList<>();
         this.screenWidth = screenWidth;
         this.screenHeight = screenHeight;
         this.topBarHeight = topBarHeight;
@@ -114,6 +119,14 @@ public class NodeParameterOverlay {
         context.enableScissor(popupX + 1, contentTop, contentRight - 1, contentBottom);
 
         int sectionY = contentTop - scrollOffset;
+        List<NodeParameter> parameters = node.getParameters();
+        prepareFieldBounds(parameters.size());
+        boolean[] rendered = new boolean[parameters.size()];
+        boolean isPlaceNode = node.getType() == NodeType.PLACE;
+        int placeFieldSections = isPlaceNode ? countPlaceFieldSections(parameters) : parameters.size();
+        boolean hasParameterSlotSection = isPlaceNode && node.hasParameterSlot();
+        boolean hasSectionsAfterMode = hasParameterSlotSection || placeFieldSections > 0;
+
         if (hasModeSelection()) {
             context.drawTextWithShadow(
                 textRenderer,
@@ -154,60 +167,38 @@ public class NodeParameterOverlay {
                 0xFFE0E0E0
             );
 
-            sectionY = modeButtonY + modeButtonHeight + SECTION_SPACING;
+            sectionY = modeButtonY + modeButtonHeight;
+            if (hasSectionsAfterMode) {
+                sectionY += SECTION_SPACING;
+            }
         }
 
-        for (int i = 0; i < node.getParameters().size(); i++) {
-            NodeParameter param = node.getParameters().get(i);
-            context.drawTextWithShadow(
-                textRenderer,
-                Text.literal(param.getName() + " (" + param.getType().getDisplayName() + "):"),
-                popupX + 20,
-                sectionY + 4,
-                0xFFE0E0E0
-            );
+        if (isPlaceNode && node.hasParameterSlot()) {
+            sectionY = renderPlaceParameterSlot(context, textRenderer, sectionY, placeFieldSections > 0);
+        }
 
-            int fieldX = popupX + 20;
-            int fieldY = sectionY + LABEL_TO_FIELD_OFFSET;
-            int fieldWidth = popupWidth - 40;
-            int fieldHeight = FIELD_HEIGHT;
+        int blockIndex = isPlaceNode ? findParameterIndex(parameters, "Block") : -1;
+        int xIndex = isPlaceNode ? findParameterIndex(parameters, "X") : -1;
+        int yIndex = isPlaceNode ? findParameterIndex(parameters, "Y") : -1;
+        int zIndex = isPlaceNode ? findParameterIndex(parameters, "Z") : -1;
 
-            boolean isFocused = i == focusedFieldIndex;
-            int bgColor = isFocused ? 0xFF2A2A2A : 0xFF1A1A1A;
-            int borderColor = isFocused ? 0xFF87CEEB : 0xFF666666;
+        if (isPlaceNode && xIndex >= 0 && yIndex >= 0 && zIndex >= 0) {
+            sectionY = renderPlaceCoordinateRow(context, textRenderer, sectionY, xIndex, yIndex, zIndex);
+            rendered[xIndex] = true;
+            rendered[yIndex] = true;
+            rendered[zIndex] = true;
+        }
 
-            context.fill(fieldX, fieldY, fieldX + fieldWidth, fieldY + fieldHeight, bgColor);
-            context.drawBorder(fieldX, fieldY, fieldWidth, fieldHeight, borderColor);
+        if (isPlaceNode && blockIndex >= 0) {
+            sectionY = renderParameterField(context, textRenderer, parameters.get(blockIndex), blockIndex, sectionY);
+            rendered[blockIndex] = true;
+        }
 
-            String text = parameterValues.get(i);
-            if (text != null && !text.isEmpty()) {
-                int availableWidth = fieldWidth - 8;
-                String displayText = textRenderer.trimToWidth(text, availableWidth);
-
-                if (!displayText.equals(text)) {
-                    int ellipsisWidth = textRenderer.getWidth("...");
-                    int trimmedWidth = Math.max(0, availableWidth - ellipsisWidth);
-                    String trimmed = textRenderer.trimToWidth(text, trimmedWidth);
-                    displayText = trimmed + "...";
-                }
-
-                context.drawTextWithShadow(
-                    textRenderer,
-                    Text.literal(displayText),
-                    fieldX + 4,
-                    fieldY + 6,
-                    0xFFFFFFFF
-                );
+        for (int i = 0; i < parameters.size(); i++) {
+            if (!rendered[i]) {
+                sectionY = renderParameterField(context, textRenderer, parameters.get(i), i, sectionY);
+                rendered[i] = true;
             }
-
-            if (isFocused && (System.currentTimeMillis() / 500) % 2 == 0) {
-                String value = text != null ? text : "";
-                int cursorX = fieldX + 4 + textRenderer.getWidth(value);
-                cursorX = Math.min(cursorX, fieldX + fieldWidth - 2);
-                context.fill(cursorX, fieldY + 4, cursorX + 1, fieldY + 16, 0xFFFFFFFF);
-            }
-
-            sectionY = fieldY + fieldHeight + SECTION_SPACING;
         }
 
         context.disableScissor();
@@ -259,6 +250,246 @@ public class NodeParameterOverlay {
         }
 
         renderScrollbar(context, contentTop, contentBottom);
+    }
+
+    private void prepareFieldBounds(int size) {
+        fieldBounds.clear();
+        for (int i = 0; i < size; i++) {
+            fieldBounds.add(null);
+        }
+    }
+
+    private void setFieldBounds(int index, int x, int y, int width, int height) {
+        if (index < 0 || index >= fieldBounds.size()) {
+            return;
+        }
+        fieldBounds.set(index, new FieldBounds(x, y, width, height));
+    }
+
+    private FieldBounds getFieldBounds(int index) {
+        if (index < 0 || index >= fieldBounds.size()) {
+            return null;
+        }
+        return fieldBounds.get(index);
+    }
+
+    private int findParameterIndex(List<NodeParameter> parameters, String name) {
+        for (int i = 0; i < parameters.size(); i++) {
+            if (parameters.get(i).getName().equals(name)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private int countPlaceFieldSections(List<NodeParameter> parameters) {
+        if (parameters.isEmpty()) {
+            return 0;
+        }
+
+        boolean[] handled = new boolean[parameters.size()];
+        int sections = 0;
+
+        int xIndex = findParameterIndex(parameters, "X");
+        int yIndex = findParameterIndex(parameters, "Y");
+        int zIndex = findParameterIndex(parameters, "Z");
+        if (xIndex >= 0 && yIndex >= 0 && zIndex >= 0) {
+            sections++;
+            handled[xIndex] = true;
+            handled[yIndex] = true;
+            handled[zIndex] = true;
+        }
+
+        for (int i = 0; i < parameters.size(); i++) {
+            if (!handled[i]) {
+                sections++;
+            }
+        }
+
+        return sections;
+    }
+
+    private int renderParameterField(DrawContext context, TextRenderer textRenderer, NodeParameter param, int index, int sectionY) {
+        if (param == null) {
+            return sectionY;
+        }
+
+        int labelX = popupX + 20;
+        int labelY = sectionY + 4;
+        context.drawTextWithShadow(
+            textRenderer,
+            Text.literal(param.getName() + " (" + param.getType().getDisplayName() + "):"),
+            labelX,
+            labelY,
+            0xFFE0E0E0
+        );
+
+        int fieldX = labelX;
+        int fieldY = sectionY + LABEL_TO_FIELD_OFFSET;
+        int fieldWidth = popupWidth - 40;
+        int fieldHeight = FIELD_HEIGHT;
+
+        boolean isFocused = index == focusedFieldIndex;
+        int bgColor = isFocused ? 0xFF2A2A2A : 0xFF1A1A1A;
+        int borderColor = isFocused ? 0xFF87CEEB : 0xFF666666;
+
+        context.fill(fieldX, fieldY, fieldX + fieldWidth, fieldY + fieldHeight, bgColor);
+        context.drawBorder(fieldX, fieldY, fieldWidth, fieldHeight, borderColor);
+
+        String text = index < parameterValues.size() ? parameterValues.get(index) : "";
+        if (text != null && !text.isEmpty()) {
+            String displayText = trimWithEllipsis(text, fieldWidth - 8, textRenderer);
+            context.drawTextWithShadow(
+                textRenderer,
+                Text.literal(displayText),
+                fieldX + 4,
+                fieldY + 6,
+                0xFFFFFFFF
+            );
+        }
+
+        if (isFocused && (System.currentTimeMillis() / 500) % 2 == 0) {
+            String value = text != null ? text : "";
+            int cursorX = fieldX + 4 + textRenderer.getWidth(value);
+            cursorX = Math.min(cursorX, fieldX + fieldWidth - 2);
+            context.fill(cursorX, fieldY + 4, cursorX + 1, fieldY + 16, 0xFFFFFFFF);
+        }
+
+        setFieldBounds(index, fieldX, fieldY, fieldWidth, fieldHeight);
+        return fieldY + fieldHeight + SECTION_SPACING;
+    }
+
+    private int renderPlaceCoordinateRow(DrawContext context, TextRenderer textRenderer, int sectionY, int xIndex, int yIndex, int zIndex) {
+        int baseX = popupX + 20;
+        int labelY = sectionY + 4;
+        int fieldY = sectionY + LABEL_TO_FIELD_OFFSET;
+        int totalWidth = popupWidth - 40;
+        int spacing = COORDINATE_FIELD_SPACING;
+        int fieldWidth = (totalWidth - spacing * 2) / 3;
+        fieldWidth = Math.max(60, fieldWidth);
+
+        renderAxisField(context, textRenderer, "X", xIndex, baseX, labelY, fieldY, fieldWidth);
+        renderAxisField(context, textRenderer, "Y", yIndex, baseX + fieldWidth + spacing, labelY, fieldY, fieldWidth);
+        renderAxisField(context, textRenderer, "Z", zIndex, baseX + 2 * (fieldWidth + spacing), labelY, fieldY, fieldWidth);
+
+        return fieldY + FIELD_HEIGHT + SECTION_SPACING;
+    }
+
+    private void renderAxisField(DrawContext context, TextRenderer textRenderer, String axis, int index, int fieldX, int labelY, int fieldY, int fieldWidth) {
+        if (index < 0 || index >= parameterValues.size()) {
+            return;
+        }
+
+        context.drawTextWithShadow(
+            textRenderer,
+            Text.literal(axis + ":"),
+            fieldX,
+            labelY,
+            0xFFE0E0E0
+        );
+
+        boolean isFocused = index == focusedFieldIndex;
+        int bgColor = isFocused ? 0xFF2A2A2A : 0xFF1A1A1A;
+        int borderColor = isFocused ? 0xFF87CEEB : 0xFF666666;
+
+        context.fill(fieldX, fieldY, fieldX + fieldWidth, fieldY + FIELD_HEIGHT, bgColor);
+        context.drawBorder(fieldX, fieldY, fieldWidth, FIELD_HEIGHT, borderColor);
+
+        String value = parameterValues.get(index);
+        if (value != null && !value.isEmpty()) {
+            String displayText = trimWithEllipsis(value, fieldWidth - 8, textRenderer);
+            context.drawTextWithShadow(
+                textRenderer,
+                Text.literal(displayText),
+                fieldX + 4,
+                fieldY + 6,
+                0xFFFFFFFF
+            );
+        }
+
+        if (isFocused && (System.currentTimeMillis() / 500) % 2 == 0) {
+            String displayValue = value != null ? value : "";
+            int cursorX = fieldX + 4 + textRenderer.getWidth(displayValue);
+            cursorX = Math.min(cursorX, fieldX + fieldWidth - 2);
+            context.fill(cursorX, fieldY + 4, cursorX + 1, fieldY + 16, 0xFFFFFFFF);
+        }
+
+        setFieldBounds(index, fieldX, fieldY, fieldWidth, FIELD_HEIGHT);
+    }
+
+    private int renderPlaceParameterSlot(DrawContext context, TextRenderer textRenderer, int sectionY, boolean addSpacingAfter) {
+        int slotX = popupX + 20;
+        int slotY = sectionY + LABEL_TO_FIELD_OFFSET;
+        int slotWidth = popupWidth - 40;
+
+        context.drawTextWithShadow(
+            textRenderer,
+            Text.literal("Parameter:"),
+            slotX,
+            sectionY + 4,
+            0xFFE0E0E0
+        );
+
+        context.fill(slotX, slotY, slotX + slotWidth, slotY + PARAMETER_SLOT_HEIGHT, 0xFF1A1A1A);
+        int borderColor = node.hasAttachedParameter() ? 0xFF87CEEB : 0xFF666666;
+        context.drawBorder(slotX, slotY, slotWidth, PARAMETER_SLOT_HEIGHT, borderColor);
+
+        String display;
+        if (node.hasAttachedParameter()) {
+            display = "Attached: " + node.getAttachedParameter().getType().getDisplayName();
+        } else {
+            display = "No parameter attached";
+        }
+
+        String trimmed = textRenderer.trimToWidth(display, slotWidth - 12);
+        int textY = slotY + PARAMETER_SLOT_HEIGHT / 2 - textRenderer.fontHeight / 2 + 1;
+        context.drawTextWithShadow(
+            textRenderer,
+            Text.literal(trimmed),
+            slotX + 6,
+            textY,
+            0xFFE0E0E0
+        );
+
+        int nextSectionY = slotY + PARAMETER_SLOT_HEIGHT;
+        if (addSpacingAfter) {
+            nextSectionY += SECTION_SPACING;
+        }
+        return nextSectionY;
+    }
+
+    private String trimWithEllipsis(String text, int maxWidth, TextRenderer textRenderer) {
+        if (text == null) {
+            return "";
+        }
+        if (maxWidth <= 0) {
+            return text;
+        }
+        if (textRenderer.getWidth(text) <= maxWidth) {
+            return text;
+        }
+        int ellipsisWidth = textRenderer.getWidth("...");
+        int available = Math.max(0, maxWidth - ellipsisWidth);
+        String trimmed = textRenderer.trimToWidth(text, available);
+        return trimmed + "...";
+    }
+
+    private static class FieldBounds {
+        final int x;
+        final int y;
+        final int width;
+        final int height;
+
+        FieldBounds(int x, int y, int width, int height) {
+            this.x = x;
+            this.y = y;
+            this.width = width;
+            this.height = height;
+        }
+
+        boolean contains(double pointX, double pointY) {
+            return pointX >= x && pointX <= x + width && pointY >= y && pointY <= y + height;
+        }
     }
 
     private void renderButton(DrawContext context, TextRenderer textRenderer, ButtonWidget button, int mouseX, int mouseY) {
@@ -366,19 +597,17 @@ public class NodeParameterOverlay {
         }
 
         // Check field clicks
-        for (int i = 0; i < node.getParameters().size(); i++) {
-            int fieldX = popupX + 20;
-            int fieldY = labelY + LABEL_TO_FIELD_OFFSET; // Match the rendering position
-            int fieldWidth = popupWidth - 40;
-            int fieldHeight = FIELD_HEIGHT;
+        for (int i = 0; i < fieldBounds.size(); i++) {
+            FieldBounds bounds = fieldBounds.get(i);
+            if (bounds == null) {
+                continue;
+            }
 
-            if (mouseX >= fieldX && mouseX <= fieldX + fieldWidth &&
-                mouseY >= Math.max(fieldY, contentTop) && mouseY <= Math.min(fieldY + fieldHeight, contentBottom)) {
+            if (mouseX >= bounds.x && mouseX <= bounds.x + bounds.width &&
+                mouseY >= Math.max(bounds.y, contentTop) && mouseY <= Math.min(bounds.y + bounds.height, contentBottom)) {
                 focusedFieldIndex = i;
                 return true;
             }
-
-            labelY = fieldY + fieldHeight + SECTION_SPACING;
         }
 
         // Close dropdown if clicking outside of it
@@ -473,7 +702,12 @@ public class NodeParameterOverlay {
             String currentText = parameterValues.get(focusedFieldIndex);
             
             // Only allow printable characters and limit length to fit in the field
-            int maxChars = (popupWidth - 44) / 6; // Calculate based on field width
+            int availableWidth = popupWidth - 44;
+            FieldBounds bounds = getFieldBounds(focusedFieldIndex);
+            if (bounds != null) {
+                availableWidth = Math.max(1, bounds.width - 8);
+            }
+            int maxChars = Math.max(1, availableWidth / 6); // Calculate based on field width
             if (chr >= 32 && chr <= 126 && currentText.length() < maxChars) {
                 parameterValues.set(focusedFieldIndex, currentText + chr);
                 return true;
@@ -541,6 +775,10 @@ public class NodeParameterOverlay {
     
     private void updatePopupDimensions() {
         int longestLineLength = ("Edit Parameters: " + node.getType().getDisplayName()).length();
+        List<NodeParameter> parameters = node.getParameters();
+        boolean isPlaceNode = node.getType() == NodeType.PLACE;
+        boolean hasParameterSlotSection = isPlaceNode && node.hasParameterSlot();
+        int placeFieldSections = isPlaceNode ? countPlaceFieldSections(parameters) : parameters.size();
 
         if (hasModeSelection()) {
             longestLineLength = Math.max(longestLineLength, "Mode:".length());
@@ -548,7 +786,15 @@ public class NodeParameterOverlay {
             longestLineLength = Math.max(longestLineLength, modeText.length());
         }
 
-        for (NodeParameter param : node.getParameters()) {
+        if (hasParameterSlotSection) {
+            longestLineLength = Math.max(longestLineLength, "Parameter:".length());
+            String slotText = node.hasAttachedParameter()
+                ? "Attached: " + node.getAttachedParameter().getType().getDisplayName()
+                : "No parameter attached";
+            longestLineLength = Math.max(longestLineLength, slotText.length());
+        }
+
+        for (NodeParameter param : parameters) {
             String label = param.getName() + " (" + param.getType().getDisplayName() + "):";
             longestLineLength = Math.max(longestLineLength, label.length());
             String value = param.getStringValue();
@@ -568,19 +814,27 @@ public class NodeParameterOverlay {
         this.popupWidth = Math.min(Math.max(MIN_POPUP_WIDTH, computedWidth), maxAllowedWidth);
 
         int contentHeight = CONTENT_START_OFFSET;
+        boolean hasFields = placeFieldSections > 0;
+        boolean hasAnySections = hasParameterSlotSection || hasFields || (!isPlaceNode && !parameters.isEmpty());
+
         if (hasModeSelection()) {
             contentHeight += LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT;
-            if (!node.getParameters().isEmpty()) {
+            if (hasAnySections) {
                 contentHeight += SECTION_SPACING;
             }
         }
 
-        int paramCount = node.getParameters().size();
-        for (int i = 0; i < paramCount; i++) {
-            contentHeight += LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT;
-            if (i < paramCount - 1) {
+        if (hasParameterSlotSection) {
+            contentHeight += LABEL_TO_FIELD_OFFSET + PARAMETER_SLOT_HEIGHT;
+            if (hasFields) {
                 contentHeight += SECTION_SPACING;
             }
+        }
+
+        int fieldSections = isPlaceNode ? placeFieldSections : parameters.size();
+        if (fieldSections > 0) {
+            contentHeight += fieldSections * (LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT);
+            contentHeight += Math.max(0, fieldSections - 1) * SECTION_SPACING;
         }
 
         contentHeight += BUTTON_TOP_MARGIN + BUTTON_HEIGHT + BOTTOM_PADDING;
@@ -620,10 +874,32 @@ public class NodeParameterOverlay {
 
     private int computeButtonY() {
         int offset = CONTENT_START_OFFSET;
+        List<NodeParameter> parameters = node.getParameters();
+        boolean isPlaceNode = node.getType() == NodeType.PLACE;
+        boolean hasParameterSlotSection = isPlaceNode && node.hasParameterSlot();
+        int fieldSections = isPlaceNode ? countPlaceFieldSections(parameters) : parameters.size();
+        boolean hasFields = fieldSections > 0;
+        boolean hasAnySections = hasParameterSlotSection || hasFields || (!isPlaceNode && !parameters.isEmpty());
+
         if (hasModeSelection()) {
-            offset += LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT + SECTION_SPACING;
+            offset += LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT;
+            if (hasAnySections) {
+                offset += SECTION_SPACING;
+            }
         }
-        offset += node.getParameters().size() * (LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT + SECTION_SPACING);
+
+        if (hasParameterSlotSection) {
+            offset += LABEL_TO_FIELD_OFFSET + PARAMETER_SLOT_HEIGHT;
+            if (hasFields) {
+                offset += SECTION_SPACING;
+            }
+        }
+
+        if (fieldSections > 0) {
+            offset += fieldSections * (LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT);
+            offset += Math.max(0, fieldSections - 1) * SECTION_SPACING;
+        }
+
         return popupY + offset + BUTTON_TOP_MARGIN;
     }
 

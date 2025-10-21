@@ -464,7 +464,8 @@ public class PathmindVisualEditorScreen extends Screen {
                 // Check for double-click to open parameter editor
                 boolean shouldOpenOverlay = clickedNode.isParameterNode()
                     || clickedNode.getType() == NodeType.EVENT_FUNCTION
-                    || clickedNode.getType() == NodeType.EVENT_CALL;
+                    || clickedNode.getType() == NodeType.EVENT_CALL
+                    || clickedNode.getType() == NodeType.PLACE;
                 if (shouldOpenOverlay &&
                     nodeGraph.handleNodeClick(clickedNode, (int)mouseX, (int)mouseY)) {
                     // Open parameter overlay
