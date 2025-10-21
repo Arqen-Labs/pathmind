@@ -64,6 +64,8 @@ public class NodeGraphPersistence {
                 nodeData.setParentControlId(node.getParentControlId());
                 nodeData.setAttachedActionId(node.getAttachedActionId());
                 nodeData.setParentActionControlId(node.getParentActionControlId());
+                nodeData.setAttachedParameterId(node.getAttachedParameterId());
+                nodeData.setParentParameterHostId(node.getParentParameterHostId());
 
                 data.getNodes().add(nodeData);
             }
@@ -206,6 +208,26 @@ public class NodeGraphPersistence {
                 Node control = nodeMap.get(nodeData.getParentActionControlId());
                 if (child != null && control != null && control.canAcceptActionNode(child)) {
                     control.attachActionNode(child);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            if (nodeData.getAttachedParameterId() != null) {
+                Node host = nodeMap.get(nodeData.getId());
+                Node parameter = nodeMap.get(nodeData.getAttachedParameterId());
+                if (host != null && parameter != null) {
+                    host.attachParameter(parameter);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            if (nodeData.getParentParameterHostId() != null) {
+                Node parameter = nodeMap.get(nodeData.getId());
+                Node host = nodeMap.get(nodeData.getParentParameterHostId());
+                if (parameter != null && host != null && parameter.isParameterNode()) {
+                    host.attachParameter(parameter);
                 }
             }
         }

@@ -68,6 +68,7 @@ public class NodeGraph {
 
     private Node sensorDropTarget = null;
     private Node actionDropTarget = null;
+    private Node parameterDropTarget = null;
     
     // Double-click detection
     private long lastClickTime = 0;
@@ -163,13 +164,29 @@ public class NodeGraph {
             }
         }
 
+        if (node.isParameterNode() && node.getParentParameterHost() != null) {
+            Node parent = node.getParentParameterHost();
+            if (parent != null) {
+                parent.detachParameter();
+            }
+        }
+
+        if (node.hasAttachedParameter()) {
+            node.detachParameter();
+        }
+
         if (sensorDropTarget == node) {
             sensorDropTarget = null;
             actionDropTarget = null;
+            parameterDropTarget = null;
         }
 
         if (actionDropTarget == node) {
             actionDropTarget = null;
+        }
+
+        if (parameterDropTarget == node) {
+            parameterDropTarget = null;
         }
 
         if (autoReconnect) {
@@ -249,6 +266,7 @@ public class NodeGraph {
     public void startDragging(Node node, int mouseX, int mouseY) {
         sensorDropTarget = null;
         actionDropTarget = null;
+        parameterDropTarget = null;
 
         draggingNode = node;
         draggingNodeStartX = node.getX();
@@ -315,6 +333,7 @@ public class NodeGraph {
                 if (draggingNode.isSensorNode()) {
                     sensorDropTarget = null;
                     actionDropTarget = null;
+                    parameterDropTarget = null;
                     for (Node node : nodes) {
                         if (!node.canAcceptSensor() || node == draggingNode) {
                             continue;
@@ -325,9 +344,24 @@ public class NodeGraph {
                             break;
                         }
                     }
+                } else if (draggingNode.isParameterNode()) {
+                    sensorDropTarget = null;
+                    actionDropTarget = null;
+                    parameterDropTarget = null;
+                    for (Node node : nodes) {
+                        if (!node.canAcceptParameter() || node == draggingNode) {
+                            continue;
+                        }
+                        if (node.isPointInsideParameterSlot(worldMouseX, worldMouseY)) {
+                            parameterDropTarget = node;
+                            hideSockets = true;
+                            break;
+                        }
+                    }
                 } else {
                     sensorDropTarget = null;
                     actionDropTarget = null;
+                    parameterDropTarget = null;
                     for (Node node : nodes) {
                         if (!node.canAcceptActionNode() || node == draggingNode) {
                             continue;
@@ -444,6 +478,12 @@ public class NodeGraph {
                 if (!target.attachSensor(node)) {
                     node.setSocketsHidden(false);
                 }
+            } else if (node.isParameterNode() && parameterDropTarget != null) {
+                Node target = parameterDropTarget;
+                node.setDragging(false);
+                if (!target.attachParameter(node)) {
+                    node.setSocketsHidden(false);
+                }
             } else if (!node.isSensorNode() && actionDropTarget != null) {
                 Node target = actionDropTarget;
                 node.setDragging(false);
@@ -453,13 +493,14 @@ public class NodeGraph {
             } else {
                 node.setDragging(false);
                 node.setSocketsHidden(false);
-            }
-            draggingNode = null;
         }
-        draggingNodeDetached = false;
-        sensorDropTarget = null;
-        actionDropTarget = null;
+        draggingNode = null;
     }
+    draggingNodeDetached = false;
+    sensorDropTarget = null;
+    actionDropTarget = null;
+    parameterDropTarget = null;
+}
 
     private void detachDraggingNodeFromParents() {
         if (draggingNode == null || draggingNodeDetached) {
@@ -477,6 +518,13 @@ public class NodeGraph {
             Node parent = draggingNode.getParentActionControl();
             if (parent != null) {
                 parent.detachActionNode();
+            }
+        }
+
+        if (draggingNode.isParameterNode() && draggingNode.getParentParameterHost() != null) {
+            Node parent = draggingNode.getParentParameterHost();
+            if (parent != null) {
+                parent.detachParameter();
             }
         }
 
@@ -625,6 +673,9 @@ public class NodeGraph {
         if (node.hasAttachedActionNode()) {
             collectNodesForCascade(node.getAttachedActionNode(), order, visited);
         }
+        if (node.hasAttachedParameter()) {
+            collectNodesForCascade(node.getAttachedParameter(), order, visited);
+        }
 
         order.add(node);
     }
@@ -690,7 +741,7 @@ public class NodeGraph {
         }
 
         for (Node node : nodes) {
-            if (node.isSensorNode() || node.isAttachedToActionControl()) {
+            if (node.isSensorNode() || node.isAttachedToActionControl() || node.isParameterNode()) {
                 continue;
             }
             boolean shouldRender = onlyDragged ? node.isDragging() : !node.isDragging();
@@ -704,6 +755,17 @@ public class NodeGraph {
                 continue;
             }
             boolean parentDragging = node.isAttachedToControl() && node.getParentControl() != null && node.getParentControl().isDragging();
+            boolean shouldRender = onlyDragged ? (node.isDragging() || parentDragging) : !node.isDragging();
+            if (shouldRender) {
+                renderNode(context, textRenderer, node, mouseX, mouseY, delta);
+            }
+        }
+
+        for (Node node : nodes) {
+            if (!node.isParameterNode()) {
+                continue;
+            }
+            boolean parentDragging = node.getParentParameterHost() != null && node.getParentParameterHost().isDragging();
             boolean shouldRender = onlyDragged ? (node.isDragging() || parentDragging) : !node.isDragging();
             if (shouldRender) {
                 renderNode(context, textRenderer, node, mouseX, mouseY, delta);
@@ -868,42 +930,83 @@ public class NodeGraph {
                 textY,
                 textColor
             );
+        } else if (node.getType() == NodeType.EVENT_CALL) {
+            int baseColor = isOverSidebar ? 0xFF423345 : 0xFFD81B60;
+            context.fill(x + 1, y + 1, x + width - 1, y + height - 1, baseColor);
+
+            int titleColor = isOverSidebar ? 0xFFE3BBCB : 0xFFFFF5F8;
+            context.drawTextWithShadow(
+                textRenderer,
+                Text.literal("Call Function"),
+                x + 6,
+                y + 4,
+                titleColor
+            );
+
+            int boxLeft = x + 6;
+            int boxRight = x + width - 6;
+            int boxHeight = 16;
+            int boxTop = y + height / 2 - boxHeight / 2;
+            int boxBottom = boxTop + boxHeight;
+            int inputBackground = isOverSidebar ? 0xFF2E2E2E : 0xFF1F1F1F;
+            context.fill(boxLeft, boxTop, boxRight, boxBottom, inputBackground);
+            int inputBorder = isOverSidebar ? 0xFF51323E : 0xFF000000;
+            context.drawBorder(boxLeft, boxTop, boxRight - boxLeft, boxHeight, inputBorder);
+
+            NodeParameter nameParam = node.getParameter("Name");
+            String value = nameParam != null ? nameParam.getDisplayValue() : "";
+            String display = value.isEmpty() ? "enter name" : value;
+            display = trimTextToWidth(display, textRenderer, boxRight - boxLeft - 8);
+            int textY = boxTop + (boxHeight - textRenderer.fontHeight) / 2 + 1;
+            int textColor = isOverSidebar ? 0xFFBFA1AF : 0xFFFFEEF5;
+            context.drawTextWithShadow(
+                textRenderer,
+                Text.literal(display),
+                boxLeft + 4,
+                textY,
+                textColor
+            );
         } else {
-            // Regular nodes with parameters
-            if (shouldShowParameters(node)) {
-                int paramBgColor = isOverSidebar ? 0xFF2A2A2A : 0xFF1A1A1A; // Grey when over sidebar
-                context.fill(x + 3, y + 16, x + width - 3, y + height - 3, paramBgColor);
+            if (node.isParameterNode()) {
+                if (shouldShowParameters(node)) {
+                    int paramBgColor = isOverSidebar ? 0xFF2A2A2A : 0xFF1A1A1A; // Grey when over sidebar
+                    context.fill(x + 3, y + 16, x + width - 3, y + height - 3, paramBgColor);
 
-                // Render parameters
-                int paramY = y + 18;
-                List<NodeParameter> parameters = node.getParameters();
+                    // Render parameters
+                    int paramY = y + 18;
+                    List<NodeParameter> parameters = node.getParameters();
 
-                if (node.supportsModeSelection()) {
-                    String modeLabel = trimTextToWidth(node.getModeDisplayLabel(), textRenderer, width - 10);
-                    int paramTextColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0; // Grey text when over sidebar
-                    context.drawTextWithShadow(
-                        textRenderer,
-                        Text.literal(modeLabel),
-                        x + 5,
-                        paramY,
-                        paramTextColor
-                    );
-                    paramY += 10;
+                    if (node.supportsModeSelection()) {
+                        String modeLabel = trimTextToWidth(node.getModeDisplayLabel(), textRenderer, width - 10);
+                        int paramTextColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0; // Grey text when over sidebar
+                        context.drawTextWithShadow(
+                            textRenderer,
+                            Text.literal(modeLabel),
+                            x + 5,
+                            paramY,
+                            paramTextColor
+                        );
+                        paramY += 10;
+                    }
+
+                    for (NodeParameter param : parameters) {
+                        String displayText = node.getParameterLabel(param);
+                        displayText = trimTextToWidth(displayText, textRenderer, width - 10);
+
+                        int paramTextColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0; // Grey text when over sidebar
+                        context.drawTextWithShadow(
+                            textRenderer,
+                            displayText,
+                            x + 5,
+                            paramY,
+                            paramTextColor
+                        );
+                        paramY += 10;
+                    }
                 }
-
-                for (NodeParameter param : parameters) {
-                    String displayText = node.getParameterLabel(param);
-                    displayText = trimTextToWidth(displayText, textRenderer, width - 10);
-
-                    int paramTextColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0; // Grey text when over sidebar
-                    context.drawTextWithShadow(
-                        textRenderer,
-                        displayText,
-                        x + 5,
-                        paramY,
-                        paramTextColor
-                    );
-                    paramY += 10;
+            } else {
+                if (node.hasParameterSlot()) {
+                    renderParameterSlot(context, textRenderer, node, isOverSidebar);
                 }
             }
 
@@ -976,6 +1079,41 @@ public class NodeGraph {
             int textColor = actionDropTarget == node ? 0xFF8BC34A : 0xFF888888;
             context.drawTextWithShadow(textRenderer, Text.literal(display), textX, textY, textColor);
         }
+    }
+
+    private void renderParameterSlot(DrawContext context, TextRenderer textRenderer, Node node, boolean isOverSidebar) {
+        int slotX = node.getParameterSlotLeft() - cameraX;
+        int slotY = node.getParameterSlotTop() - cameraY;
+        int slotWidth = node.getParameterSlotWidth();
+        int slotHeight = node.getParameterSlotHeight();
+
+        int backgroundColor = node.hasAttachedParameter() ? 0xFF262626 : 0xFF1E1E1E;
+        int borderColor = node.hasAttachedParameter() ? 0xFF666666 : 0xFF444444;
+
+        if (parameterDropTarget == node) {
+            borderColor = 0xFF87CEEB;
+        }
+
+        context.fill(slotX, slotY, slotX + slotWidth, slotY + slotHeight, backgroundColor);
+        context.drawBorder(slotX, slotY, slotWidth, slotHeight, borderColor);
+
+        int headerColor = isOverSidebar ? 0xFF777777 : 0xFFAAAAAA;
+        int headerY = slotY - textRenderer.fontHeight - 2;
+        if (headerY > node.getY() - cameraY + 14) {
+            context.drawTextWithShadow(textRenderer, Text.literal("Parameter"), slotX + 2, headerY, headerColor);
+        }
+
+        String label;
+        if (node.hasAttachedParameter()) {
+            label = node.getAttachedParameter().getType().getDisplayName();
+        } else {
+            label = "Drag parameter here";
+        }
+        label = trimTextToWidth(label, textRenderer, slotWidth - 8);
+
+        int textColor = node.hasAttachedParameter() ? 0xFFE0E0E0 : (isOverSidebar ? 0xFF666666 : 0xFF888888);
+        int textY = slotY + slotHeight / 2 - textRenderer.fontHeight / 2;
+        context.drawTextWithShadow(textRenderer, Text.literal(label), slotX + 4, textY, textColor);
     }
 
     private String trimTextToWidth(String text, TextRenderer renderer, int maxWidth) {
@@ -1256,8 +1394,13 @@ public class NodeGraph {
      * Check if a node should show parameters (Start and End nodes don't)
      */
     public boolean shouldShowParameters(Node node) {
-        boolean hasDisplayableContent = (node.hasParameters() || node.supportsModeSelection());
-        return hasDisplayableContent && !node.canAcceptSensor() && node.getType() != NodeType.EVENT_FUNCTION;
+        if (node == null) {
+            return false;
+        }
+        if (node.isParameterNode()) {
+            return node.hasParameters() || node.supportsModeSelection();
+        }
+        return false;
     }
 
     public boolean didLastStartButtonTriggerExecution() {
@@ -1321,6 +1464,9 @@ public class NodeGraph {
             if (node.hasAttachedActionNode()) {
                 node.detachActionNode();
             }
+            if (node.hasAttachedParameter()) {
+                node.detachParameter();
+            }
             if (node.isSensorNode() && node.isAttachedToControl()) {
                 Node parent = node.getParentControl();
                 if (parent != null) {
@@ -1331,6 +1477,12 @@ public class NodeGraph {
                 Node parent = node.getParentActionControl();
                 if (parent != null) {
                     parent.detachActionNode();
+                }
+            }
+            if (node.isParameterNode() && node.getParentParameterHost() != null) {
+                Node parent = node.getParentParameterHost();
+                if (parent != null) {
+                    parent.detachParameter();
                 }
             }
             node.setDragging(false);
@@ -1353,6 +1505,7 @@ public class NodeGraph {
         disconnectedConnection = null;
         sensorDropTarget = null;
         actionDropTarget = null;
+        parameterDropTarget = null;
         lastClickedNode = null;
         lastClickTime = 0;
         cascadeDeletionPreviewNodes.clear();
@@ -1435,6 +1588,26 @@ public class NodeGraph {
                 Node control = nodeMap.get(nodeData.getParentActionControlId());
                 if (child != null && control != null && control.canAcceptActionNode(child)) {
                     control.attachActionNode(child);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            if (nodeData.getAttachedParameterId() != null) {
+                Node host = nodeMap.get(nodeData.getId());
+                Node parameter = nodeMap.get(nodeData.getAttachedParameterId());
+                if (host != null && parameter != null) {
+                    host.attachParameter(parameter);
+                }
+            }
+        }
+
+        for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            if (nodeData.getParentParameterHostId() != null) {
+                Node parameter = nodeMap.get(nodeData.getId());
+                Node host = nodeMap.get(nodeData.getParentParameterHostId());
+                if (parameter != null && host != null && parameter.isParameterNode()) {
+                    host.attachParameter(parameter);
                 }
             }
         }
