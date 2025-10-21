@@ -17,8 +17,9 @@ import net.minecraft.text.Text;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -89,6 +90,7 @@ public class NodeGraph {
     private String coordinateEditOriginalValue = "";
     private long coordinateCaretLastToggleTime = 0L;
     private boolean coordinateCaretVisible = true;
+    private boolean workspaceDirty = false;
 
     public NodeGraph() {
         this.nodes = new ArrayList<>();
@@ -1266,7 +1268,10 @@ public class NodeGraph {
             if (coordinateEditingNode == node && coordinateEditingAxis == axisIndex) {
                 return;
             }
-            applyCoordinateEdit();
+            boolean changed = applyCoordinateEdit();
+            if (changed) {
+                notifyNodeParametersChanged(coordinateEditingNode);
+            }
         }
 
         coordinateEditingNode = node;
@@ -1283,10 +1288,15 @@ public class NodeGraph {
             return;
         }
 
+        boolean changed = false;
         if (commit) {
-            applyCoordinateEdit();
+            changed = applyCoordinateEdit();
         } else {
             revertCoordinateEdit();
+        }
+
+        if (commit && changed) {
+            notifyNodeParametersChanged(coordinateEditingNode);
         }
 
         coordinateEditingNode = null;
@@ -1296,17 +1306,20 @@ public class NodeGraph {
         coordinateCaretVisible = true;
     }
 
-    private void applyCoordinateEdit() {
+    private boolean applyCoordinateEdit() {
         if (!isEditingCoordinateField()) {
-            return;
+            return false;
         }
         String value = coordinateEditBuffer;
         if (value == null || value.isEmpty() || "-".equals(value)) {
             value = "0";
         }
         String axisName = COORDINATE_AXES[coordinateEditingAxis];
+        NodeParameter parameter = getCoordinateParameter(coordinateEditingNode, coordinateEditingAxis);
+        String previous = parameter != null ? parameter.getStringValue() : "";
         coordinateEditingNode.setParameterValueAndPropagate(axisName, value);
         coordinateEditingNode.recalculateDimensions();
+        return !Objects.equals(previous, value);
     }
 
     private void revertCoordinateEdit() {
@@ -1348,7 +1361,6 @@ public class NodeGraph {
                 Node node = coordinateEditingNode;
                 int direction = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0 ? -1 : 1;
                 int nextAxis = (coordinateEditingAxis + direction + COORDINATE_AXES.length) % COORDINATE_AXES.length;
-                applyCoordinateEdit();
                 startCoordinateEditing(node, nextAxis);
                 return true;
             default:
@@ -1696,7 +1708,11 @@ public class NodeGraph {
      * Save the current node graph to disk
      */
     public boolean save() {
-        return NodeGraphPersistence.saveNodeGraphForPreset(activePreset, nodes, connections);
+        boolean saved = NodeGraphPersistence.saveNodeGraphForPreset(activePreset, nodes, connections);
+        if (saved) {
+            workspaceDirty = false;
+        }
+        return saved;
     }
 
     /**
@@ -1705,7 +1721,11 @@ public class NodeGraph {
     public boolean load() {
         NodeGraphData data = NodeGraphPersistence.loadNodeGraphForPreset(activePreset);
         if (data != null) {
-            return applyLoadedData(data);
+            boolean applied = applyLoadedData(data);
+            if (applied) {
+                workspaceDirty = false;
+            }
+            return applied;
         }
         return false;
     }
@@ -1713,13 +1733,40 @@ public class NodeGraph {
     public boolean importFromPath(Path savePath) {
         NodeGraphData data = NodeGraphPersistence.loadNodeGraphFromPath(savePath);
         if (data != null) {
-            return applyLoadedData(data);
+            boolean applied = applyLoadedData(data);
+            if (applied) {
+                workspaceDirty = true;
+            }
+            return applied;
         }
         return false;
     }
 
     public boolean exportToPath(Path savePath) {
-        return NodeGraphPersistence.saveNodeGraphToPath(nodes, connections, savePath);
+        boolean saved = NodeGraphPersistence.saveNodeGraphToPath(nodes, connections, savePath);
+        if (saved) {
+            workspaceDirty = false;
+        }
+        return saved;
+    }
+
+    public void markWorkspaceDirty() {
+        workspaceDirty = true;
+    }
+
+    public void markWorkspaceClean() {
+        workspaceDirty = false;
+    }
+
+    public boolean isWorkspaceDirty() {
+        return workspaceDirty;
+    }
+
+    public void notifyNodeParametersChanged(Node node) {
+        if (node == null) {
+            return;
+        }
+        markWorkspaceDirty();
     }
 
     public void clearWorkspace() {

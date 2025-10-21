@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.Optional;
 import java.util.Locale;
 import java.util.EnumSet;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
@@ -176,6 +177,12 @@ public class Node {
         private Float resolvedPitch;
         private Float resolvedYawOffset;
         private Float resolvedPitchOffset;
+    }
+
+    private static final class PlacementFailure extends RuntimeException {
+        PlacementFailure(String message) {
+            super(message);
+        }
     }
 
     private enum ParameterHandlingResult {
@@ -3509,9 +3516,34 @@ public class Node {
         if (yParam != null) y = yParam.getIntValue();
         if (zParam != null) z = zParam.getIntValue();
 
+        RuntimeParameterData parameterData = runtimeParameterData;
+        if (parameterData != null) {
+            if (parameterData.targetBlockId != null && !parameterData.targetBlockId.isEmpty()) {
+                block = parameterData.targetBlockId;
+            }
+            if (parameterData.targetBlockPos != null) {
+                BlockPos resolved = parameterData.targetBlockPos;
+                x = resolved.getX();
+                y = resolved.getY();
+                z = resolved.getZ();
+            }
+        }
+
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null || client.player.networkHandler == null || client.interactionManager == null || client.world == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+            return;
+        }
+
+        String originalBlockId = block;
+        block = normalizeResourceId(block, "minecraft");
+        if (!Objects.equals(originalBlockId, block)) {
+            setParameterValueAndPropagate("Block", block);
+        }
+
+        if (block == null || block.isEmpty()) {
+            sendNodeErrorMessage(client, "Cannot place block: no block selected.");
+            future.complete(null);
             return;
         }
 
@@ -3519,34 +3551,41 @@ public class Node {
 
         BlockPos targetPos = new BlockPos(x, y, z);
         Block desiredBlock = resolveBlockForPlacement(block);
+        if (desiredBlock == null) {
+            sendNodeErrorMessage(client, "Cannot place block: unknown block \"" + block + "\".");
+            future.complete(null);
+            return;
+        }
+
         final String resolvedBlockId = block;
 
         try {
             runOnClientThread(client, () -> {
-                if (desiredBlock != null && client.world.getBlockState(targetPos).isOf(desiredBlock)) {
+                if (client.world.getBlockState(targetPos).isOf(desiredBlock)) {
                     return;
                 }
 
-                if (!ensureBlockInHand(client, resolvedBlockId, hand)) {
-                    throw new RuntimeException("Block " + resolvedBlockId + " not found in hotbar");
-                }
+                ensureBlockInHand(client, resolvedBlockId, hand);
 
                 BlockHitResult hitResult = createPlacementHitResult(client, targetPos);
                 if (hitResult == null) {
-                    throw new RuntimeException("No valid placement position at " + targetPos.getX() + ", " + targetPos.getY() + ", " + targetPos.getZ());
+                    throw new PlacementFailure("Cannot place block at " + formatBlockPos(targetPos) + ": no surface to place against.");
                 }
 
                 ActionResult result = client.interactionManager.interactBlock(client.player, hand, hitResult);
                 if (!result.isAccepted()) {
-                    throw new RuntimeException("Block placement rejected: " + result);
+                    throw new PlacementFailure("Cannot place block at " + formatBlockPos(targetPos) + ": placement rejected (" + result + ").");
                 }
             });
             future.complete(null);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             future.completeExceptionally(e);
-        } catch (RuntimeException e) {
+        } catch (PlacementFailure e) {
             sendNodeErrorMessage(client, e.getMessage());
+            future.complete(null);
+        } catch (RuntimeException e) {
+            sendNodeErrorMessage(client, "Failed to place block \"" + resolvedBlockId + "\": " + e.getMessage());
             future.complete(null);
         }
     }
@@ -4474,26 +4513,30 @@ public class Node {
         future.complete(null);
     }
 
-    private boolean ensureBlockInHand(net.minecraft.client.MinecraftClient client, String blockId, Hand hand) {
+    private void ensureBlockInHand(net.minecraft.client.MinecraftClient client, String blockId, Hand hand) {
         if (blockId == null || blockId.isEmpty()) {
-            return true;
+            return;
         }
 
         Identifier identifier = Identifier.tryParse(blockId);
         if (identifier == null || !Registries.ITEM.containsId(identifier)) {
-            return false;
+            throw new PlacementFailure("Cannot place block \"" + blockId + "\": unknown block item.");
         }
 
         Item targetItem = Registries.ITEM.get(identifier);
         ItemStack current = client.player.getStackInHand(hand);
         if (!current.isEmpty() && current.isOf(targetItem)) {
-            return true;
+            return;
         }
 
         PlayerInventory inventory = client.player.getInventory();
         int slot = findHotbarSlotWithItem(inventory, targetItem);
         if (slot == -1) {
-            return false;
+            boolean elsewhere = inventory.contains(new ItemStack(targetItem));
+            if (elsewhere) {
+                throw new PlacementFailure("Cannot place block \"" + blockId + "\": move it to your hotbar first.");
+            }
+            throw new PlacementFailure("Cannot place block \"" + blockId + "\": none available in your inventory.");
         }
 
         if (hand == Hand.MAIN_HAND) {
@@ -4503,19 +4546,18 @@ public class Node {
                     client.player.networkHandler.sendPacket(new UpdateSelectedSlotC2SPacket(slot));
                 }
             }
-            return true;
+            return;
         }
 
         ItemStack offhandStack = client.player.getOffHandStack();
         if (!offhandStack.isEmpty() && offhandStack.isOf(targetItem)) {
-            return true;
+            return;
         }
 
         inventory.setSelectedSlot(slot);
         if (client.player.networkHandler != null) {
             client.player.networkHandler.sendPacket(new UpdateSelectedSlotC2SPacket(slot));
         }
-        return true;
     }
 
     private int findHotbarSlotWithItem(PlayerInventory inventory, Item targetItem) {
@@ -4555,6 +4597,27 @@ public class Node {
         }
 
         return null;
+    }
+
+    private String normalizeResourceId(String value, String defaultNamespace) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+        if (!trimmed.contains(":")) {
+            return defaultNamespace + ":" + trimmed;
+        }
+        return trimmed;
+    }
+
+    private static String formatBlockPos(BlockPos pos) {
+        if (pos == null) {
+            return "(unknown)";
+        }
+        return pos.getX() + ", " + pos.getY() + ", " + pos.getZ();
     }
 
     private Block resolveBlockForPlacement(String blockId) {
