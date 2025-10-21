@@ -116,11 +116,11 @@ public class Node {
     private static final int PLACE_COORDINATE_DISPLAY_LINES = 3;
     private static final Direction[] PLACE_NEIGHBOR_DIRECTIONS = new Direction[] {
         Direction.DOWN,
+        Direction.UP,
         Direction.NORTH,
         Direction.SOUTH,
         Direction.WEST,
-        Direction.EAST,
-        Direction.UP
+        Direction.EAST
     };
     private static final int SLOT_AREA_PADDING_TOP = 0;
     private static final int SLOT_AREA_PADDING_BOTTOM = 6;
@@ -3584,10 +3584,6 @@ public class Node {
 
         try {
             runOnClientThread(client, () -> {
-                if (desiredBlock != null && client.world.getBlockState(targetPos).isOf(desiredBlock)) {
-                    return;
-                }
-
                 if (!isBlockReplaceable(client.world, targetPos)) {
                     throw new RuntimeException("Cannot place block at " + targetPos.getX() + ", " + targetPos.getY() + ", " + targetPos.getZ() + ": position is not replaceable.");
                 }
@@ -3601,20 +3597,10 @@ public class Node {
                     throw new RuntimeException("No adjacent surface available to place block at " + targetPos.getX() + ", " + targetPos.getY() + ", " + targetPos.getZ());
                 }
 
-                double maxReach = client.player.getBlockInteractionRange();
-                double reachSquared = maxReach * maxReach;
-                Vec3d eyePos = client.player.getEyePos();
                 ActionResult lastResult = ActionResult.PASS;
                 boolean attemptedPlacement = false;
-                boolean withinReach = false;
 
                 for (BlockHitResult candidate : placementCandidates) {
-                    double distanceSquared = eyePos.squaredDistanceTo(candidate.getPos());
-                    if (distanceSquared > reachSquared) {
-                        continue;
-                    }
-
-                    withinReach = true;
                     lastResult = client.interactionManager.interactBlock(client.player, hand, candidate);
                     attemptedPlacement = true;
                     if (isPlacementResultSuccessful(lastResult)) {
@@ -3626,10 +3612,6 @@ public class Node {
                         }
                         return;
                     }
-                }
-
-                if (!withinReach) {
-                    throw new RuntimeException("Target block is out of reach for placement");
                 }
 
                 if (!attemptedPlacement) {
