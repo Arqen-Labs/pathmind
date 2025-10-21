@@ -119,7 +119,7 @@ public class Sidebar {
         columnsUsed = Math.min(columnsUsed, TAB_COLUMNS);
 
         if (columnsUsed > 1) {
-            currentInnerSidebarWidth = INNER_SIDEBAR_WIDTH * 2 - 16;
+            currentInnerSidebarWidth = INNER_SIDEBAR_WIDTH * 2 - 6;
         } else {
             currentInnerSidebarWidth = INNER_SIDEBAR_WIDTH;
         }
