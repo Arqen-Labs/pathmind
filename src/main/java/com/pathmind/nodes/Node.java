@@ -357,7 +357,10 @@ public class Node {
     }
 
     public boolean canAcceptParameter() {
-        return !isParameterNode() && type != NodeType.START && type.getCategory() != NodeCategory.LOGIC;
+        return !isParameterNode()
+            && type != NodeType.START
+            && type != NodeType.EVENT_CALL
+            && type.getCategory() != NodeCategory.LOGIC;
     }
 
     public boolean hasParameterSlot() {
@@ -1937,6 +1940,64 @@ public class Node {
             data.resolvedPitchOffset = pitchOffsetComputed;
         }
         return true;
+    }
+
+    private void orientPlayerTowardsRuntimeTarget(net.minecraft.client.MinecraftClient client, RuntimeParameterData data) {
+        if (client == null || client.player == null || data == null) {
+            return;
+        }
+
+        float yaw = client.player.getYaw();
+        float pitch = client.player.getPitch();
+        boolean applyYaw = false;
+        boolean applyPitch = false;
+
+        Vec3d targetVector = null;
+        if (data.targetEntity != null && data.targetEntity.isAlive()) {
+            targetVector = data.targetEntity.getBoundingBox().getCenter();
+        }
+        if (targetVector == null && data.targetVector != null) {
+            targetVector = data.targetVector;
+        }
+        if (targetVector == null && data.targetBlockPos != null) {
+            targetVector = Vec3d.ofCenter(data.targetBlockPos);
+        }
+
+        if (targetVector != null) {
+            Vec3d eyes = client.player.getEyePos();
+            Vec3d delta = targetVector.subtract(eyes);
+            if (delta.lengthSquared() > 1.0E-6) {
+                yaw = (float) (MathHelper.wrapDegrees(Math.toDegrees(Math.atan2(delta.z, delta.x)) - 90.0D));
+                pitch = (float) (-Math.toDegrees(Math.atan2(delta.y, Math.sqrt(delta.x * delta.x + delta.z * delta.z))));
+                pitch = MathHelper.clamp(pitch, -90.0F, 90.0F);
+                applyYaw = true;
+                applyPitch = true;
+            }
+        }
+
+        if (!applyYaw && data.resolvedYaw != null) {
+            yaw = data.resolvedYaw;
+            applyYaw = true;
+        }
+        if (!applyPitch && data.resolvedPitch != null) {
+            pitch = MathHelper.clamp(data.resolvedPitch, -90.0F, 90.0F);
+            applyPitch = true;
+        }
+
+        if (!applyYaw && !applyPitch) {
+            return;
+        }
+
+        client.player.setYaw(yaw);
+        client.player.setPitch(pitch);
+        client.player.setHeadYaw(yaw);
+
+        if (applyYaw) {
+            data.resolvedYaw = yaw;
+        }
+        if (applyPitch) {
+            data.resolvedPitch = pitch;
+        }
     }
 
     private void sendIncompatibleParameterMessage(Node parameterNode) {
@@ -4581,7 +4642,7 @@ public class Node {
     }
     
     private void executeAttackCommand(CompletableFuture<Void> future) {
-        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+        if (preprocessAttachedParameter(EnumSet.of(ParameterUsage.LOOK_ORIENTATION, ParameterUsage.POSITION), future) == ParameterHandlingResult.COMPLETE) {
             return;
         }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
@@ -4589,7 +4650,7 @@ public class Node {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
             return;
         }
-        
+
         Hand hand = resolveHand(getParameter("Hand"), Hand.MAIN_HAND);
         boolean swingOnly = getBooleanParameter("SwingOnly", false);
         final boolean attackEntities = getBooleanParameter("AttackEntities", true);
@@ -4598,6 +4659,10 @@ public class Node {
         double intervalSeconds = Math.max(0.0, getDoubleParameter("AttackIntervalSeconds", 0.0));
         boolean sneakWhileAttacking = getBooleanParameter("SneakWhileAttacking", false);
         boolean restoreSneak = getBooleanParameter("RestoreSneakState", true);
+
+        RuntimeParameterData parameterData = runtimeParameterData;
+
+        orientPlayerTowardsRuntimeTarget(client, parameterData);
 
         if (!attackEntities && !attackBlocks) {
             swingOnly = true;
@@ -4621,11 +4686,32 @@ public class Node {
 
                 for (int i = 0; i < repeatCount; i++) {
                     runOnClientThread(client, () -> {
+                        if (parameterData != null) {
+                            if (parameterData.targetEntity != null && !parameterData.targetEntity.isAlive()) {
+                                parameterData.targetEntity = null;
+                            }
+                            orientPlayerTowardsRuntimeTarget(client, parameterData);
+                        }
+
+                        boolean performedAttack = false;
                         HitResult target = client.crosshairTarget;
-                        if (!finalSwingOnly && target instanceof EntityHitResult entityHit && finalAttackEntities) {
-                            client.interactionManager.attackEntity(client.player, entityHit.getEntity());
-                        } else if (!finalSwingOnly && target instanceof BlockHitResult blockHit && finalAttackBlocks) {
+                        if (!finalSwingOnly && finalAttackEntities) {
+                            Entity directEntity = null;
+                            if (parameterData != null && parameterData.targetEntity != null && parameterData.targetEntity.isAlive()) {
+                                directEntity = parameterData.targetEntity;
+                            } else if (target instanceof EntityHitResult entityHit) {
+                                directEntity = entityHit.getEntity();
+                            }
+
+                            if (directEntity != null) {
+                                client.interactionManager.attackEntity(client.player, directEntity);
+                                performedAttack = true;
+                            }
+                        }
+
+                        if (!finalSwingOnly && !performedAttack && target instanceof BlockHitResult blockHit && finalAttackBlocks) {
                             client.interactionManager.attackBlock(blockHit.getBlockPos(), blockHit.getSide());
+                            performedAttack = true;
                         }
 
                         client.player.swingHand(hand);
