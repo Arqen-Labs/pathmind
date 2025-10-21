@@ -118,6 +118,7 @@ public class Node {
     private static final int COORDINATE_FIELD_LABEL_HEIGHT = 10;
     private static final int COORDINATE_FIELD_BOTTOM_MARGIN = 6;
     private static final double PARAMETER_SEARCH_RADIUS = 64.0;
+    private static final double DEFAULT_REACH_DISTANCE_SQUARED = 25.0D;
     private int width;
     private int height;
     private int nextOutputSocket = 0;
@@ -3582,6 +3583,15 @@ public class Node {
         System.out.println("Placing block '" + block + "' at " + x + ", " + y + ", " + z);
 
         BlockPos targetPos = new BlockPos(x, y, z);
+        Vec3d targetCenter = Vec3d.ofCenter(targetPos);
+        double reachSquared = getPlacementReachSquared(client);
+        Vec3d eyePos = client.player.getEyePos();
+        if (eyePos.squaredDistanceTo(targetCenter) > reachSquared) {
+            sendNodeErrorMessage(client, "Cannot place block at " + formatBlockPos(targetPos) + ": target is out of reach.");
+            future.complete(null);
+            return;
+        }
+
         Block desiredBlock = resolveBlockForPlacement(block);
         if (desiredBlock == null) {
             sendNodeErrorMessage(client, "Cannot place block: unknown block \"" + block + "\".");
@@ -3600,13 +3610,16 @@ public class Node {
                 ensureBlockInHand(client, resolvedBlockId, hand);
 
                 BlockHitResult hitResult = createPlacementHitResult(client, targetPos);
-                if (hitResult == null) {
-                    throw new PlacementFailure("Cannot place block at " + formatBlockPos(targetPos) + ": no surface to place against.");
-                }
 
                 ActionResult result = client.interactionManager.interactBlock(client.player, hand, hitResult);
                 if (!result.isAccepted()) {
                     throw new PlacementFailure("Cannot place block at " + formatBlockPos(targetPos) + ": placement rejected (" + result + ").");
+                }
+                if (client.player != null) {
+                    client.player.swingHand(hand);
+                    if (client.player.networkHandler != null) {
+                        client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
+                    }
                 }
             });
             boolean placed = waitForBlockPlacement(client, targetPos, desiredBlock);
@@ -4600,7 +4613,7 @@ public class Node {
         if (client == null || targetPos == null || desiredBlock == null) {
             return false;
         }
-        for (int attempt = 0; attempt < 10; attempt++) {
+        for (int attempt = 0; attempt < 20; attempt++) {
             boolean matches = supplyFromClient(client, () -> {
                 if (client.world == null) {
                     return false;
@@ -4628,17 +4641,21 @@ public class Node {
 
     private BlockHitResult createPlacementHitResult(net.minecraft.client.MinecraftClient client, BlockPos targetPos) {
         if (client.player == null || client.player.getWorld() == null) {
-            return null;
+            throw new PlacementFailure("Cannot place block at " + formatBlockPos(targetPos) + ": client world is unavailable.");
         }
 
         net.minecraft.world.World world = client.player.getWorld();
+        BlockState targetState = world.getBlockState(targetPos);
         if (!isBlockReplaceable(world, targetPos)) {
-            return null;
+            throw new PlacementFailure(
+                "Cannot place block at " + formatBlockPos(targetPos) + ": target space contains " + describeBlockState(targetState) + "."
+            );
         }
 
         for (Direction direction : Direction.values()) {
             BlockPos clickedPos = targetPos.offset(direction);
-            if (world.getBlockState(clickedPos).isAir()) {
+            BlockState clickedState = world.getBlockState(clickedPos);
+            if (clickedState.isAir()) {
                 continue;
             }
 
@@ -4651,7 +4668,7 @@ public class Node {
             return new BlockHitResult(hitPos, placementSide, clickedPos, false);
         }
 
-        return null;
+        throw new PlacementFailure("Cannot place block at " + formatBlockPos(targetPos) + ": no surface to place against.");
     }
 
     private String normalizeResourceId(String value, String defaultNamespace) {
@@ -4686,6 +4703,18 @@ public class Node {
         }
 
         return Registries.BLOCK.get(identifier);
+    }
+
+    private double getPlacementReachSquared(net.minecraft.client.MinecraftClient client) {
+        return DEFAULT_REACH_DISTANCE_SQUARED;
+    }
+
+    private String describeBlockState(BlockState state) {
+        if (state == null) {
+            return "an unknown block";
+        }
+        Identifier id = Registries.BLOCK.getId(state.getBlock());
+        return id != null ? id.toString() : "an unknown block";
     }
 
     private boolean isBlockReplaceable(net.minecraft.world.World world, BlockPos targetPos) {

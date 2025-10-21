@@ -8,13 +8,16 @@ import com.pathmind.nodes.NodeParameter;
 import com.pathmind.nodes.NodeType;
 import com.pathmind.nodes.ParameterType;
 
-import java.io.*;
+import java.io.Reader;
+import java.io.Writer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Handles saving and loading node graphs to/from disk.
@@ -24,7 +27,9 @@ public class NodeGraphPersistence {
             .setPrettyPrinting()
             .registerTypeAdapter(NodeType.class, new NodeTypeAdapter())
             .create();
-    
+
+    private static final Map<String, String> IN_MEMORY_JSON_CACHE = new ConcurrentHashMap<>();
+
     /**
      * Save the current node graph to disk
      */
@@ -33,74 +38,17 @@ public class NodeGraphPersistence {
     }
 
     public static boolean saveNodeGraphForPreset(String presetName, List<Node> nodes, List<NodeConnection> connections) {
-        return saveNodeGraphToPath(nodes, connections, PresetManager.getPresetPath(presetName));
+        Path savePath = PresetManager.getPresetPath(presetName);
+        NodeGraphData data = buildNodeGraphData(nodes, connections);
+        cachePresetGraph(presetName, data);
+        return writeNodeGraphDataToPath(data, savePath);
     }
 
     public static boolean saveNodeGraphToPath(List<Node> nodes, List<NodeConnection> connections, Path savePath) {
-        try {
-            // Convert nodes and connections to serializable data
-            NodeGraphData data = new NodeGraphData();
-
-            // Convert nodes
-            for (Node node : nodes) {
-                NodeGraphData.NodeData nodeData = new NodeGraphData.NodeData();
-                nodeData.setId(node.getId());
-                nodeData.setType(node.getType());
-                nodeData.setMode(node.getMode());
-                nodeData.setX(node.getX());
-                nodeData.setY(node.getY());
-
-                // Convert parameters
-                List<NodeGraphData.ParameterData> paramDataList = new ArrayList<>();
-                for (NodeParameter param : node.getParameters()) {
-                    NodeGraphData.ParameterData paramData = new NodeGraphData.ParameterData();
-                    paramData.setName(param.getName());
-                    paramData.setValue(param.getStringValue());
-                    paramData.setType(param.getType().name());
-                    paramDataList.add(paramData);
-                }
-                nodeData.setParameters(paramDataList);
-                nodeData.setAttachedSensorId(node.getAttachedSensorId());
-                nodeData.setParentControlId(node.getParentControlId());
-                nodeData.setAttachedActionId(node.getAttachedActionId());
-                nodeData.setParentActionControlId(node.getParentActionControlId());
-                nodeData.setAttachedParameterId(node.getAttachedParameterId());
-                nodeData.setParentParameterHostId(node.getParentParameterHostId());
-
-                data.getNodes().add(nodeData);
-            }
-
-            // Convert connections
-            for (NodeConnection connection : connections) {
-                if (connection.getOutputNode().isSensorNode() || connection.getInputNode().isSensorNode()) {
-                    continue;
-                }
-                NodeGraphData.ConnectionData connData = new NodeGraphData.ConnectionData();
-                connData.setOutputNodeId(connection.getOutputNode().getId());
-                connData.setInputNodeId(connection.getInputNode().getId());
-                connData.setOutputSocket(connection.getOutputSocket());
-                connData.setInputSocket(connection.getInputSocket());
-
-                data.getConnections().add(connData);
-            }
-
-            if (savePath.getParent() != null) {
-                Files.createDirectories(savePath.getParent());
-            }
-            try (Writer writer = Files.newBufferedWriter(savePath)) {
-                GSON.toJson(data, writer);
-            }
-
-            System.out.println("Node graph saved successfully to: " + savePath);
-            return true;
-
-        } catch (Exception e) {
-            System.err.println("Failed to save node graph: " + e.getMessage());
-            e.printStackTrace();
-            return false;
-        }
+        NodeGraphData data = buildNodeGraphData(nodes, connections);
+        return writeNodeGraphDataToPath(data, savePath);
     }
-    
+
     /**
      * Load the node graph from disk
      */
@@ -109,7 +57,26 @@ public class NodeGraphPersistence {
     }
 
     public static NodeGraphData loadNodeGraphForPreset(String presetName) {
-        return loadNodeGraphFromPath(PresetManager.getPresetPath(presetName));
+        Path savePath = PresetManager.getPresetPath(presetName);
+        NodeGraphData data = loadNodeGraphFromPath(savePath);
+        if (data != null) {
+            cachePresetGraph(presetName, data);
+            return data;
+        }
+
+        String key = cacheKeyForPath(savePath);
+        if (key != null) {
+            String cached = IN_MEMORY_JSON_CACHE.get(key);
+            if (cached != null) {
+                try {
+                    return GSON.fromJson(cached, NodeGraphData.class);
+                } catch (Exception e) {
+                    System.err.println("Failed to deserialize cached node graph: " + e.getMessage());
+                }
+            }
+        }
+
+        return null;
     }
 
     public static NodeGraphData loadNodeGraphFromPath(Path savePath) {
@@ -131,18 +98,18 @@ public class NodeGraphPersistence {
             return null;
         }
     }
-    
+
     /**
      * Convert loaded data back to Node objects
      */
     public static List<Node> convertToNodes(NodeGraphData data) {
         List<Node> nodes = new ArrayList<>();
         Map<String, Node> nodeMap = new HashMap<>();
-        
+
         // Create nodes
         for (NodeGraphData.NodeData nodeData : data.getNodes()) {
             Node node = new Node(nodeData.getType(), nodeData.getX(), nodeData.getY());
-            
+
             // Set the same ID using reflection
             try {
                 java.lang.reflect.Field idField = Node.class.getDeclaredField("id");
@@ -151,12 +118,12 @@ public class NodeGraphPersistence {
             } catch (Exception e) {
                 System.err.println("Failed to set node ID: " + e.getMessage());
             }
-            
+
             // Set the mode if it exists (this will reinitialize parameters)
             if (nodeData.getMode() != null) {
                 node.setMode(nodeData.getMode());
             }
-            
+
             // Restore parameters (overwrite the default parameters with saved ones)
             node.getParameters().clear();
             if (nodeData.getParameters() != null) {
@@ -234,17 +201,17 @@ public class NodeGraphPersistence {
 
         return nodes;
     }
-    
+
     /**
      * Convert loaded data back to Connection objects
      */
     public static List<NodeConnection> convertToConnections(NodeGraphData data, Map<String, Node> nodeMap) {
         List<NodeConnection> connections = new ArrayList<>();
-        
+
         for (NodeGraphData.ConnectionData connData : data.getConnections()) {
             Node outputNode = nodeMap.get(connData.getOutputNodeId());
             Node inputNode = nodeMap.get(connData.getInputNodeId());
-            
+
             if (outputNode != null && inputNode != null) {
                 if (outputNode.isSensorNode() || inputNode.isSensorNode()) {
                     continue;
@@ -260,10 +227,10 @@ public class NodeGraphPersistence {
                 System.err.println("Failed to restore connection: missing node(s)");
             }
         }
-        
+
         return connections;
     }
-    
+
     /**
      * Get the save file path in the Minecraft saves directory
      */
@@ -279,7 +246,101 @@ public class NodeGraphPersistence {
     }
 
     public static boolean hasSavedNodeGraph(String presetName) {
-        return Files.exists(PresetManager.getPresetPath(presetName));
+        Path path = PresetManager.getPresetPath(presetName);
+        if (Files.exists(path)) {
+            return true;
+        }
+        String key = cacheKeyForPath(path);
+        return key != null && IN_MEMORY_JSON_CACHE.containsKey(key);
+    }
+
+    private static void cachePresetGraph(String presetName, NodeGraphData data) {
+        String key = cacheKeyForPreset(presetName);
+        if (key != null && data != null) {
+            IN_MEMORY_JSON_CACHE.put(key, GSON.toJson(data));
+        }
+    }
+
+    private static String cacheKeyForPreset(String presetName) {
+        return cacheKeyForPath(PresetManager.getPresetPath(presetName));
+    }
+
+    private static String cacheKeyForPath(Path path) {
+        if (path == null) {
+            return null;
+        }
+        Path fileName = path.getFileName();
+        if (fileName == null) {
+            return null;
+        }
+        String name = fileName.toString();
+        if (name.endsWith(".json")) {
+            name = name.substring(0, name.length() - 5);
+        }
+        return name.toLowerCase(Locale.ROOT);
+    }
+
+    private static NodeGraphData buildNodeGraphData(List<Node> nodes, List<NodeConnection> connections) {
+        NodeGraphData data = new NodeGraphData();
+
+        for (Node node : nodes) {
+            NodeGraphData.NodeData nodeData = new NodeGraphData.NodeData();
+            nodeData.setId(node.getId());
+            nodeData.setType(node.getType());
+            nodeData.setMode(node.getMode());
+            nodeData.setX(node.getX());
+            nodeData.setY(node.getY());
+
+            List<NodeGraphData.ParameterData> paramDataList = new ArrayList<>();
+            for (NodeParameter param : node.getParameters()) {
+                NodeGraphData.ParameterData paramData = new NodeGraphData.ParameterData();
+                paramData.setName(param.getName());
+                paramData.setValue(param.getStringValue());
+                paramData.setType(param.getType().name());
+                paramDataList.add(paramData);
+            }
+            nodeData.setParameters(paramDataList);
+            nodeData.setAttachedSensorId(node.getAttachedSensorId());
+            nodeData.setParentControlId(node.getParentControlId());
+            nodeData.setAttachedActionId(node.getAttachedActionId());
+            nodeData.setParentActionControlId(node.getParentActionControlId());
+            nodeData.setAttachedParameterId(node.getAttachedParameterId());
+            nodeData.setParentParameterHostId(node.getParentParameterHostId());
+
+            data.getNodes().add(nodeData);
+        }
+
+        for (NodeConnection connection : connections) {
+            if (connection.getOutputNode().isSensorNode() || connection.getInputNode().isSensorNode()) {
+                continue;
+            }
+            NodeGraphData.ConnectionData connData = new NodeGraphData.ConnectionData();
+            connData.setOutputNodeId(connection.getOutputNode().getId());
+            connData.setInputNodeId(connection.getInputNode().getId());
+            connData.setOutputSocket(connection.getOutputSocket());
+            connData.setInputSocket(connection.getInputSocket());
+
+            data.getConnections().add(connData);
+        }
+
+        return data;
+    }
+
+    private static boolean writeNodeGraphDataToPath(NodeGraphData data, Path savePath) {
+        try {
+            if (savePath.getParent() != null) {
+                Files.createDirectories(savePath.getParent());
+            }
+            try (Writer writer = Files.newBufferedWriter(savePath)) {
+                GSON.toJson(data, writer);
+            }
+            System.out.println("Node graph saved successfully to: " + savePath);
+            return true;
+        } catch (Exception e) {
+            System.err.println("Failed to save node graph: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
     }
 }
 
@@ -288,12 +349,12 @@ public class NodeGraphPersistence {
  */
 class NodeTypeAdapter extends com.google.gson.TypeAdapter<NodeType> {
     @Override
-    public void write(com.google.gson.stream.JsonWriter out, NodeType value) throws IOException {
+    public void write(com.google.gson.stream.JsonWriter out, NodeType value) throws java.io.IOException {
         out.value(value.name());
     }
-    
+
     @Override
-    public NodeType read(com.google.gson.stream.JsonReader in) throws IOException {
+    public NodeType read(com.google.gson.stream.JsonReader in) throws java.io.IOException {
         String name = in.nextString();
         try {
             return NodeType.valueOf(name);

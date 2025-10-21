@@ -1,5 +1,6 @@
 package com.pathmind.data;
 
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.MinecraftClient;
 
 import java.io.IOException;
@@ -198,6 +199,10 @@ public final class PresetManager {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client != null && client.runDirectory != null) {
             return client.runDirectory.toPath();
+        }
+        FabricLoader loader = FabricLoader.getInstance();
+        if (loader != null) {
+            return loader.getGameDir();
         }
         return Paths.get(System.getProperty("user.home"), ".minecraft");
     }
