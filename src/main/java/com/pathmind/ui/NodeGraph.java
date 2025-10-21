@@ -90,6 +90,11 @@ public class NodeGraph {
     private String coordinateEditOriginalValue = "";
     private long coordinateCaretLastToggleTime = 0L;
     private boolean coordinateCaretVisible = true;
+    private Node mineQuantityEditingNode = null;
+    private String mineQuantityEditBuffer = "";
+    private String mineQuantityOriginalValue = "";
+    private long mineQuantityCaretLastToggleTime = 0L;
+    private boolean mineQuantityCaretVisible = true;
     private boolean workspaceDirty = false;
 
     public NodeGraph() {
@@ -149,6 +154,10 @@ public class NodeGraph {
 
         if (coordinateEditingNode == node) {
             stopCoordinateEditing(false);
+        }
+
+        if (mineQuantityEditingNode == node) {
+            stopMineQuantityEditing(false);
         }
 
         if (node.hasAttachedSensor()) {
@@ -304,6 +313,7 @@ public class NodeGraph {
 
     public void startDragging(Node node, int mouseX, int mouseY) {
         stopCoordinateEditing(true);
+        stopMineQuantityEditing(true);
         resetDropTargets();
 
         draggingNode = node;
@@ -316,6 +326,7 @@ public class NodeGraph {
     }
     
     public void startDraggingConnection(Node node, int socketIndex, boolean isOutput, int mouseX, int mouseY) {
+        stopMineQuantityEditing(true);
         isDraggingConnection = true;
         connectionSourceNode = node;
         connectionSourceSocket = socketIndex;
@@ -1147,6 +1158,9 @@ public class NodeGraph {
             } else {
                 if (node.hasParameterSlot()) {
                     renderParameterSlot(context, textRenderer, node, isOverSidebar);
+                    if (node.hasMineQuantityInputField()) {
+                        renderMineQuantityField(context, textRenderer, node, isOverSidebar);
+                    }
                     if (node.hasCoordinateInputFields()) {
                         renderCoordinateInputFields(context, textRenderer, node, isOverSidebar);
                     }
@@ -1257,6 +1271,64 @@ public class NodeGraph {
         int textColor = node.hasAttachedParameter() ? 0xFFE0E0E0 : (isOverSidebar ? 0xFF666666 : 0xFF888888);
         int textY = slotY + slotHeight / 2 - textRenderer.fontHeight / 2;
         context.drawTextWithShadow(textRenderer, Text.literal(label), slotX + 4, textY, textColor);
+    }
+
+    private void renderMineQuantityField(DrawContext context, TextRenderer textRenderer, Node node, boolean isOverSidebar) {
+        int labelColor = isOverSidebar ? 0xFF777777 : 0xFFAAAAAA;
+        int fieldBackground = isOverSidebar ? 0xFF252525 : 0xFF1A1A1A;
+        int activeFieldBackground = isOverSidebar ? 0xFF2F2F2F : 0xFF242424;
+        int fieldBorder = isOverSidebar ? 0xFF555555 : 0xFF444444;
+        int activeFieldBorder = 0xFF87CEEB;
+        int textColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0;
+        int activeTextColor = 0xFFE6F7FF;
+
+        boolean editing = isEditingMineQuantityField() && mineQuantityEditingNode == node;
+        if (editing) {
+            updateMineQuantityCaretBlink();
+        }
+
+        int labelTop = node.getMineQuantityFieldLabelTop() - cameraY;
+        int labelHeight = node.getMineQuantityFieldLabelHeight();
+        int labelX = node.getMineQuantityFieldLeft() - cameraX + 2;
+        int labelY = labelTop + Math.max(0, (labelHeight - textRenderer.fontHeight) / 2);
+        context.drawTextWithShadow(textRenderer, Text.literal("Amount"), labelX, labelY, labelColor);
+
+        int fieldLeft = node.getMineQuantityFieldLeft() - cameraX;
+        int fieldTop = node.getMineQuantityFieldInputTop() - cameraY;
+        int fieldWidth = node.getMineQuantityFieldWidth();
+        int fieldHeight = node.getMineQuantityFieldHeight();
+
+        int backgroundColor = editing ? activeFieldBackground : fieldBackground;
+        int borderColor = editing ? activeFieldBorder : fieldBorder;
+        int valueColor = editing ? activeTextColor : textColor;
+
+        context.fill(fieldLeft, fieldTop, fieldLeft + fieldWidth, fieldTop + fieldHeight, backgroundColor);
+        context.drawBorder(fieldLeft, fieldTop, fieldWidth, fieldHeight, borderColor);
+
+        String value;
+        if (editing) {
+            value = mineQuantityEditBuffer;
+        } else {
+            NodeParameter quantityParam = node.getParameter("Quantity");
+            value = quantityParam != null ? quantityParam.getDisplayValue() : "0";
+        }
+        if (value == null) {
+            value = "";
+        }
+
+        String display = editing
+            ? textRenderer.trimToWidth(value, fieldWidth - 6)
+            : trimTextToWidth(value, textRenderer, fieldWidth - 6);
+
+        int textX = fieldLeft + 3;
+        int textY = fieldTop + (fieldHeight - textRenderer.fontHeight) / 2 + 1;
+        context.drawTextWithShadow(textRenderer, Text.literal(display), textX, textY, valueColor);
+
+        if (editing && mineQuantityCaretVisible) {
+            int caretX = textX + textRenderer.getWidth(display);
+            caretX = Math.min(caretX, fieldLeft + fieldWidth - 2);
+            context.fill(caretX, fieldTop + 2, caretX + 1, fieldTop + fieldHeight - 2, 0xFFE6F7FF);
+        }
     }
 
     private void renderCoordinateInputFields(DrawContext context, TextRenderer textRenderer, Node node, boolean isOverSidebar) {
@@ -1375,6 +1447,8 @@ public class NodeGraph {
             stopCoordinateEditing(false);
             return;
         }
+
+        stopMineQuantityEditing(true);
 
         if (isEditingCoordinateField()) {
             if (coordinateEditingNode == node && coordinateEditingAxis == axisIndex) {
@@ -1502,6 +1576,148 @@ public class NodeGraph {
         }
 
         return false;
+    }
+
+    public boolean isEditingMineQuantityField() {
+        return mineQuantityEditingNode != null;
+    }
+
+    public boolean isPointInMineQuantityField(Node node, int screenX, int screenY) {
+        if (node == null || !node.hasMineQuantityInputField()) {
+            return false;
+        }
+        int worldX = screenX + cameraX;
+        int worldY = screenY + cameraY;
+        return node.isPointInsideMineQuantityField(worldX, worldY);
+    }
+
+    public void startMineQuantityEditing(Node node) {
+        if (node == null || !node.hasMineQuantityInputField()) {
+            stopMineQuantityEditing(false);
+            return;
+        }
+
+        if (isEditingMineQuantityField() && mineQuantityEditingNode == node) {
+            return;
+        }
+
+        stopMineQuantityEditing(true);
+        stopCoordinateEditing(true);
+
+        mineQuantityEditingNode = node;
+        NodeParameter parameter = node.getParameter("Quantity");
+        String value = parameter != null ? parameter.getDisplayValue() : "0";
+        mineQuantityOriginalValue = normalizeMineQuantityValue(value);
+        mineQuantityEditBuffer = mineQuantityOriginalValue;
+        resetMineQuantityCaretBlink();
+    }
+
+    public void stopMineQuantityEditing(boolean commit) {
+        if (!isEditingMineQuantityField()) {
+            return;
+        }
+
+        boolean changed = false;
+        if (commit) {
+            changed = applyMineQuantityEdit();
+        }
+
+        Node node = mineQuantityEditingNode;
+        mineQuantityEditingNode = null;
+        mineQuantityEditBuffer = "";
+        mineQuantityOriginalValue = "";
+        mineQuantityCaretVisible = true;
+        mineQuantityCaretLastToggleTime = 0L;
+
+        if (commit && changed) {
+            notifyNodeParametersChanged(node);
+        }
+    }
+
+    public boolean handleMineQuantityKeyPressed(int keyCode, int modifiers) {
+        if (!isEditingMineQuantityField()) {
+            return false;
+        }
+
+        switch (keyCode) {
+            case GLFW.GLFW_KEY_BACKSPACE:
+                if (!mineQuantityEditBuffer.isEmpty()) {
+                    mineQuantityEditBuffer = mineQuantityEditBuffer.substring(0, mineQuantityEditBuffer.length() - 1);
+                    resetMineQuantityCaretBlink();
+                }
+                return true;
+            case GLFW.GLFW_KEY_ENTER:
+            case GLFW.GLFW_KEY_KP_ENTER:
+                stopMineQuantityEditing(true);
+                return true;
+            case GLFW.GLFW_KEY_ESCAPE:
+                stopMineQuantityEditing(false);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    public boolean handleMineQuantityCharTyped(char chr, int modifiers, TextRenderer textRenderer) {
+        if (!isEditingMineQuantityField()) {
+            return false;
+        }
+
+        if (chr >= '0' && chr <= '9') {
+            int availableWidth = mineQuantityEditingNode.getMineQuantityFieldWidth() - 6;
+            String candidate = mineQuantityEditBuffer + chr;
+            if (textRenderer.getWidth(candidate) <= availableWidth) {
+                mineQuantityEditBuffer = candidate;
+                resetMineQuantityCaretBlink();
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+    private void updateMineQuantityCaretBlink() {
+        long now = System.currentTimeMillis();
+        if (now - mineQuantityCaretLastToggleTime >= COORDINATE_CARET_BLINK_INTERVAL_MS) {
+            mineQuantityCaretVisible = !mineQuantityCaretVisible;
+            mineQuantityCaretLastToggleTime = now;
+        }
+    }
+
+    private void resetMineQuantityCaretBlink() {
+        mineQuantityCaretVisible = true;
+        mineQuantityCaretLastToggleTime = System.currentTimeMillis();
+    }
+
+    private boolean applyMineQuantityEdit() {
+        if (!isEditingMineQuantityField()) {
+            return false;
+        }
+        String normalized = normalizeMineQuantityValue(mineQuantityEditBuffer);
+        boolean changed = !Objects.equals(normalized, mineQuantityOriginalValue);
+        mineQuantityOriginalValue = normalized;
+        mineQuantityEditingNode.setParameterValueAndPropagate("Quantity", normalized);
+        mineQuantityEditingNode.recalculateDimensions();
+        return changed;
+    }
+
+    private String normalizeMineQuantityValue(String value) {
+        if (value == null) {
+            return "0";
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return "0";
+        }
+        try {
+            int parsed = Integer.parseInt(trimmed);
+            if (parsed < 0) {
+                parsed = 0;
+            }
+            return Integer.toString(parsed);
+        } catch (NumberFormatException e) {
+            return "0";
+        }
     }
 
     private String trimTextToWidth(String text, TextRenderer renderer, int maxWidth) {
@@ -1755,6 +1971,7 @@ public class NodeGraph {
         }
 
         stopCoordinateEditing(true);
+        stopMineQuantityEditing(true);
 
         hoveredStartNode = startNode;
 
@@ -1883,6 +2100,8 @@ public class NodeGraph {
     }
 
     public void clearWorkspace() {
+        stopCoordinateEditing(false);
+        stopMineQuantityEditing(false);
         for (Node node : new ArrayList<>(nodes)) {
             if (node.hasAttachedSensor()) {
                 node.detachSensor();

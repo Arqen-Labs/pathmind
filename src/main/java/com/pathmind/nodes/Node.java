@@ -120,6 +120,11 @@ public class Node {
     private static final int COORDINATE_FIELD_TOP_MARGIN = 6;
     private static final int COORDINATE_FIELD_LABEL_HEIGHT = 10;
     private static final int COORDINATE_FIELD_BOTTOM_MARGIN = 6;
+    private static final int MINE_QUANTITY_FIELD_MIN_WIDTH = 88;
+    private static final int MINE_QUANTITY_FIELD_TOP_MARGIN = 6;
+    private static final int MINE_QUANTITY_FIELD_LABEL_HEIGHT = 10;
+    private static final int MINE_QUANTITY_FIELD_HEIGHT = 16;
+    private static final int MINE_QUANTITY_FIELD_BOTTOM_MARGIN = 6;
     private static final double PARAMETER_SEARCH_RADIUS = 64.0;
     private static final double DEFAULT_REACH_DISTANCE_SQUARED = 25.0D;
     private int width;
@@ -569,6 +574,9 @@ public class Node {
             }
         } else if (hasParameterSlot()) {
             top += PARAMETER_SLOT_LABEL_HEIGHT + getParameterSlotHeight() + PARAMETER_SLOT_BOTTOM_PADDING;
+            if (hasMineQuantityInputField()) {
+                top += getMineQuantityFieldDisplayHeight();
+            }
             if (hasCoordinateInputFields()) {
                 top += getCoordinateFieldDisplayHeight();
             }
@@ -675,6 +683,59 @@ public class Node {
 
     public int getCoordinateFieldTotalWidth() {
         return (COORDINATE_FIELD_WIDTH * 3) + (COORDINATE_FIELD_SPACING * 2);
+    }
+
+    public boolean hasMineQuantityInputField() {
+        if (type != NodeType.MINE) {
+            return false;
+        }
+        return mode == null || mode == NodeMode.MINE_SINGLE;
+    }
+
+    public int getMineQuantityFieldDisplayHeight() {
+        if (!hasMineQuantityInputField()) {
+            return 0;
+        }
+        return MINE_QUANTITY_FIELD_TOP_MARGIN
+            + MINE_QUANTITY_FIELD_LABEL_HEIGHT
+            + MINE_QUANTITY_FIELD_HEIGHT
+            + MINE_QUANTITY_FIELD_BOTTOM_MARGIN;
+    }
+
+    public int getMineQuantityFieldLabelTop() {
+        return getParameterSlotTop() + getParameterSlotHeight() + MINE_QUANTITY_FIELD_TOP_MARGIN;
+    }
+
+    public int getMineQuantityFieldInputTop() {
+        return getMineQuantityFieldLabelTop() + MINE_QUANTITY_FIELD_LABEL_HEIGHT;
+    }
+
+    public int getMineQuantityFieldLabelHeight() {
+        return MINE_QUANTITY_FIELD_LABEL_HEIGHT;
+    }
+
+    public int getMineQuantityFieldHeight() {
+        return MINE_QUANTITY_FIELD_HEIGHT;
+    }
+
+    public int getMineQuantityFieldLeft() {
+        return getParameterSlotLeft();
+    }
+
+    public int getMineQuantityFieldWidth() {
+        int widthWithMargins = this.width - 2 * PARAMETER_SLOT_MARGIN_HORIZONTAL;
+        return Math.max(MINE_QUANTITY_FIELD_MIN_WIDTH, widthWithMargins);
+    }
+
+    public boolean isPointInsideMineQuantityField(int pointX, int pointY) {
+        if (!hasMineQuantityInputField()) {
+            return false;
+        }
+        int left = getMineQuantityFieldLeft();
+        int top = getMineQuantityFieldInputTop();
+        int width = getMineQuantityFieldWidth();
+        int height = getMineQuantityFieldHeight();
+        return pointX >= left && pointX <= left + width && pointY >= top && pointY <= top + height;
     }
 
     public boolean isPointInsideParameterSlot(int pointX, int pointY) {
@@ -1040,6 +1101,7 @@ public class Node {
                 // MINE modes
                 case MINE_SINGLE:
                     parameters.add(new NodeParameter("Block", ParameterType.STRING, "stone"));
+                    parameters.add(new NodeParameter("Quantity", ParameterType.INTEGER, "0"));
                     break;
                 case MINE_MULTIPLE:
                     parameters.add(new NodeParameter("Blocks", ParameterType.STRING, "stone,dirt"));
@@ -1594,6 +1656,10 @@ public class Node {
             }
             int requiredWidth = parameterContentWidth + 2 * (PARAMETER_SLOT_INNER_PADDING + PARAMETER_SLOT_MARGIN_HORIZONTAL);
             computedWidth = Math.max(computedWidth, requiredWidth);
+            if (hasMineQuantityInputField()) {
+                int quantityFieldWidth = MINE_QUANTITY_FIELD_MIN_WIDTH + 2 * PARAMETER_SLOT_MARGIN_HORIZONTAL;
+                computedWidth = Math.max(computedWidth, quantityFieldWidth);
+            }
             if (hasCoordinateInputFields()) {
                 int coordinateWidth = getCoordinateFieldTotalWidth() + 2 * PARAMETER_SLOT_MARGIN_HORIZONTAL;
                 computedWidth = Math.max(computedWidth, coordinateWidth);
@@ -1638,6 +1704,9 @@ public class Node {
             }
         } else if (hasParameterSlot()) {
             contentHeight += PARAMETER_SLOT_LABEL_HEIGHT + getParameterSlotHeight() + PARAMETER_SLOT_BOTTOM_PADDING;
+            if (hasMineQuantityInputField()) {
+                contentHeight += getMineQuantityFieldDisplayHeight();
+            }
             if (hasCoordinateInputFields()) {
                 contentHeight += getCoordinateFieldDisplayHeight();
             }
@@ -2791,35 +2860,55 @@ public class Node {
         }
         
         IMineProcess mineProcess = baritone.getMineProcess();
-        PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_MINE, future);
-        
+
         switch (mode) {
-            case MINE_SINGLE:
-                String block = "stone";
-                NodeParameter blockParam = getParameter("Block");
-                if (blockParam != null) {
-                    block = blockParam.getStringValue();
+            case MINE_SINGLE: {
+                String block = getStringParameter("Block", "stone");
+                Node parameterNode = getAttachedParameterOfType(NodeType.PARAM_BLOCK, NodeType.PARAM_PLACE_TARGET);
+                if (parameterNode != null) {
+                    String nodeBlock = getParameterString(parameterNode, "Block");
+                    if (nodeBlock != null && !nodeBlock.isEmpty()) {
+                        block = nodeBlock;
+                    }
                 }
-                
-                System.out.println("Executing mine for: " + block);
-                mineProcess.mineByName(block);
+
+                String trimmedBlock = block != null ? block.trim() : "";
+                if (trimmedBlock.isEmpty()) {
+                    net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+                    if (client != null) {
+                        sendNodeErrorMessage(client, "Mine node requires a valid block identifier.");
+                    }
+                    future.complete(null);
+                    return;
+                }
+
+                int quantity = Math.max(0, getIntParameter("Quantity", 0));
+                System.out.println("Executing mine for: " + trimmedBlock + (quantity > 0 ? " (target " + quantity + ")" : ""));
+                PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_MINE, future);
+                mineProcess.mineByName(trimmedBlock);
+                if (quantity > 0) {
+                    monitorMineProgress(baritone, mineProcess, trimmedBlock, quantity);
+                }
                 break;
-                
-            case MINE_MULTIPLE:
+            }
+
+            case MINE_MULTIPLE: {
                 String blocks = "stone,dirt";
                 NodeParameter blocksParam = getParameter("Blocks");
                 if (blocksParam != null) {
                     blocks = blocksParam.getStringValue();
                 }
-                
+
                 System.out.println("Executing mine for blocks: " + blocks);
+                PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_MINE, future);
                 // Split the comma-separated block names and mine them
                 String[] blockNames = blocks.split(",");
                 for (String blockName : blockNames) {
                     mineProcess.mineByName(blockName.trim());
                 }
                 break;
-                
+            }
+
             default:
                 future.completeExceptionally(new RuntimeException("Unknown MINE mode: " + mode));
                 break;
@@ -5467,6 +5556,94 @@ public class Node {
             return null;
         }
         return parameter.getStringValue();
+    }
+
+    private String normalizeResourceIdentifier(String resourceId) {
+        if (resourceId == null) {
+            return null;
+        }
+        String trimmed = resourceId.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        String normalized = trimmed.toLowerCase(Locale.ROOT);
+        if (!normalized.contains(":")) {
+            normalized = "minecraft:" + normalized;
+        }
+        return normalized;
+    }
+
+    private void monitorMineProgress(IBaritone baritone, IMineProcess mineProcess, String blockId, int quantity) {
+        if (quantity <= 0 || mineProcess == null) {
+            return;
+        }
+
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            return;
+        }
+
+        String normalizedId = normalizeResourceIdentifier(blockId);
+        if (normalizedId == null) {
+            return;
+        }
+
+        Identifier identifier = Identifier.tryParse(normalizedId);
+        if (identifier == null || !Registries.ITEM.containsId(identifier)) {
+            sendNodeErrorMessage(client, "Cannot monitor mining for \"" + blockId + "\": unknown item identifier.");
+            return;
+        }
+
+        Item targetItem = Registries.ITEM.get(identifier);
+
+        final int startingCount;
+        try {
+            startingCount = supplyFromClient(client, () -> client.player != null
+                ? client.player.getInventory().count(targetItem)
+                : 0);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
+
+        final int targetCount = startingCount + quantity;
+        CompletableFuture.runAsync(() -> {
+            try {
+                while (true) {
+                    if (!mineProcess.isActive()) {
+                        break;
+                    }
+
+                    int currentCount = supplyFromClient(client, () -> {
+                        if (client.player == null) {
+                            return targetCount;
+                        }
+                        return client.player.getInventory().count(targetItem);
+                    });
+
+                    if (currentCount >= targetCount) {
+                        runOnClientThread(client, () -> {
+                            if (baritone != null) {
+                                try {
+                                    baritone.getCommandManager().execute("stop");
+                                } catch (Exception e) {
+                                    System.err.println("Failed to execute Baritone stop command: " + e.getMessage());
+                                }
+                                IMineProcess activeProcess = baritone.getMineProcess();
+                                if (activeProcess != null && activeProcess.isActive()) {
+                                    activeProcess.cancel();
+                                }
+                            }
+                        });
+                        break;
+                    }
+
+                    Thread.sleep(200L);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
     }
 
     private double getDoubleParameter(String name, double defaultValue) {

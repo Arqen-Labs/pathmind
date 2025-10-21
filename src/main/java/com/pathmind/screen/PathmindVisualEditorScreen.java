@@ -440,6 +440,7 @@ public class PathmindVisualEditorScreen extends Screen {
                 if (node.isSocketClicked(worldMouseX, worldMouseY, i, true)) {
                     if (button == 0) { // Left click - start dragging connection from input
                         nodeGraph.stopCoordinateEditing(true);
+                        nodeGraph.stopMineQuantityEditing(true);
                         nodeGraph.startDraggingConnection(node, i, false, (int)mouseX, (int)mouseY);
                         return true;
                     }
@@ -451,6 +452,7 @@ public class PathmindVisualEditorScreen extends Screen {
                 if (node.isSocketClicked(worldMouseX, worldMouseY, i, false)) {
                     if (button == 0) { // Left click - start dragging connection from output
                         nodeGraph.stopCoordinateEditing(true);
+                        nodeGraph.stopMineQuantityEditing(true);
                         nodeGraph.startDraggingConnection(node, i, true, (int)mouseX, (int)mouseY);
                         return true;
                     }
@@ -471,7 +473,14 @@ public class PathmindVisualEditorScreen extends Screen {
                     return true;
                 }
 
+                if (nodeGraph.isPointInMineQuantityField(clickedNode, (int)mouseX, (int)mouseY)) {
+                    nodeGraph.selectNode(clickedNode);
+                    nodeGraph.startMineQuantityEditing(clickedNode);
+                    return true;
+                }
+
                 nodeGraph.stopCoordinateEditing(true);
+                nodeGraph.stopMineQuantityEditing(true);
 
                 // Check for double-click to open parameter editor
                 boolean shouldOpenOverlay = clickedNode.isParameterNode()
@@ -479,6 +488,7 @@ public class PathmindVisualEditorScreen extends Screen {
                     || clickedNode.getType() == NodeType.EVENT_CALL
                     || clickedNode.hasParameters();
                 if (clickedNode.getType() == NodeType.PLACE
+                    || clickedNode.getType() == NodeType.MINE
                     || clickedNode.isSensorNode()) {
                     shouldOpenOverlay = false;
                 }
@@ -486,6 +496,7 @@ public class PathmindVisualEditorScreen extends Screen {
                     nodeGraph.handleNodeClick(clickedNode, (int)mouseX, (int)mouseY)) {
                     // Open parameter overlay
                     nodeGraph.stopCoordinateEditing(true);
+                    nodeGraph.stopMineQuantityEditing(true);
                     parameterOverlay = new NodeParameterOverlay(
                         clickedNode,
                         this.width,
@@ -515,6 +526,7 @@ public class PathmindVisualEditorScreen extends Screen {
             nodeGraph.stopDraggingConnection();
             if (button == 0) {
                 nodeGraph.stopCoordinateEditing(true);
+                nodeGraph.stopMineQuantityEditing(true);
             }
             return true;
         }
@@ -681,6 +693,10 @@ public class PathmindVisualEditorScreen extends Screen {
             }
         }
 
+        if (nodeGraph.handleMineQuantityKeyPressed(keyCode, modifiers)) {
+            return true;
+        }
+
         if (nodeGraph.handleCoordinateKeyPressed(keyCode, modifiers)) {
             return true;
         }
@@ -729,6 +745,10 @@ public class PathmindVisualEditorScreen extends Screen {
             if (parameterOverlay.charTyped(chr, modifiers)) {
                 return true;
             }
+        }
+
+        if (nodeGraph.handleMineQuantityCharTyped(chr, modifiers, this.textRenderer)) {
+            return true;
         }
 
         if (nodeGraph.handleCoordinateCharTyped(chr, modifiers, this.textRenderer)) {
@@ -788,6 +808,7 @@ public class PathmindVisualEditorScreen extends Screen {
         hasSavedOnClose = true;
 
         nodeGraph.stopCoordinateEditing(true);
+        nodeGraph.stopMineQuantityEditing(true);
 
         if (nodeGraph.save()) {
             System.out.println("Node graph auto-saved successfully");
