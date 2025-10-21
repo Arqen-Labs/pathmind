@@ -11,6 +11,7 @@ import java.util.EnumSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Predicate;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.process.ICustomGoalProcess;
@@ -1756,7 +1757,15 @@ public class Node {
                 BlockPos pos = new BlockPos(x, y, z);
                 if (data != null) {
                     data.targetBlockPos = pos;
-                    data.targetBlockId = getParameterString(parameterNode, "Block");
+                    String rawBlockId = getParameterString(parameterNode, "Block");
+                    Identifier identifier = resolveIdentifier(rawBlockId, Registries.BLOCK::containsId);
+                    if (identifier != null) {
+                        String normalized = identifier.toString();
+                        data.targetBlockId = normalized;
+                        setParameterIfPresent("Block", normalized);
+                    } else {
+                        data.targetBlockId = rawBlockId;
+                    }
                 }
                 return Optional.of(Vec3d.ofCenter(pos));
             }
@@ -3459,17 +3468,46 @@ public class Node {
         if (yParam != null) y = yParam.getIntValue();
         if (zParam != null) z = zParam.getIntValue();
 
+        if ((block == null || block.isBlank()) && runtimeParameterData != null && runtimeParameterData.targetBlockId != null) {
+            block = runtimeParameterData.targetBlockId;
+        }
+
+        Identifier blockIdentifier = resolveIdentifier(block, Registries.BLOCK::containsId);
+        if (blockIdentifier == null) {
+            net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+            sendNodeErrorMessage(client, "Unknown block '" + block + "' for Place command.");
+            future.complete(null);
+            return;
+        }
+
+        String normalizedBlockId = blockIdentifier.toString();
+        setParameterIfPresent("Block", normalizedBlockId);
+
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null || client.player.networkHandler == null || client.interactionManager == null || client.world == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
             return;
         }
 
-        System.out.println("Placing block '" + block + "' at " + x + ", " + y + ", " + z);
+        System.out.println("Placing block '" + normalizedBlockId + "' at " + x + ", " + y + ", " + z);
 
         BlockPos targetPos = new BlockPos(x, y, z);
-        Block desiredBlock = resolveBlockForPlacement(block);
-        final String resolvedBlockId = block;
+        Block desiredBlock = resolveBlockForPlacement(blockIdentifier);
+        if (desiredBlock == null) {
+            sendNodeErrorMessage(client, "Block '" + normalizedBlockId + "' is not placeable.");
+            future.complete(null);
+            return;
+        }
+
+        Identifier itemIdentifier = resolveIdentifier(normalizedBlockId, Registries.ITEM::containsId);
+        if (itemIdentifier == null) {
+            sendNodeErrorMessage(client, "No item form found for block '" + normalizedBlockId + "'.");
+            future.complete(null);
+            return;
+        }
+
+        final String resolvedBlockId = normalizedBlockId;
+        final Identifier placementItemId = itemIdentifier;
 
         try {
             runOnClientThread(client, () -> {
@@ -3477,7 +3515,7 @@ public class Node {
                     return;
                 }
 
-                if (!ensureBlockInHand(client, resolvedBlockId, hand)) {
+                if (!ensureBlockInHand(client, placementItemId, hand)) {
                     throw new RuntimeException("Block " + resolvedBlockId + " not found in hotbar");
                 }
 
@@ -4424,17 +4462,16 @@ public class Node {
         future.complete(null);
     }
 
-    private boolean ensureBlockInHand(net.minecraft.client.MinecraftClient client, String blockId, Hand hand) {
-        if (blockId == null || blockId.isEmpty()) {
+    private boolean ensureBlockInHand(net.minecraft.client.MinecraftClient client, Identifier itemIdentifier, Hand hand) {
+        if (itemIdentifier == null) {
             return true;
         }
 
-        Identifier identifier = Identifier.tryParse(blockId);
-        if (identifier == null || !Registries.ITEM.containsId(identifier)) {
+        if (!Registries.ITEM.containsId(itemIdentifier)) {
             return false;
         }
 
-        Item targetItem = Registries.ITEM.get(identifier);
+        Item targetItem = Registries.ITEM.get(itemIdentifier);
         ItemStack current = client.player.getStackInHand(hand);
         if (!current.isEmpty() && current.isOf(targetItem)) {
             return true;
@@ -4507,17 +4544,44 @@ public class Node {
         return null;
     }
 
-    private Block resolveBlockForPlacement(String blockId) {
-        if (blockId == null || blockId.isEmpty()) {
+    private Block resolveBlockForPlacement(Identifier blockIdentifier) {
+        if (blockIdentifier == null) {
             return null;
         }
 
-        Identifier identifier = Identifier.tryParse(blockId);
-        if (identifier == null || !Registries.BLOCK.containsId(identifier)) {
+        if (!Registries.BLOCK.containsId(blockIdentifier)) {
             return null;
         }
 
-        return Registries.BLOCK.get(identifier);
+        return Registries.BLOCK.get(blockIdentifier);
+    }
+
+    private Identifier resolveIdentifier(String rawId, Predicate<Identifier> validator) {
+        if (rawId == null) {
+            return null;
+        }
+
+        String trimmed = rawId.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+
+        Identifier identifier = Identifier.tryParse(trimmed);
+        if (identifier != null && validator.test(identifier)) {
+            return identifier;
+        }
+
+        String sanitized = trimmed.replace(' ', '_');
+        if (!sanitized.contains(":")) {
+            sanitized = "minecraft:" + sanitized;
+        }
+
+        Identifier fallback = Identifier.tryParse(sanitized.toLowerCase(Locale.ROOT));
+        if (fallback != null && validator.test(fallback)) {
+            return fallback;
+        }
+
+        return null;
     }
 
     private boolean isBlockReplaceable(net.minecraft.world.World world, BlockPos targetPos) {
