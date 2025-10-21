@@ -110,6 +110,12 @@ public class Node {
     private static final int SLOT_AREA_PADDING_TOP = 0;
     private static final int SLOT_AREA_PADDING_BOTTOM = 6;
     private static final int SLOT_VERTICAL_SPACING = 6;
+    private static final int COORDINATE_FIELD_WIDTH = 48;
+    private static final int COORDINATE_FIELD_HEIGHT = 16;
+    private static final int COORDINATE_FIELD_SPACING = 6;
+    private static final int COORDINATE_FIELD_TOP_MARGIN = 6;
+    private static final int COORDINATE_FIELD_LABEL_HEIGHT = 10;
+    private static final int COORDINATE_FIELD_BOTTOM_MARGIN = 6;
     private static final double PARAMETER_SEARCH_RADIUS = 64.0;
     private int width;
     private int height;
@@ -538,6 +544,9 @@ public class Node {
             }
         } else if (hasParameterSlot()) {
             top += PARAMETER_SLOT_LABEL_HEIGHT + getParameterSlotHeight() + PARAMETER_SLOT_BOTTOM_PADDING;
+            if (hasCoordinateInputFields()) {
+                top += getCoordinateFieldDisplayHeight();
+            }
             if (hasSensorSlot() || hasActionSlot()) {
                 top += SLOT_AREA_PADDING_TOP;
             }
@@ -592,6 +601,55 @@ public class Node {
     public int getParameterSlotHeight() {
         int contentHeight = attachedParameter != null ? attachedParameter.getHeight() : PARAMETER_SLOT_MIN_CONTENT_HEIGHT;
         return contentHeight + 2 * PARAMETER_SLOT_INNER_PADDING;
+    }
+
+    public boolean hasCoordinateInputFields() {
+        return type == NodeType.PLACE;
+    }
+
+    public int getCoordinateFieldDisplayHeight() {
+        if (!hasCoordinateInputFields()) {
+            return 0;
+        }
+        return COORDINATE_FIELD_TOP_MARGIN + COORDINATE_FIELD_LABEL_HEIGHT + COORDINATE_FIELD_HEIGHT + COORDINATE_FIELD_BOTTOM_MARGIN;
+    }
+
+    public int getCoordinateFieldLabelTop() {
+        return getParameterSlotTop() + getParameterSlotHeight() + COORDINATE_FIELD_TOP_MARGIN;
+    }
+
+    public int getCoordinateFieldInputTop() {
+        return getCoordinateFieldLabelTop() + COORDINATE_FIELD_LABEL_HEIGHT;
+    }
+
+    public int getCoordinateFieldLabelHeight() {
+        return COORDINATE_FIELD_LABEL_HEIGHT;
+    }
+
+    public int getCoordinateFieldHeight() {
+        return COORDINATE_FIELD_HEIGHT;
+    }
+
+    public int getCoordinateFieldWidth() {
+        return COORDINATE_FIELD_WIDTH;
+    }
+
+    public int getCoordinateFieldSpacing() {
+        return COORDINATE_FIELD_SPACING;
+    }
+
+    public int getCoordinateFieldStartX() {
+        int slotLeft = getParameterSlotLeft();
+        int slotWidth = getParameterSlotWidth();
+        int totalFieldWidth = getCoordinateFieldTotalWidth();
+        if (totalFieldWidth >= slotWidth) {
+            return slotLeft;
+        }
+        return slotLeft + (slotWidth - totalFieldWidth) / 2;
+    }
+
+    public int getCoordinateFieldTotalWidth() {
+        return (COORDINATE_FIELD_WIDTH * 3) + (COORDINATE_FIELD_SPACING * 2);
     }
 
     public boolean isPointInsideParameterSlot(int pointX, int pointY) {
@@ -1496,6 +1554,10 @@ public class Node {
             }
             int requiredWidth = parameterContentWidth + 2 * (PARAMETER_SLOT_INNER_PADDING + PARAMETER_SLOT_MARGIN_HORIZONTAL);
             computedWidth = Math.max(computedWidth, requiredWidth);
+            if (hasCoordinateInputFields()) {
+                int coordinateWidth = getCoordinateFieldTotalWidth() + 2 * PARAMETER_SLOT_MARGIN_HORIZONTAL;
+                computedWidth = Math.max(computedWidth, coordinateWidth);
+            }
         }
         if (hasSensorSlot()) {
             int sensorContentWidth = SENSOR_SLOT_MIN_CONTENT_WIDTH;
@@ -1536,6 +1598,9 @@ public class Node {
             }
         } else if (hasParameterSlot()) {
             contentHeight += PARAMETER_SLOT_LABEL_HEIGHT + getParameterSlotHeight() + PARAMETER_SLOT_BOTTOM_PADDING;
+            if (hasCoordinateInputFields()) {
+                contentHeight += getCoordinateFieldDisplayHeight();
+            }
             if (hasSlots) {
                 contentHeight += SLOT_AREA_PADDING_TOP;
             }

@@ -1007,6 +1007,9 @@ public class NodeGraph {
             } else {
                 if (node.hasParameterSlot()) {
                     renderParameterSlot(context, textRenderer, node, isOverSidebar);
+                    if (node.hasCoordinateInputFields()) {
+                        renderCoordinateInputFields(context, textRenderer, node, isOverSidebar);
+                    }
                 }
             }
 
@@ -1114,6 +1117,43 @@ public class NodeGraph {
         int textColor = node.hasAttachedParameter() ? 0xFFE0E0E0 : (isOverSidebar ? 0xFF666666 : 0xFF888888);
         int textY = slotY + slotHeight / 2 - textRenderer.fontHeight / 2;
         context.drawTextWithShadow(textRenderer, Text.literal(label), slotX + 4, textY, textColor);
+    }
+
+    private void renderCoordinateInputFields(DrawContext context, TextRenderer textRenderer, Node node, boolean isOverSidebar) {
+        int labelColor = isOverSidebar ? 0xFF777777 : 0xFFAAAAAA;
+        int fieldBackground = isOverSidebar ? 0xFF252525 : 0xFF1A1A1A;
+        int fieldBorder = isOverSidebar ? 0xFF555555 : 0xFF444444;
+        int textColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0;
+
+        int labelTop = node.getCoordinateFieldLabelTop() - cameraY;
+        int labelHeight = node.getCoordinateFieldLabelHeight();
+        int inputTop = node.getCoordinateFieldInputTop() - cameraY;
+        int fieldHeight = node.getCoordinateFieldHeight();
+        int fieldWidth = node.getCoordinateFieldWidth();
+        int spacing = node.getCoordinateFieldSpacing();
+        int startX = node.getCoordinateFieldStartX() - cameraX;
+
+        String[] axes = {"X", "Y", "Z"};
+        for (int i = 0; i < axes.length; i++) {
+            int fieldX = startX + i * (fieldWidth + spacing);
+
+            String axisLabel = axes[i];
+            int labelWidth = textRenderer.getWidth(axisLabel);
+            int labelX = fieldX + Math.max(0, (fieldWidth - labelWidth) / 2);
+            int labelY = labelTop + Math.max(0, (labelHeight - textRenderer.fontHeight) / 2);
+            context.drawTextWithShadow(textRenderer, Text.literal(axisLabel), labelX, labelY, labelColor);
+
+            int inputBottom = inputTop + fieldHeight;
+            context.fill(fieldX, inputTop, fieldX + fieldWidth, inputBottom, fieldBackground);
+            context.drawBorder(fieldX, inputTop, fieldWidth, fieldHeight, fieldBorder);
+
+            NodeParameter parameter = node.getParameter(axisLabel);
+            String value = parameter != null ? parameter.getDisplayValue() : "";
+            String display = trimTextToWidth(value, textRenderer, fieldWidth - 6);
+            int textX = fieldX + 3;
+            int textY = inputTop + (fieldHeight - textRenderer.fontHeight) / 2 + 1;
+            context.drawTextWithShadow(textRenderer, Text.literal(display), textX, textY, textColor);
+        }
     }
 
     private String trimTextToWidth(String text, TextRenderer renderer, int maxWidth) {
