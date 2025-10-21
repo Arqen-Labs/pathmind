@@ -332,7 +332,18 @@ public class Node {
     }
 
     public boolean isSensorNode() {
-        switch (type) {
+        return isSensorType(type);
+    }
+
+    public boolean isParameterNode() {
+        return type.getCategory() == NodeCategory.PARAMETERS;
+    }
+
+    public static boolean isSensorType(NodeType nodeType) {
+        if (nodeType == null) {
+            return false;
+        }
+        switch (nodeType) {
             case SENSOR_TOUCHING_BLOCK:
             case SENSOR_TOUCHING_ENTITY:
             case SENSOR_AT_COORDINATES:
@@ -355,8 +366,8 @@ public class Node {
         }
     }
 
-    public boolean isParameterNode() {
-        return type.getCategory() == NodeCategory.PARAMETERS;
+    public static boolean isParameterType(NodeType nodeType) {
+        return nodeType != null && nodeType.getCategory() == NodeCategory.PARAMETERS;
     }
 
     public boolean canAcceptSensor() {
@@ -2354,8 +2365,11 @@ public class Node {
             case CRAFT:
                 executeCraftCommand(future);
                 break;
-            case PLAYER_GUI:
-                executePlayerGuiCommand(future);
+            case OPEN_INVENTORY:
+                executePlayerGuiCommand(future, NodeMode.PLAYER_GUI_OPEN);
+                break;
+            case CLOSE_INVENTORY:
+                executePlayerGuiCommand(future, NodeMode.PLAYER_GUI_CLOSE);
                 break;
             case SCREEN_CONTROL:
                 executeScreenControlCommand(future);
@@ -2971,11 +2985,11 @@ public class Node {
         }
     }
 
-    private void executePlayerGuiCommand(CompletableFuture<Void> future) {
+    private void executePlayerGuiCommand(CompletableFuture<Void> future, NodeMode desiredMode) {
         if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
             return;
         }
-        NodeMode playerGuiMode = mode != null ? mode : NodeMode.PLAYER_GUI_OPEN;
+        NodeMode playerGuiMode = desiredMode != null ? desiredMode : (mode != null ? mode : NodeMode.PLAYER_GUI_OPEN);
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
 
         if (client == null) {

@@ -292,15 +292,19 @@ public class NodeGraph {
         }
     }
 
+    public void resetDropTargets() {
+        sensorDropTarget = null;
+        actionDropTarget = null;
+        parameterDropTarget = null;
+    }
+
     public Node getSelectedNode() {
         return selectedNode;
     }
 
     public void startDragging(Node node, int mouseX, int mouseY) {
         stopCoordinateEditing(true);
-        sensorDropTarget = null;
-        actionDropTarget = null;
-        parameterDropTarget = null;
+        resetDropTargets();
 
         draggingNode = node;
         draggingNodeStartX = node.getX();
@@ -365,9 +369,7 @@ public class NodeGraph {
 
                 boolean hideSockets = false;
                 if (draggingNode.isSensorNode()) {
-                    sensorDropTarget = null;
-                    actionDropTarget = null;
-                    parameterDropTarget = null;
+                    resetDropTargets();
                     for (Node node : nodes) {
                         if (!node.canAcceptSensor() || node == draggingNode) {
                             continue;
@@ -379,9 +381,7 @@ public class NodeGraph {
                         }
                     }
                 } else if (draggingNode.isParameterNode()) {
-                    sensorDropTarget = null;
-                    actionDropTarget = null;
-                    parameterDropTarget = null;
+                    resetDropTargets();
                     for (Node node : nodes) {
                         if (!node.canAcceptParameter() || node == draggingNode) {
                             continue;
@@ -393,9 +393,7 @@ public class NodeGraph {
                         }
                     }
                 } else {
-                    sensorDropTarget = null;
-                    actionDropTarget = null;
-                    parameterDropTarget = null;
+                    resetDropTargets();
                     for (Node node : nodes) {
                         if (!node.canAcceptActionNode() || node == draggingNode) {
                             continue;
@@ -450,6 +448,106 @@ public class NodeGraph {
                 if (hoveredNode != null) break;
             }
         }
+    }
+
+    public void previewSidebarDrag(NodeType nodeType, int worldMouseX, int worldMouseY) {
+        resetDropTargets();
+        if (nodeType == null) {
+            return;
+        }
+
+        if (Node.isSensorType(nodeType)) {
+            for (Node node : nodes) {
+                if (!node.canAcceptSensor()) {
+                    continue;
+                }
+                if (node.isPointInsideSensorSlot(worldMouseX, worldMouseY)) {
+                    sensorDropTarget = node;
+                    break;
+                }
+            }
+        } else if (Node.isParameterType(nodeType)) {
+            for (Node node : nodes) {
+                if (!node.canAcceptParameter()) {
+                    continue;
+                }
+                if (node.isPointInsideParameterSlot(worldMouseX, worldMouseY)) {
+                    parameterDropTarget = node;
+                    break;
+                }
+            }
+        } else {
+            Node candidate = new Node(nodeType, worldMouseX, worldMouseY);
+            for (Node node : nodes) {
+                if (!node.canAcceptActionNode()) {
+                    continue;
+                }
+                if (!node.canAcceptActionNode(candidate)) {
+                    continue;
+                }
+                if (node.isPointInsideActionSlot(worldMouseX, worldMouseY)) {
+                    actionDropTarget = node;
+                    break;
+                }
+            }
+        }
+    }
+
+    public Node handleSidebarDrop(NodeType nodeType, int worldMouseX, int worldMouseY) {
+        resetDropTargets();
+        if (nodeType == null) {
+            return null;
+        }
+
+        Node newNode = new Node(nodeType, 0, 0);
+
+        if (Node.isSensorType(nodeType)) {
+            for (Node node : nodes) {
+                if (!node.canAcceptSensor()) {
+                    continue;
+                }
+                if (node.isPointInsideSensorSlot(worldMouseX, worldMouseY)) {
+                    nodes.add(newNode);
+                    node.attachSensor(newNode);
+                    workspaceDirty = true;
+                    return newNode;
+                }
+            }
+        } else if (Node.isParameterType(nodeType)) {
+            for (Node node : nodes) {
+                if (!node.canAcceptParameter()) {
+                    continue;
+                }
+                if (node.isPointInsideParameterSlot(worldMouseX, worldMouseY)) {
+                    nodes.add(newNode);
+                    node.attachParameter(newNode);
+                    workspaceDirty = true;
+                    return newNode;
+                }
+            }
+        } else {
+            for (Node node : nodes) {
+                if (!node.canAcceptActionNode()) {
+                    continue;
+                }
+                if (!node.canAcceptActionNode(newNode)) {
+                    continue;
+                }
+                if (node.isPointInsideActionSlot(worldMouseX, worldMouseY)) {
+                    nodes.add(newNode);
+                    node.attachActionNode(newNode);
+                    workspaceDirty = true;
+                    return newNode;
+                }
+            }
+        }
+
+        int nodeX = worldMouseX - newNode.getWidth() / 2;
+        int nodeY = worldMouseY - newNode.getHeight() / 2;
+        newNode.setPosition(nodeX, nodeY);
+        nodes.add(newNode);
+        workspaceDirty = true;
+        return newNode;
     }
     
     public void updateMouseHover(int mouseX, int mouseY) {
@@ -527,14 +625,12 @@ public class NodeGraph {
             } else {
                 node.setDragging(false);
                 node.setSocketsHidden(false);
+            }
         }
         draggingNode = null;
+        draggingNodeDetached = false;
+        resetDropTargets();
     }
-    draggingNodeDetached = false;
-    sensorDropTarget = null;
-    actionDropTarget = null;
-    parameterDropTarget = null;
-}
 
     private void detachDraggingNodeFromParents() {
         if (draggingNode == null || draggingNodeDetached) {

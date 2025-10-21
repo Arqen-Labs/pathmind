@@ -393,6 +393,7 @@ public class PathmindVisualEditorScreen extends Screen {
                 if (sidebar.isHoveringNode()) {
                     isDraggingFromSidebar = true;
                     draggingNodeType = sidebar.getHoveredNodeType();
+                    nodeGraph.resetDropTargets();
                 }
                 return true;
             }
@@ -477,7 +478,8 @@ public class PathmindVisualEditorScreen extends Screen {
                     || clickedNode.getType() == NodeType.EVENT_FUNCTION
                     || clickedNode.getType() == NodeType.EVENT_CALL
                     || clickedNode.hasParameters();
-                if (clickedNode.getType() == NodeType.PLACE) {
+                if (clickedNode.getType() == NodeType.PLACE
+                    || clickedNode.getType() == NodeType.SENSOR_TOUCHING_BLOCK) {
                     shouldOpenOverlay = false;
                 }
                 if (shouldOpenOverlay &&
@@ -536,6 +538,13 @@ public class PathmindVisualEditorScreen extends Screen {
 
         // Handle dragging from sidebar
         if (isDraggingFromSidebar && button == 0) {
+            if (draggingNodeType != null && mouseX >= sidebar.getWidth() && mouseY > TITLE_BAR_HEIGHT) {
+                int worldMouseX = nodeGraph.screenToWorldX((int) mouseX);
+                int worldMouseY = nodeGraph.screenToWorldY((int) mouseY);
+                nodeGraph.previewSidebarDrag(draggingNodeType, worldMouseX, worldMouseY);
+            } else {
+                nodeGraph.resetDropTargets();
+            }
             return true; // Continue dragging
         }
         
@@ -579,22 +588,17 @@ public class PathmindVisualEditorScreen extends Screen {
             // Handle dropping node from sidebar
             if (isDraggingFromSidebar) {
                 if (mouseX >= sidebar.getWidth() && mouseY > TITLE_BAR_HEIGHT) {
-                    // Drop in graph area - create new node with proper centering
-                    Node tempNode = new Node(draggingNodeType, 0, 0);
-                    int width = tempNode.getWidth();
-                    int height = tempNode.getHeight();
                     int worldMouseX = nodeGraph.screenToWorldX((int) mouseX);
                     int worldMouseY = nodeGraph.screenToWorldY((int) mouseY);
-                    int nodeX = worldMouseX - width / 2;
-                    int nodeY = worldMouseY - height / 2;
-
-                    Node newNode = new Node(draggingNodeType, nodeX, nodeY);
-                    nodeGraph.addNode(newNode);
-                    nodeGraph.selectNode(newNode);
+                    Node newNode = nodeGraph.handleSidebarDrop(draggingNodeType, worldMouseX, worldMouseY);
+                    if (newNode != null) {
+                        nodeGraph.selectNode(newNode);
+                    }
                 }
                 // Reset drag state
                 isDraggingFromSidebar = false;
                 draggingNodeType = null;
+                nodeGraph.resetDropTargets();
             } else {
                 // Check if dragging node into sidebar for deletion (only if actually dragging)
                 if (nodeGraph.getSelectedNode() != null && nodeGraph.getSelectedNode().isDragging()) {
