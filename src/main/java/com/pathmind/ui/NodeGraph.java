@@ -250,6 +250,12 @@ public class NodeGraph {
 
         for (Node node : nodes) {
             if (node.isSensorNode() && node.containsPoint(worldX, worldY)) {
+                if (node.hasAttachedParameter()) {
+                    Node parameter = node.getAttachedParameter();
+                    if (parameter != null && parameter.containsPoint(worldX, worldY)) {
+                        return parameter;
+                    }
+                }
                 return node;
             }
         }

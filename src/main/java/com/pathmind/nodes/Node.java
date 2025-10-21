@@ -736,7 +736,7 @@ public class Node {
         int availableHeight = getSensorSlotHeight() - 2 * SENSOR_SLOT_INNER_PADDING;
         int sensorX = slotX + Math.max(0, (availableWidth - attachedSensor.getWidth()) / 2);
         int sensorY = slotY + Math.max(0, (availableHeight - attachedSensor.getHeight()) / 2);
-        attachedSensor.setPositionSilently(sensorX, sensorY);
+        attachedSensor.setPosition(sensorX, sensorY);
     }
 
     public void updateAttachedActionPosition() {
@@ -830,6 +830,7 @@ public class Node {
 
         recalculateDimensions();
         updateAttachedParameterPosition();
+        updateParentControlLayout();
 
         if (!handledAtRuntime) {
             net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
@@ -849,6 +850,14 @@ public class Node {
             parameter.setPositionSilently(this.x + this.width + PARAMETER_SLOT_MARGIN_HORIZONTAL, this.y);
             resetParametersToDefaults();
             recalculateDimensions();
+            updateParentControlLayout();
+        }
+    }
+
+    private void updateParentControlLayout() {
+        if (parentControl != null) {
+            parentControl.recalculateDimensions();
+            parentControl.updateAttachedSensorPosition();
         }
     }
 
@@ -1676,6 +1685,9 @@ public class Node {
         }
         if (attachedActionNode != null) {
             updateAttachedActionPosition();
+        }
+        if (attachedParameter != null) {
+            updateAttachedParameterPosition();
         }
     }
 
