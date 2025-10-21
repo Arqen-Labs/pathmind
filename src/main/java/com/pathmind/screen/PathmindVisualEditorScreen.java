@@ -393,6 +393,7 @@ public class PathmindVisualEditorScreen extends Screen {
                 if (sidebar.isHoveringNode()) {
                     isDraggingFromSidebar = true;
                     draggingNodeType = sidebar.getHoveredNodeType();
+                    nodeGraph.resetDropTargets();
                 }
                 return true;
             }
@@ -438,6 +439,7 @@ public class PathmindVisualEditorScreen extends Screen {
             for (int i = 0; i < node.getInputSocketCount(); i++) {
                 if (node.isSocketClicked(worldMouseX, worldMouseY, i, true)) {
                     if (button == 0) { // Left click - start dragging connection from input
+                        nodeGraph.stopCoordinateEditing(true);
                         nodeGraph.startDraggingConnection(node, i, false, (int)mouseX, (int)mouseY);
                         return true;
                     }
@@ -448,6 +450,7 @@ public class PathmindVisualEditorScreen extends Screen {
             for (int i = 0; i < node.getOutputSocketCount(); i++) {
                 if (node.isSocketClicked(worldMouseX, worldMouseY, i, false)) {
                     if (button == 0) { // Left click - start dragging connection from output
+                        nodeGraph.stopCoordinateEditing(true);
                         nodeGraph.startDraggingConnection(node, i, true, (int)mouseX, (int)mouseY);
                         return true;
                     }
@@ -461,13 +464,28 @@ public class PathmindVisualEditorScreen extends Screen {
         if (clickedNode != null) {
             // Node body clicked (not socket)
             if (button == 0) { // Left click - select node or start dragging
+                int coordinateAxis = nodeGraph.getCoordinateFieldAxisAt(clickedNode, (int)mouseX, (int)mouseY);
+                if (coordinateAxis != -1) {
+                    nodeGraph.selectNode(clickedNode);
+                    nodeGraph.startCoordinateEditing(clickedNode, coordinateAxis);
+                    return true;
+                }
+
+                nodeGraph.stopCoordinateEditing(true);
+
                 // Check for double-click to open parameter editor
                 boolean shouldOpenOverlay = clickedNode.isParameterNode()
                     || clickedNode.getType() == NodeType.EVENT_FUNCTION
-                    || clickedNode.getType() == NodeType.EVENT_CALL;
+                    || clickedNode.getType() == NodeType.EVENT_CALL
+                    || clickedNode.hasParameters();
+                if (clickedNode.getType() == NodeType.PLACE
+                    || clickedNode.isSensorNode()) {
+                    shouldOpenOverlay = false;
+                }
                 if (shouldOpenOverlay &&
                     nodeGraph.handleNodeClick(clickedNode, (int)mouseX, (int)mouseY)) {
                     // Open parameter overlay
+                    nodeGraph.stopCoordinateEditing(true);
                     parameterOverlay = new NodeParameterOverlay(
                         clickedNode,
                         this.width,
@@ -495,9 +513,12 @@ public class PathmindVisualEditorScreen extends Screen {
             // Clicked on empty space - deselect and stop dragging
             nodeGraph.selectNode(null);
             nodeGraph.stopDraggingConnection();
+            if (button == 0) {
+                nodeGraph.stopCoordinateEditing(true);
+            }
             return true;
         }
-        
+
         return false;
     }
     
@@ -517,6 +538,13 @@ public class PathmindVisualEditorScreen extends Screen {
 
         // Handle dragging from sidebar
         if (isDraggingFromSidebar && button == 0) {
+            if (draggingNodeType != null && mouseX >= sidebar.getWidth() && mouseY > TITLE_BAR_HEIGHT) {
+                int worldMouseX = nodeGraph.screenToWorldX((int) mouseX);
+                int worldMouseY = nodeGraph.screenToWorldY((int) mouseY);
+                nodeGraph.previewSidebarDrag(draggingNodeType, worldMouseX, worldMouseY);
+            } else {
+                nodeGraph.resetDropTargets();
+            }
             return true; // Continue dragging
         }
         
@@ -560,22 +588,17 @@ public class PathmindVisualEditorScreen extends Screen {
             // Handle dropping node from sidebar
             if (isDraggingFromSidebar) {
                 if (mouseX >= sidebar.getWidth() && mouseY > TITLE_BAR_HEIGHT) {
-                    // Drop in graph area - create new node with proper centering
-                    Node tempNode = new Node(draggingNodeType, 0, 0);
-                    int width = tempNode.getWidth();
-                    int height = tempNode.getHeight();
                     int worldMouseX = nodeGraph.screenToWorldX((int) mouseX);
                     int worldMouseY = nodeGraph.screenToWorldY((int) mouseY);
-                    int nodeX = worldMouseX - width / 2;
-                    int nodeY = worldMouseY - height / 2;
-
-                    Node newNode = new Node(draggingNodeType, nodeX, nodeY);
-                    nodeGraph.addNode(newNode);
-                    nodeGraph.selectNode(newNode);
+                    Node newNode = nodeGraph.handleSidebarDrop(draggingNodeType, worldMouseX, worldMouseY);
+                    if (newNode != null) {
+                        nodeGraph.selectNode(newNode);
+                    }
                 }
                 // Reset drag state
                 isDraggingFromSidebar = false;
                 draggingNodeType = null;
+                nodeGraph.resetDropTargets();
             } else {
                 // Check if dragging node into sidebar for deletion (only if actually dragging)
                 if (nodeGraph.getSelectedNode() != null && nodeGraph.getSelectedNode().isDragging()) {
@@ -657,7 +680,11 @@ public class PathmindVisualEditorScreen extends Screen {
                 return true;
             }
         }
-        
+
+        if (nodeGraph.handleCoordinateKeyPressed(keyCode, modifiers)) {
+            return true;
+        }
+
         // Close screen with Escape key
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             close();
@@ -703,7 +730,11 @@ public class PathmindVisualEditorScreen extends Screen {
                 return true;
             }
         }
-        
+
+        if (nodeGraph.handleCoordinateCharTyped(chr, modifiers, this.textRenderer)) {
+            return true;
+        }
+
         return super.charTyped(chr, modifiers);
     }
     
@@ -755,6 +786,8 @@ public class PathmindVisualEditorScreen extends Screen {
         }
 
         hasSavedOnClose = true;
+
+        nodeGraph.stopCoordinateEditing(true);
 
         if (nodeGraph.save()) {
             System.out.println("Node graph auto-saved successfully");
