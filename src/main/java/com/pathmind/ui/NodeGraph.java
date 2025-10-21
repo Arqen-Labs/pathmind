@@ -741,7 +741,7 @@ public class NodeGraph {
         }
 
         for (Node node : nodes) {
-            if (node.isSensorNode() || node.isAttachedToActionControl()) {
+            if (node.isSensorNode() || node.isAttachedToActionControl() || node.isParameterNode()) {
                 continue;
             }
             boolean shouldRender = onlyDragged ? node.isDragging() : !node.isDragging();
@@ -755,6 +755,17 @@ public class NodeGraph {
                 continue;
             }
             boolean parentDragging = node.isAttachedToControl() && node.getParentControl() != null && node.getParentControl().isDragging();
+            boolean shouldRender = onlyDragged ? (node.isDragging() || parentDragging) : !node.isDragging();
+            if (shouldRender) {
+                renderNode(context, textRenderer, node, mouseX, mouseY, delta);
+            }
+        }
+
+        for (Node node : nodes) {
+            if (!node.isParameterNode()) {
+                continue;
+            }
+            boolean parentDragging = node.getParentParameterHost() != null && node.getParentParameterHost().isDragging();
             boolean shouldRender = onlyDragged ? (node.isDragging() || parentDragging) : !node.isDragging();
             if (shouldRender) {
                 renderNode(context, textRenderer, node, mouseX, mouseY, delta);

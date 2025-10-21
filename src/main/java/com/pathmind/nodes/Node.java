@@ -89,7 +89,7 @@ public class Node {
     private static final int MAX_PARAMETER_LABEL_LENGTH = 20;
     private static final int BODY_PADDING_NO_PARAMS = 10;
     private static final int START_END_SIZE = 36;
-    private static final String ERROR_MESSAGE_PREFIX = "\u00A7f⚙ \u00A74[\u00A7cPathmind\u00A74] \u00A77";
+    private static final String ERROR_MESSAGE_PREFIX = "\u00A74[\u00A7cPathmind\u00A74] \u00A77";
     private static final long CRAFTING_ACTION_DELAY_MS = 75L;
     private static final int CRAFTING_OUTPUT_POLL_LIMIT = 5;
     private static final int SENSOR_SLOT_MARGIN_HORIZONTAL = 8;
@@ -357,7 +357,7 @@ public class Node {
     }
 
     public boolean canAcceptParameter() {
-        return !isParameterNode() && type != NodeType.START;
+        return !isParameterNode() && type != NodeType.START && type.getCategory() != NodeCategory.LOGIC;
     }
 
     public boolean hasParameterSlot() {
