@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.Optional;
 import java.util.Locale;
 import java.util.EnumSet;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
@@ -23,7 +24,9 @@ import baritone.api.utils.BlockOptionalMeta;
 import com.pathmind.execution.PreciseCompletionTracker;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.player.PlayerInventory;
+import net.minecraft.item.BlockItem;
 import net.minecraft.item.Item;
+import net.minecraft.item.ItemPlacementContext;
 import net.minecraft.item.ItemStack;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
@@ -46,6 +49,7 @@ import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.math.Box;
+import net.minecraft.world.RaycastContext;
 import net.minecraft.client.gui.screen.ChatScreen;
 import net.minecraft.client.gui.screen.ingame.CraftingScreen;
 import net.minecraft.client.gui.screen.ingame.InventoryScreen;
@@ -110,7 +114,14 @@ public class Node {
     private static final int SLOT_AREA_PADDING_TOP = 0;
     private static final int SLOT_AREA_PADDING_BOTTOM = 6;
     private static final int SLOT_VERTICAL_SPACING = 6;
+    private static final int COORDINATE_FIELD_WIDTH = 44;
+    private static final int COORDINATE_FIELD_HEIGHT = 16;
+    private static final int COORDINATE_FIELD_SPACING = 6;
+    private static final int COORDINATE_FIELD_TOP_MARGIN = 6;
+    private static final int COORDINATE_FIELD_LABEL_HEIGHT = 10;
+    private static final int COORDINATE_FIELD_BOTTOM_MARGIN = 6;
     private static final double PARAMETER_SEARCH_RADIUS = 64.0;
+    private static final double DEFAULT_REACH_DISTANCE_SQUARED = 25.0D;
     private int width;
     private int height;
     private int nextOutputSocket = 0;
@@ -170,6 +181,12 @@ public class Node {
         private Float resolvedPitch;
         private Float resolvedYawOffset;
         private Float resolvedPitchOffset;
+    }
+
+    private static final class PlacementFailure extends RuntimeException {
+        PlacementFailure(String message) {
+            super(message);
+        }
     }
 
     private enum ParameterHandlingResult {
@@ -538,6 +555,9 @@ public class Node {
             }
         } else if (hasParameterSlot()) {
             top += PARAMETER_SLOT_LABEL_HEIGHT + getParameterSlotHeight() + PARAMETER_SLOT_BOTTOM_PADDING;
+            if (hasCoordinateInputFields()) {
+                top += getCoordinateFieldDisplayHeight();
+            }
             if (hasSensorSlot() || hasActionSlot()) {
                 top += SLOT_AREA_PADDING_TOP;
             }
@@ -592,6 +612,55 @@ public class Node {
     public int getParameterSlotHeight() {
         int contentHeight = attachedParameter != null ? attachedParameter.getHeight() : PARAMETER_SLOT_MIN_CONTENT_HEIGHT;
         return contentHeight + 2 * PARAMETER_SLOT_INNER_PADDING;
+    }
+
+    public boolean hasCoordinateInputFields() {
+        return type == NodeType.PLACE;
+    }
+
+    public int getCoordinateFieldDisplayHeight() {
+        if (!hasCoordinateInputFields()) {
+            return 0;
+        }
+        return COORDINATE_FIELD_TOP_MARGIN + COORDINATE_FIELD_LABEL_HEIGHT + COORDINATE_FIELD_HEIGHT + COORDINATE_FIELD_BOTTOM_MARGIN;
+    }
+
+    public int getCoordinateFieldLabelTop() {
+        return getParameterSlotTop() + getParameterSlotHeight() + COORDINATE_FIELD_TOP_MARGIN;
+    }
+
+    public int getCoordinateFieldInputTop() {
+        return getCoordinateFieldLabelTop() + COORDINATE_FIELD_LABEL_HEIGHT;
+    }
+
+    public int getCoordinateFieldLabelHeight() {
+        return COORDINATE_FIELD_LABEL_HEIGHT;
+    }
+
+    public int getCoordinateFieldHeight() {
+        return COORDINATE_FIELD_HEIGHT;
+    }
+
+    public int getCoordinateFieldWidth() {
+        return COORDINATE_FIELD_WIDTH;
+    }
+
+    public int getCoordinateFieldSpacing() {
+        return COORDINATE_FIELD_SPACING;
+    }
+
+    public int getCoordinateFieldStartX() {
+        int slotLeft = getParameterSlotLeft();
+        int slotWidth = getParameterSlotWidth();
+        int totalFieldWidth = getCoordinateFieldTotalWidth();
+        if (totalFieldWidth >= slotWidth) {
+            return slotLeft;
+        }
+        return slotLeft + (slotWidth - totalFieldWidth) / 2;
+    }
+
+    public int getCoordinateFieldTotalWidth() {
+        return (COORDINATE_FIELD_WIDTH * 3) + (COORDINATE_FIELD_SPACING * 2);
     }
 
     public boolean isPointInsideParameterSlot(int pointX, int pointY) {
@@ -794,10 +863,14 @@ public class Node {
         if (exported.isEmpty()) {
             return false;
         }
+
+        Map<String, String> existing = exportParameterValues();
         resetParametersToDefaults();
+        applyParameterValuesFromMap(existing);
+
         boolean applied = applyParameterValuesFromMap(exported);
         if (!applied) {
-            resetParametersToDefaults();
+            applyParameterValuesFromMap(existing);
         }
         return applied;
     }
@@ -1284,6 +1357,25 @@ public class Node {
         return null;
     }
 
+    public void setParameterValueAndPropagate(String name, String value) {
+        if (name == null || value == null) {
+            return;
+        }
+
+        NodeParameter parameter = getParameter(name);
+        if (parameter != null) {
+            parameter.setStringValue(value);
+        }
+
+        if (attachedParameter != null && attachedParameter.isParameterNode()) {
+            NodeParameter attachedParam = attachedParameter.getParameter(name);
+            if (attachedParam != null) {
+                attachedParam.setStringValue(value);
+                attachedParameter.recalculateDimensions();
+            }
+        }
+    }
+
     public String getParameterLabel(NodeParameter parameter) {
         if (parameter == null) {
             return "";
@@ -1496,6 +1588,10 @@ public class Node {
             }
             int requiredWidth = parameterContentWidth + 2 * (PARAMETER_SLOT_INNER_PADDING + PARAMETER_SLOT_MARGIN_HORIZONTAL);
             computedWidth = Math.max(computedWidth, requiredWidth);
+            if (hasCoordinateInputFields()) {
+                int coordinateWidth = getCoordinateFieldTotalWidth() + 2 * PARAMETER_SLOT_MARGIN_HORIZONTAL;
+                computedWidth = Math.max(computedWidth, coordinateWidth);
+            }
         }
         if (hasSensorSlot()) {
             int sensorContentWidth = SENSOR_SLOT_MIN_CONTENT_WIDTH;
@@ -1536,6 +1632,9 @@ public class Node {
             }
         } else if (hasParameterSlot()) {
             contentHeight += PARAMETER_SLOT_LABEL_HEIGHT + getParameterSlotHeight() + PARAMETER_SLOT_BOTTOM_PADDING;
+            if (hasCoordinateInputFields()) {
+                contentHeight += getCoordinateFieldDisplayHeight();
+            }
             if (hasSlots) {
                 contentHeight += SLOT_AREA_PADDING_TOP;
             }
@@ -1867,9 +1966,27 @@ public class Node {
         if (runtimeParameterData != null) {
             runtimeParameterData.targetBlockPos = new BlockPos(x, y, z);
         }
-        setParameterIfPresent("X", Integer.toString(x));
-        setParameterIfPresent("Y", Integer.toString(y));
-        setParameterIfPresent("Z", Integer.toString(z));
+        setParameterValueAndPropagate("X", Integer.toString(x));
+        setParameterValueAndPropagate("Y", Integer.toString(y));
+        setParameterValueAndPropagate("Z", Integer.toString(z));
+    }
+
+    private boolean isPlayerAtCoordinates(Integer targetX, Integer targetY, Integer targetZ) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            return false;
+        }
+        BlockPos playerPos = client.player.getBlockPos();
+        if (targetX != null && playerPos.getX() != targetX) {
+            return false;
+        }
+        if (targetY != null && playerPos.getY() != targetY) {
+            return false;
+        }
+        if (targetZ != null && playerPos.getZ() != targetZ) {
+            return false;
+        }
+        return true;
     }
 
     private boolean resolveLookOrientation(Node parameterNode, RuntimeParameterData data, CompletableFuture<Void> future) {
@@ -2372,11 +2489,16 @@ public class Node {
                 NodeParameter xParam = getParameter("X");
                 NodeParameter yParam = getParameter("Y");
                 NodeParameter zParam = getParameter("Z");
-                
+
                 if (xParam != null) x = xParam.getIntValue();
                 if (yParam != null) y = yParam.getIntValue();
                 if (zParam != null) z = zParam.getIntValue();
-                
+
+                if (isPlayerAtCoordinates(x, y, z)) {
+                    future.complete(null);
+                    return;
+                }
+
                 System.out.println("Executing goto to: " + x + ", " + y + ", " + z);
                 PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
                 GoalBlock goal = new GoalBlock(x, y, z);
@@ -2390,7 +2512,12 @@ public class Node {
                 
                 if (xParam2 != null) x2 = xParam2.getIntValue();
                 if (zParam2 != null) z2 = zParam2.getIntValue();
-                
+
+                if (isPlayerAtCoordinates(x2, null, z2)) {
+                    future.complete(null);
+                    return;
+                }
+
                 System.out.println("Executing goto to: " + x2 + ", " + z2);
                 PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
                 GoalBlock goal2 = new GoalBlock(x2, 0, z2); // Y will be determined by pathfinding
@@ -2407,6 +2534,10 @@ public class Node {
                 // For Y-only movement, we need to get current X,Z and set goal there
                 net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
                 if (client != null && client.player != null) {
+                    if (isPlayerAtCoordinates(null, y3, null)) {
+                        future.complete(null);
+                        return;
+                    }
                     int currentX = (int) client.player.getX();
                     int currentZ = (int) client.player.getZ();
                     GoalBlock goal3 = new GoalBlock(currentX, y3, currentZ);
@@ -3408,7 +3539,12 @@ public class Node {
     }
 
     private void executePlaceCommand(CompletableFuture<Void> future) {
-        if (preprocessAttachedParameter(EnumSet.of(ParameterUsage.POSITION), future) == ParameterHandlingResult.COMPLETE) {
+        boolean inheritPlacementCoordinates = shouldInheritPlacementCoordinates();
+        EnumSet<ParameterUsage> placementParameterUsages = inheritPlacementCoordinates
+            ? EnumSet.of(ParameterUsage.POSITION)
+            : EnumSet.noneOf(ParameterUsage.class);
+
+        if (preprocessAttachedParameter(placementParameterUsages, future) == ParameterHandlingResult.COMPLETE) {
             return;
         }
         String block = "stone";
@@ -3425,45 +3561,115 @@ public class Node {
         if (yParam != null) y = yParam.getIntValue();
         if (zParam != null) z = zParam.getIntValue();
 
+        RuntimeParameterData parameterData = runtimeParameterData;
+        if (parameterData != null) {
+            if (parameterData.targetBlockId != null && !parameterData.targetBlockId.isEmpty()) {
+                block = parameterData.targetBlockId;
+                setParameterValueAndPropagate("Block", block);
+            }
+            if (inheritPlacementCoordinates && parameterData.targetBlockPos != null) {
+                BlockPos resolved = parameterData.targetBlockPos;
+                x = resolved.getX();
+                y = resolved.getY();
+                z = resolved.getZ();
+            }
+        }
+
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null || client.player.networkHandler == null || client.interactionManager == null || client.world == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
             return;
         }
 
+        String originalBlockId = block;
+        block = normalizeResourceId(block, "minecraft");
+        if (!Objects.equals(originalBlockId, block)) {
+            setParameterValueAndPropagate("Block", block);
+        }
+
+        if (block == null || block.isEmpty()) {
+            sendNodeErrorMessage(client, "Cannot place block: no block selected.");
+            future.complete(null);
+            return;
+        }
+
         System.out.println("Placing block '" + block + "' at " + x + ", " + y + ", " + z);
 
         BlockPos targetPos = new BlockPos(x, y, z);
+        if (parameterData != null) {
+            parameterData.targetBlockPos = targetPos;
+            if (parameterData.targetBlockId == null || parameterData.targetBlockId.isEmpty()) {
+                parameterData.targetBlockId = block;
+            }
+        }
+        double reachSquared = getPlacementReachSquared(client);
+
         Block desiredBlock = resolveBlockForPlacement(block);
+        if (desiredBlock == null) {
+            sendNodeErrorMessage(client, "Cannot place block: unknown block \"" + block + "\".");
+            future.complete(null);
+            return;
+        }
+
+        final BlockPos placementPos = targetPos;
+        final Block resolvedBlock = desiredBlock;
         final String resolvedBlockId = block;
+        final Hand resolvedHand = hand;
+        final double resolvedReachSquared = reachSquared;
 
-        try {
-            runOnClientThread(client, () -> {
-                if (desiredBlock != null && client.world.getBlockState(targetPos).isOf(desiredBlock)) {
-                    return;
-                }
+        new Thread(() -> {
+            try {
+                BlockHitResult placementHitResult = supplyFromClient(client, () ->
+                    preparePlacementHitResult(client, placementPos, resolvedBlockId, resolvedHand, resolvedReachSquared)
+                );
+                runOnClientThread(client, () -> {
+                    if (client.world.getBlockState(placementPos).isOf(resolvedBlock)) {
+                        return;
+                    }
 
-                if (!ensureBlockInHand(client, resolvedBlockId, hand)) {
-                    throw new RuntimeException("Block " + resolvedBlockId + " not found in hotbar");
+                    ActionResult result = client.interactionManager.interactBlock(client.player, resolvedHand, placementHitResult);
+                    if (!result.isAccepted()) {
+                        throw new PlacementFailure("Cannot place block at " + formatBlockPos(placementPos) + ": placement rejected (" + result + ").");
+                    }
+                    if (client.player != null) {
+                        client.player.swingHand(resolvedHand);
+                        if (client.player.networkHandler != null) {
+                            client.player.networkHandler.sendPacket(new HandSwingC2SPacket(resolvedHand));
+                        }
+                    }
+                });
+                boolean placed = waitForBlockPlacement(client, placementPos, resolvedBlock);
+                if (!placed) {
+                    sendNodeErrorMessage(client, "Attempted to place block \"" + resolvedBlockId + "\" at " + formatBlockPos(placementPos) + " but it did not appear. Make sure the space is clear and within reach.");
                 }
+                future.complete(null);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                future.completeExceptionally(e);
+            } catch (PlacementFailure e) {
+                sendNodeErrorMessage(client, e.getMessage());
+                future.complete(null);
+            } catch (RuntimeException e) {
+                sendNodeErrorMessage(client, "Failed to place block \"" + resolvedBlockId + "\": " + e.getMessage());
+                future.complete(null);
+            }
+        }, "Pathmind-Place").start();
+    }
 
-                BlockHitResult hitResult = createPlacementHitResult(client, targetPos);
-                if (hitResult == null) {
-                    throw new RuntimeException("No valid placement position at " + targetPos.getX() + ", " + targetPos.getY() + ", " + targetPos.getZ());
-                }
+    private boolean shouldInheritPlacementCoordinates() {
+        if (attachedParameter == null) {
+            return false;
+        }
 
-                ActionResult result = client.interactionManager.interactBlock(client.player, hand, hitResult);
-                if (!result.isAccepted()) {
-                    throw new RuntimeException("Block placement rejected: " + result);
-                }
-            });
-            future.complete(null);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            future.completeExceptionally(e);
-        } catch (RuntimeException e) {
-            sendNodeErrorMessage(client, e.getMessage());
-            future.complete(null);
+        NodeType parameterType = attachedParameter.getType();
+        switch (parameterType) {
+            case PARAM_COORDINATE:
+            case PARAM_SCHEMATIC:
+            case PARAM_PLACE_TARGET:
+            case PARAM_WAYPOINT:
+                return true;
+            default:
+                return false;
         }
     }
     
@@ -4390,26 +4596,30 @@ public class Node {
         future.complete(null);
     }
 
-    private boolean ensureBlockInHand(net.minecraft.client.MinecraftClient client, String blockId, Hand hand) {
+    private void ensureBlockInHand(net.minecraft.client.MinecraftClient client, String blockId, Hand hand) {
         if (blockId == null || blockId.isEmpty()) {
-            return true;
+            return;
         }
 
         Identifier identifier = Identifier.tryParse(blockId);
         if (identifier == null || !Registries.ITEM.containsId(identifier)) {
-            return false;
+            throw new PlacementFailure("Cannot place block \"" + blockId + "\": unknown block item.");
         }
 
         Item targetItem = Registries.ITEM.get(identifier);
         ItemStack current = client.player.getStackInHand(hand);
         if (!current.isEmpty() && current.isOf(targetItem)) {
-            return true;
+            return;
         }
 
         PlayerInventory inventory = client.player.getInventory();
         int slot = findHotbarSlotWithItem(inventory, targetItem);
         if (slot == -1) {
-            return false;
+            boolean elsewhere = inventory.contains(new ItemStack(targetItem));
+            if (elsewhere) {
+                throw new PlacementFailure("Cannot place block \"" + blockId + "\": move it to your hotbar first.");
+            }
+            throw new PlacementFailure("Cannot place block \"" + blockId + "\": none available in your inventory.");
         }
 
         if (hand == Hand.MAIN_HAND) {
@@ -4419,19 +4629,37 @@ public class Node {
                     client.player.networkHandler.sendPacket(new UpdateSelectedSlotC2SPacket(slot));
                 }
             }
-            return true;
+            return;
         }
 
         ItemStack offhandStack = client.player.getOffHandStack();
         if (!offhandStack.isEmpty() && offhandStack.isOf(targetItem)) {
-            return true;
+            return;
         }
 
         inventory.setSelectedSlot(slot);
         if (client.player.networkHandler != null) {
             client.player.networkHandler.sendPacket(new UpdateSelectedSlotC2SPacket(slot));
         }
-        return true;
+    }
+
+    private boolean waitForBlockPlacement(net.minecraft.client.MinecraftClient client, BlockPos targetPos, Block desiredBlock) throws InterruptedException {
+        if (client == null || targetPos == null || desiredBlock == null) {
+            return false;
+        }
+        for (int attempt = 0; attempt < 20; attempt++) {
+            boolean matches = supplyFromClient(client, () -> {
+                if (client.world == null) {
+                    return false;
+                }
+                return client.world.getBlockState(targetPos).isOf(desiredBlock);
+            });
+            if (matches) {
+                return true;
+            }
+            Thread.sleep(50L);
+        }
+        return false;
     }
 
     private int findHotbarSlotWithItem(PlayerInventory inventory, Item targetItem) {
@@ -4445,32 +4673,150 @@ public class Node {
         return -1;
     }
 
-    private BlockHitResult createPlacementHitResult(net.minecraft.client.MinecraftClient client, BlockPos targetPos) {
-        if (client.player == null || client.player.getWorld() == null) {
+    private BlockHitResult preparePlacementHitResult(net.minecraft.client.MinecraftClient client, BlockPos targetPos, String blockId, Hand hand, double reachSquared) {
+        if (client.player == null || client.world == null) {
+            throw new PlacementFailure("Cannot place block at " + formatBlockPos(targetPos) + ": client world is unavailable.");
+        }
+
+        Vec3d eyePos = client.player.getEyePos();
+        Vec3d targetCenter = Vec3d.ofCenter(targetPos);
+        if (eyePos.squaredDistanceTo(targetCenter) > reachSquared) {
+            throw new PlacementFailure("Cannot place block at " + formatBlockPos(targetPos) + ": target is out of reach.");
+        }
+
+        if (!isBlockReplaceable(client.world, targetPos)) {
+            BlockState occupied = client.world.getBlockState(targetPos);
+            throw new PlacementFailure(
+                "Cannot place block at " + formatBlockPos(targetPos) + ": target space contains " + describeBlockState(occupied) + "."
+            );
+        }
+
+        BlockHitResult surface = createPlacementHitResult(client, targetPos, eyePos, reachSquared);
+        if (surface == null) {
+            throw new PlacementFailure("Cannot place block at " + formatBlockPos(targetPos) + ": no nearby surface to place against.");
+        }
+
+        ensureBlockInHand(client, blockId, hand);
+
+        ItemStack stack = client.player.getStackInHand(hand);
+        if (stack.isEmpty()) {
+            throw new PlacementFailure("Cannot place block \"" + blockId + "\": the selected hand is empty.");
+        }
+
+        Item heldItem = stack.getItem();
+        if (!(heldItem instanceof BlockItem blockItem)) {
+            throw new PlacementFailure("Cannot place block \"" + blockId + "\": the selected item cannot be placed as a block.");
+        }
+
+        if (!canPlaceBlockAt(client, hand, stack, blockItem, surface)) {
+            throw new PlacementFailure(
+                "Cannot place block at " + formatBlockPos(targetPos) + ": the location is obstructed or lacks support."
+            );
+        }
+
+        return surface;
+    }
+
+    private BlockHitResult createPlacementHitResult(net.minecraft.client.MinecraftClient client, BlockPos targetPos, Vec3d eyePos, double reachSquared) {
+        if (client.player == null || client.world == null) {
             return null;
         }
 
-        net.minecraft.world.World world = client.player.getWorld();
-        if (!isBlockReplaceable(world, targetPos)) {
-            return null;
-        }
+        BlockHitResult bestResult = null;
+        double bestDistance = Double.MAX_VALUE;
 
         for (Direction direction : Direction.values()) {
-            BlockPos clickedPos = targetPos.offset(direction);
-            if (world.getBlockState(clickedPos).isAir()) {
+            BlockPos supportPos = targetPos.offset(direction);
+            BlockState supportState = client.world.getBlockState(supportPos);
+            if (supportState.isAir()) {
+                continue;
+            }
+            if (supportState.getCollisionShape(client.world, supportPos).isEmpty()) {
                 continue;
             }
 
             Direction placementSide = direction.getOpposite();
-            Vec3d hitPos = Vec3d.ofCenter(clickedPos).add(
+            Vec3d faceCenter = Vec3d.ofCenter(supportPos).add(
                 placementSide.getOffsetX() * 0.5D,
                 placementSide.getOffsetY() * 0.5D,
                 placementSide.getOffsetZ() * 0.5D
             );
-            return new BlockHitResult(hitPos, placementSide, clickedPos, false);
+            Vec3d rayEnd = faceCenter.subtract(
+                placementSide.getOffsetX() * 0.001D,
+                placementSide.getOffsetY() * 0.001D,
+                placementSide.getOffsetZ() * 0.001D
+            );
+
+            double distance = eyePos.squaredDistanceTo(rayEnd);
+            if (distance > reachSquared) {
+                continue;
+            }
+
+            RaycastContext context = new RaycastContext(
+                eyePos,
+                rayEnd,
+                RaycastContext.ShapeType.COLLIDER,
+                RaycastContext.FluidHandling.NONE,
+                client.player
+            );
+            BlockHitResult raycast = client.world.raycast(context);
+            if (raycast.getType() != HitResult.Type.BLOCK) {
+                continue;
+            }
+            if (!raycast.getBlockPos().equals(supportPos)) {
+                continue;
+            }
+            if (raycast.getSide() != placementSide) {
+                continue;
+            }
+
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                bestResult = new BlockHitResult(faceCenter, placementSide, supportPos, false);
+            }
         }
 
-        return null;
+        return bestResult;
+    }
+
+    private boolean canPlaceBlockAt(net.minecraft.client.MinecraftClient client, Hand hand, ItemStack stack, BlockItem blockItem, BlockHitResult hitResult) {
+        if (client.player == null || client.world == null) {
+            return false;
+        }
+
+        ItemPlacementContext placementContext = new ItemPlacementContext(client.player, hand, stack.copy(), hitResult);
+        if (!placementContext.canPlace()) {
+            return false;
+        }
+
+        Block block = blockItem.getBlock();
+        BlockState placementState = block.getPlacementState(placementContext);
+        if (placementState == null) {
+            return false;
+        }
+
+        return placementState.canPlaceAt(client.world, placementContext.getBlockPos());
+    }
+
+    private String normalizeResourceId(String value, String defaultNamespace) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+        if (!trimmed.contains(":")) {
+            return defaultNamespace + ":" + trimmed;
+        }
+        return trimmed;
+    }
+
+    private static String formatBlockPos(BlockPos pos) {
+        if (pos == null) {
+            return "(unknown)";
+        }
+        return pos.getX() + ", " + pos.getY() + ", " + pos.getZ();
     }
 
     private Block resolveBlockForPlacement(String blockId) {
@@ -4484,6 +4830,18 @@ public class Node {
         }
 
         return Registries.BLOCK.get(identifier);
+    }
+
+    private double getPlacementReachSquared(net.minecraft.client.MinecraftClient client) {
+        return DEFAULT_REACH_DISTANCE_SQUARED;
+    }
+
+    private String describeBlockState(BlockState state) {
+        if (state == null) {
+            return "an unknown block";
+        }
+        Identifier id = Registries.BLOCK.getId(state.getBlock());
+        return id != null ? id.toString() : "an unknown block";
     }
 
     private boolean isBlockReplaceable(net.minecraft.world.World world, BlockPos targetPos) {

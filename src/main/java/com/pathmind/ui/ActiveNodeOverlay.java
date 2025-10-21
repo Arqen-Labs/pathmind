@@ -65,11 +65,16 @@ public class ActiveNodeOverlay {
         int nodeColor;
 
         if (showingCompletion) {
-            nodeTypeName = "End";
-            nodeColor = COMPLETION_COLOR;
+            if (activeNode != null) {
+                nodeTypeName = activeNode.getType().getDisplayName();
+                nodeColor = activeNode.getType().getColor();
+            } else {
+                nodeTypeName = "End";
+                nodeColor = COMPLETION_COLOR;
+            }
         } else {
-            nodeTypeName = activeNode.getType().getDisplayName();
-            nodeColor = activeNode.getType().getColor();
+            nodeTypeName = activeNode != null ? activeNode.getType().getDisplayName() : "";
+            nodeColor = activeNode != null ? activeNode.getType().getColor() : ACCENT_COLOR;
         }
         int nodeTypeWidth = textRenderer.getWidth(nodeTypeName);
         context.drawTextWithShadow(

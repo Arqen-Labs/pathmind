@@ -10,14 +10,16 @@ import com.pathmind.nodes.NodeParameter;
 import com.pathmind.nodes.NodeType;
 import com.pathmind.nodes.ParameterType;
 import com.pathmind.execution.ExecutionManager;
+import org.lwjgl.glfw.GLFW;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.text.Text;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -79,6 +81,17 @@ public class NodeGraph {
     private String activePreset;
     private final Set<Node> cascadeDeletionPreviewNodes;
 
+    private static final long COORDINATE_CARET_BLINK_INTERVAL_MS = 500;
+    private static final String[] COORDINATE_AXES = {"X", "Y", "Z"};
+
+    private Node coordinateEditingNode = null;
+    private int coordinateEditingAxis = -1;
+    private String coordinateEditBuffer = "";
+    private String coordinateEditOriginalValue = "";
+    private long coordinateCaretLastToggleTime = 0L;
+    private boolean coordinateCaretVisible = true;
+    private boolean workspaceDirty = false;
+
     public NodeGraph() {
         this.nodes = new ArrayList<>();
         this.connections = new ArrayList<>();
@@ -132,6 +145,10 @@ public class NodeGraph {
     private void removeNodeInternal(Node node, boolean autoReconnect, boolean repositionDetachments) {
         if (node == null) {
             return;
+        }
+
+        if (coordinateEditingNode == node) {
+            stopCoordinateEditing(false);
         }
 
         if (node.hasAttachedSensor()) {
@@ -239,7 +256,17 @@ public class NodeGraph {
 
         for (int i = nodes.size() - 1; i >= 0; i--) {
             Node node = nodes.get(i);
-            if (node.isSensorNode()) {
+            if (!node.isParameterNode()) {
+                continue;
+            }
+            if (node.containsPoint(worldX, worldY)) {
+                return node;
+            }
+        }
+
+        for (int i = nodes.size() - 1; i >= 0; i--) {
+            Node node = nodes.get(i);
+            if (node.isSensorNode() || node.isParameterNode()) {
                 continue;
             }
             if (node.containsPoint(worldX, worldY)) {
@@ -264,6 +291,7 @@ public class NodeGraph {
     }
 
     public void startDragging(Node node, int mouseX, int mouseY) {
+        stopCoordinateEditing(true);
         sensorDropTarget = null;
         actionDropTarget = null;
         parameterDropTarget = null;
@@ -645,7 +673,7 @@ public class NodeGraph {
         // Calculate the node's screen position (same as in renderNode)
         int nodeScreenX = node.getX() - cameraX;
         if (isNodeOverSidebar(node, sidebarWidth, nodeScreenX, node.getWidth())) {
-            if (node.getType().getCategory() == NodeCategory.LOGIC) {
+            if (shouldCascadeDelete(node)) {
                 removeNodeCascade(node);
             } else {
                 removeNode(node);
@@ -678,6 +706,16 @@ public class NodeGraph {
         }
 
         order.add(node);
+    }
+
+    private boolean shouldCascadeDelete(Node node) {
+        if (node == null) {
+            return false;
+        }
+        if (node.getType().getCategory() == NodeCategory.LOGIC) {
+            return true;
+        }
+        return node.hasAttachedSensor() || node.hasAttachedActionNode() || node.hasAttachedParameter();
     }
     
     public boolean isNodeOverSidebar(Node node, int sidebarWidth) {
@@ -1007,6 +1045,9 @@ public class NodeGraph {
             } else {
                 if (node.hasParameterSlot()) {
                     renderParameterSlot(context, textRenderer, node, isOverSidebar);
+                    if (node.hasCoordinateInputFields()) {
+                        renderCoordinateInputFields(context, textRenderer, node, isOverSidebar);
+                    }
                 }
             }
 
@@ -1114,6 +1155,251 @@ public class NodeGraph {
         int textColor = node.hasAttachedParameter() ? 0xFFE0E0E0 : (isOverSidebar ? 0xFF666666 : 0xFF888888);
         int textY = slotY + slotHeight / 2 - textRenderer.fontHeight / 2;
         context.drawTextWithShadow(textRenderer, Text.literal(label), slotX + 4, textY, textColor);
+    }
+
+    private void renderCoordinateInputFields(DrawContext context, TextRenderer textRenderer, Node node, boolean isOverSidebar) {
+        int baseLabelColor = isOverSidebar ? 0xFF777777 : 0xFFAAAAAA;
+        int fieldBackground = isOverSidebar ? 0xFF252525 : 0xFF1A1A1A;
+        int activeFieldBackground = isOverSidebar ? 0xFF2F2F2F : 0xFF242424;
+        int fieldBorder = isOverSidebar ? 0xFF555555 : 0xFF444444;
+        int activeFieldBorder = 0xFF87CEEB;
+        int textColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0;
+        int activeTextColor = 0xFFE6F7FF;
+
+        if (isEditingCoordinateField() && coordinateEditingNode == node) {
+            updateCoordinateCaretBlink();
+        }
+
+        int labelTop = node.getCoordinateFieldLabelTop() - cameraY;
+        int labelHeight = node.getCoordinateFieldLabelHeight();
+        int inputTop = node.getCoordinateFieldInputTop() - cameraY;
+        int fieldHeight = node.getCoordinateFieldHeight();
+        int fieldWidth = node.getCoordinateFieldWidth();
+        int spacing = node.getCoordinateFieldSpacing();
+        int startX = node.getCoordinateFieldStartX() - cameraX;
+
+        for (int i = 0; i < COORDINATE_AXES.length; i++) {
+            int fieldX = startX + i * (fieldWidth + spacing);
+
+            boolean editingAxis = isEditingCoordinateField()
+                && coordinateEditingNode == node
+                && coordinateEditingAxis == i;
+
+            String axisLabel = COORDINATE_AXES[i];
+            int labelWidth = textRenderer.getWidth(axisLabel);
+            int labelX = fieldX + Math.max(0, (fieldWidth - labelWidth) / 2);
+            int labelY = labelTop + Math.max(0, (labelHeight - textRenderer.fontHeight) / 2);
+            int labelColor = editingAxis ? 0xFFB8E7FF : baseLabelColor;
+            context.drawTextWithShadow(textRenderer, Text.literal(axisLabel), labelX, labelY, labelColor);
+
+            int inputBottom = inputTop + fieldHeight;
+            int backgroundColor = editingAxis ? activeFieldBackground : fieldBackground;
+            int borderColor = editingAxis ? activeFieldBorder : fieldBorder;
+            int valueColor = editingAxis ? activeTextColor : textColor;
+
+            context.fill(fieldX, inputTop, fieldX + fieldWidth, inputBottom, backgroundColor);
+            context.drawBorder(fieldX, inputTop, fieldWidth, fieldHeight, borderColor);
+
+            String value;
+            if (editingAxis) {
+                value = coordinateEditBuffer;
+            } else {
+                NodeParameter parameter = node.getParameter(axisLabel);
+                value = parameter != null ? parameter.getDisplayValue() : "";
+            }
+
+            String display = editingAxis
+                ? textRenderer.trimToWidth(value, fieldWidth - 6)
+                : trimTextToWidth(value, textRenderer, fieldWidth - 6);
+
+            int textX = fieldX + 3;
+            int textY = inputTop + (fieldHeight - textRenderer.fontHeight) / 2 + 1;
+            context.drawTextWithShadow(textRenderer, Text.literal(display), textX, textY, valueColor);
+
+            if (editingAxis && coordinateCaretVisible) {
+                int caretX = textX + textRenderer.getWidth(display);
+                caretX = Math.min(caretX, fieldX + fieldWidth - 2);
+                context.fill(caretX, inputTop + 2, caretX + 1, inputBottom - 2, 0xFFE6F7FF);
+            }
+        }
+    }
+
+    public boolean isEditingCoordinateField() {
+        return coordinateEditingNode != null && coordinateEditingAxis >= 0;
+    }
+
+    private void updateCoordinateCaretBlink() {
+        long now = System.currentTimeMillis();
+        if (now - coordinateCaretLastToggleTime >= COORDINATE_CARET_BLINK_INTERVAL_MS) {
+            coordinateCaretVisible = !coordinateCaretVisible;
+            coordinateCaretLastToggleTime = now;
+        }
+    }
+
+    private void resetCoordinateCaretBlink() {
+        coordinateCaretVisible = true;
+        coordinateCaretLastToggleTime = System.currentTimeMillis();
+    }
+
+    public int getCoordinateFieldAxisAt(Node node, int screenX, int screenY) {
+        if (node == null || !node.hasCoordinateInputFields()) {
+            return -1;
+        }
+
+        int worldX = screenX + cameraX;
+        int worldY = screenY + cameraY;
+        int inputTop = node.getCoordinateFieldInputTop();
+        int inputBottom = inputTop + node.getCoordinateFieldHeight();
+        if (worldY < inputTop || worldY > inputBottom) {
+            return -1;
+        }
+
+        int startX = node.getCoordinateFieldStartX();
+        int fieldWidth = node.getCoordinateFieldWidth();
+        int spacing = node.getCoordinateFieldSpacing();
+
+        for (int i = 0; i < COORDINATE_AXES.length; i++) {
+            int fieldX = startX + i * (fieldWidth + spacing);
+            if (worldX >= fieldX && worldX <= fieldX + fieldWidth) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    public void startCoordinateEditing(Node node, int axisIndex) {
+        if (node == null || !node.hasCoordinateInputFields() || axisIndex < 0
+            || axisIndex >= COORDINATE_AXES.length) {
+            stopCoordinateEditing(false);
+            return;
+        }
+
+        if (isEditingCoordinateField()) {
+            if (coordinateEditingNode == node && coordinateEditingAxis == axisIndex) {
+                return;
+            }
+            boolean changed = applyCoordinateEdit();
+            if (changed) {
+                notifyNodeParametersChanged(coordinateEditingNode);
+            }
+        }
+
+        coordinateEditingNode = node;
+        coordinateEditingAxis = axisIndex;
+
+        NodeParameter parameter = getCoordinateParameter(node, axisIndex);
+        coordinateEditBuffer = parameter != null ? parameter.getDisplayValue() : "";
+        coordinateEditOriginalValue = coordinateEditBuffer;
+        resetCoordinateCaretBlink();
+    }
+
+    public void stopCoordinateEditing(boolean commit) {
+        if (!isEditingCoordinateField()) {
+            return;
+        }
+
+        boolean changed = false;
+        if (commit) {
+            changed = applyCoordinateEdit();
+        } else {
+            revertCoordinateEdit();
+        }
+
+        if (commit && changed) {
+            notifyNodeParametersChanged(coordinateEditingNode);
+        }
+
+        coordinateEditingNode = null;
+        coordinateEditingAxis = -1;
+        coordinateEditBuffer = "";
+        coordinateEditOriginalValue = "";
+        coordinateCaretVisible = true;
+    }
+
+    private boolean applyCoordinateEdit() {
+        if (!isEditingCoordinateField()) {
+            return false;
+        }
+        String value = coordinateEditBuffer;
+        if (value == null || value.isEmpty() || "-".equals(value)) {
+            value = "0";
+        }
+        String axisName = COORDINATE_AXES[coordinateEditingAxis];
+        NodeParameter parameter = getCoordinateParameter(coordinateEditingNode, coordinateEditingAxis);
+        String previous = parameter != null ? parameter.getStringValue() : "";
+        coordinateEditingNode.setParameterValueAndPropagate(axisName, value);
+        coordinateEditingNode.recalculateDimensions();
+        return !Objects.equals(previous, value);
+    }
+
+    private void revertCoordinateEdit() {
+        if (!isEditingCoordinateField()) {
+            return;
+        }
+        String axisName = COORDINATE_AXES[coordinateEditingAxis];
+        coordinateEditingNode.setParameterValueAndPropagate(axisName, coordinateEditOriginalValue);
+        coordinateEditingNode.recalculateDimensions();
+    }
+
+    private NodeParameter getCoordinateParameter(Node node, int axisIndex) {
+        if (node == null || axisIndex < 0 || axisIndex >= COORDINATE_AXES.length) {
+            return null;
+        }
+        return node.getParameter(COORDINATE_AXES[axisIndex]);
+    }
+
+    public boolean handleCoordinateKeyPressed(int keyCode, int modifiers) {
+        if (!isEditingCoordinateField()) {
+            return false;
+        }
+
+        switch (keyCode) {
+            case GLFW.GLFW_KEY_BACKSPACE:
+                if (!coordinateEditBuffer.isEmpty()) {
+                    coordinateEditBuffer = coordinateEditBuffer.substring(0, coordinateEditBuffer.length() - 1);
+                    resetCoordinateCaretBlink();
+                }
+                return true;
+            case GLFW.GLFW_KEY_ENTER:
+            case GLFW.GLFW_KEY_KP_ENTER:
+                stopCoordinateEditing(true);
+                return true;
+            case GLFW.GLFW_KEY_ESCAPE:
+                stopCoordinateEditing(false);
+                return true;
+            case GLFW.GLFW_KEY_TAB:
+                Node node = coordinateEditingNode;
+                int direction = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0 ? -1 : 1;
+                int nextAxis = (coordinateEditingAxis + direction + COORDINATE_AXES.length) % COORDINATE_AXES.length;
+                startCoordinateEditing(node, nextAxis);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    public boolean handleCoordinateCharTyped(char chr, int modifiers, TextRenderer textRenderer) {
+        if (!isEditingCoordinateField()) {
+            return false;
+        }
+
+        if (chr >= '0' && chr <= '9') {
+            int availableWidth = coordinateEditingNode.getCoordinateFieldWidth() - 6;
+            String candidate = coordinateEditBuffer + chr;
+            if (textRenderer.getWidth(candidate) <= availableWidth) {
+                coordinateEditBuffer = candidate;
+                resetCoordinateCaretBlink();
+            }
+            return true;
+        }
+
+        if (chr == '-' && coordinateEditBuffer.isEmpty()) {
+            coordinateEditBuffer = "-";
+            resetCoordinateCaretBlink();
+            return true;
+        }
+
+        return false;
     }
 
     private String trimTextToWidth(String text, TextRenderer renderer, int maxWidth) {
@@ -1366,6 +1652,8 @@ public class NodeGraph {
             return false;
         }
 
+        stopCoordinateEditing(true);
+
         hoveredStartNode = startNode;
 
         ExecutionManager manager = ExecutionManager.getInstance();
@@ -1410,7 +1698,7 @@ public class NodeGraph {
     private void updateCascadeDeletionPreview() {
         cascadeDeletionPreviewNodes.clear();
         for (Node node : nodes) {
-            if (node.getType().getCategory() != NodeCategory.LOGIC) {
+            if (!shouldCascadeDelete(node)) {
                 continue;
             }
             if (!node.isDragging()) {
@@ -1430,7 +1718,11 @@ public class NodeGraph {
      * Save the current node graph to disk
      */
     public boolean save() {
-        return NodeGraphPersistence.saveNodeGraphForPreset(activePreset, nodes, connections);
+        boolean saved = NodeGraphPersistence.saveNodeGraphForPreset(activePreset, nodes, connections);
+        if (saved) {
+            workspaceDirty = false;
+        }
+        return saved;
     }
 
     /**
@@ -1439,7 +1731,11 @@ public class NodeGraph {
     public boolean load() {
         NodeGraphData data = NodeGraphPersistence.loadNodeGraphForPreset(activePreset);
         if (data != null) {
-            return applyLoadedData(data);
+            boolean applied = applyLoadedData(data);
+            if (applied) {
+                workspaceDirty = false;
+            }
+            return applied;
         }
         return false;
     }
@@ -1447,13 +1743,41 @@ public class NodeGraph {
     public boolean importFromPath(Path savePath) {
         NodeGraphData data = NodeGraphPersistence.loadNodeGraphFromPath(savePath);
         if (data != null) {
-            return applyLoadedData(data);
+            boolean applied = applyLoadedData(data);
+            if (applied) {
+                workspaceDirty = true;
+            }
+            return applied;
         }
         return false;
     }
 
     public boolean exportToPath(Path savePath) {
-        return NodeGraphPersistence.saveNodeGraphToPath(nodes, connections, savePath);
+        boolean saved = NodeGraphPersistence.saveNodeGraphToPath(nodes, connections, savePath);
+        if (saved) {
+            workspaceDirty = false;
+        }
+        return saved;
+    }
+
+    public void markWorkspaceDirty() {
+        workspaceDirty = true;
+    }
+
+    public void markWorkspaceClean() {
+        workspaceDirty = false;
+    }
+
+    public boolean isWorkspaceDirty() {
+        return workspaceDirty;
+    }
+
+    public void notifyNodeParametersChanged(Node node) {
+        if (node == null) {
+            return;
+        }
+        markWorkspaceDirty();
+        save();
     }
 
     public void clearWorkspace() {
