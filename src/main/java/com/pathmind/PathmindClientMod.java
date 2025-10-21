@@ -2,6 +2,7 @@ package com.pathmind;
 
 import com.pathmind.data.PresetManager;
 import com.pathmind.execution.ExecutionManager;
+import com.pathmind.execution.MineQuantityMonitor;
 import com.pathmind.screen.PathmindMainMenuIntegration;
 import com.pathmind.screen.PathmindVisualEditorScreen;
 import com.pathmind.ui.ActiveNodeOverlay;
@@ -43,6 +44,7 @@ public class PathmindClientMod implements ClientModInitializer {
         // Register client tick events for keybind handling
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             handleKeybinds(client);
+            MineQuantityMonitor.getInstance().tick(client);
         });
         
         // Register HUD render callback for the active node overlay

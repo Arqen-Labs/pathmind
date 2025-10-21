@@ -21,6 +21,7 @@ import baritone.api.process.IGetToBlockProcess;
 import baritone.api.process.IFarmProcess;
 import baritone.api.pathing.goals.GoalBlock;
 import baritone.api.utils.BlockOptionalMeta;
+import com.pathmind.execution.MineQuantityMonitor;
 import com.pathmind.execution.PreciseCompletionTracker;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.player.PlayerInventory;
@@ -2886,9 +2887,7 @@ public class Node {
                 System.out.println("Executing mine for: " + trimmedBlock + (quantity > 0 ? " (target " + quantity + ")" : ""));
                 PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_MINE, future);
                 mineProcess.mineByName(trimmedBlock);
-                if (quantity > 0) {
-                    monitorMineProgress(baritone, mineProcess, trimmedBlock, quantity);
-                }
+                startMineQuantityMonitor(baritone, mineProcess, trimmedBlock, quantity);
                 break;
             }
 
@@ -5573,7 +5572,9 @@ public class Node {
         return normalized;
     }
 
-    private void monitorMineProgress(IBaritone baritone, IMineProcess mineProcess, String blockId, int quantity) {
+    private void startMineQuantityMonitor(IBaritone baritone, IMineProcess mineProcess, String blockId, int quantity) {
+        MineQuantityMonitor.getInstance().cancel();
+
         if (quantity <= 0 || mineProcess == null) {
             return;
         }
@@ -5607,43 +5608,7 @@ public class Node {
         }
 
         final int targetCount = startingCount + quantity;
-        CompletableFuture.runAsync(() -> {
-            try {
-                while (true) {
-                    if (!mineProcess.isActive()) {
-                        break;
-                    }
-
-                    int currentCount = supplyFromClient(client, () -> {
-                        if (client.player == null) {
-                            return targetCount;
-                        }
-                        return client.player.getInventory().count(targetItem);
-                    });
-
-                    if (currentCount >= targetCount) {
-                        runOnClientThread(client, () -> {
-                            if (baritone != null) {
-                                try {
-                                    baritone.getCommandManager().execute("stop");
-                                } catch (Exception e) {
-                                    System.err.println("Failed to execute Baritone stop command: " + e.getMessage());
-                                }
-                                IMineProcess activeProcess = baritone.getMineProcess();
-                                if (activeProcess != null && activeProcess.isActive()) {
-                                    activeProcess.cancel();
-                                }
-                            }
-                        });
-                        break;
-                    }
-
-                    Thread.sleep(200L);
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        });
+        MineQuantityMonitor.getInstance().begin(client, baritone, mineProcess, targetItem, targetCount, normalizedId);
     }
 
     private double getDoubleParameter(String name, double defaultValue) {

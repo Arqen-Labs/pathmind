@@ -320,6 +320,7 @@ public class ExecutionManager {
 
     private void cancelAllBaritoneCommands() {
         PreciseCompletionTracker.getInstance().cancelAllTasks();
+        MineQuantityMonitor.getInstance().cancel();
 
         try {
             IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
