@@ -63,8 +63,10 @@ public class PathmindVisualEditorScreen extends Screen {
     private static final int CONTROL_BUTTON_GAP = 6;
     private static final int INFO_POPUP_WIDTH = 320;
     private static final int INFO_POPUP_HEIGHT = 180;
+    private static final int TITLE_INTERACTION_PADDING = 4;
     private static final String INFO_POPUP_AUTHOR = "ryduzz";
     private static final String INFO_POPUP_TARGET_VERSION = "1.21.8";
+    private static final Text TITLE_TEXT = Text.literal("Pathmind Node Editor");
 
     private NodeGraph nodeGraph;
     private Sidebar sidebar;
@@ -150,14 +152,10 @@ public class PathmindVisualEditorScreen extends Screen {
         context.fill(0, 0, this.width, TITLE_BAR_HEIGHT, DARK_GREY_ALT);
         context.drawHorizontalLine(0, this.width, TITLE_BAR_HEIGHT, GREY_LINE);
         
+        boolean titleHovered = isTitleHovered(mouseX, mouseY);
+
         // Render title bar text
-        context.drawCenteredTextWithShadow(
-                this.textRenderer,
-                Text.literal("Pathmind Node Editor"),
-                this.width / 2,
-                (TITLE_BAR_HEIGHT - this.textRenderer.fontHeight) / 2 + 1,
-                WHITE
-        );
+        drawTitle(context, titleHovered);
         
         // Update mouse hover for socket highlighting
         nodeGraph.updateMouseHover(mouseX, mouseY);
@@ -210,13 +208,7 @@ public class PathmindVisualEditorScreen extends Screen {
         // Re-render title bar on top of everything to ensure it's always visible
         context.fill(0, 0, this.width, TITLE_BAR_HEIGHT, DARK_GREY_ALT);
         context.drawHorizontalLine(0, this.width, TITLE_BAR_HEIGHT, GREY_LINE);
-        context.drawCenteredTextWithShadow(
-                this.textRenderer,
-                Text.literal("Pathmind Node Editor"),
-                this.width / 2,
-                (TITLE_BAR_HEIGHT - this.textRenderer.fontHeight) / 2 + 1,
-                WHITE
-        );
+        drawTitle(context, titleHovered);
 
         // Controls are already rendered before overlays so they appear dimmed underneath
     }
@@ -917,7 +909,7 @@ public class PathmindVisualEditorScreen extends Screen {
 
         context.drawCenteredTextWithShadow(
             this.textRenderer,
-            Text.literal("Pathmind Node Editor"),
+            TITLE_TEXT,
             popupX + popupWidth / 2,
             popupY + 14,
             WHITE
@@ -925,6 +917,7 @@ public class PathmindVisualEditorScreen extends Screen {
 
         int textStartY = popupY + 42;
         int lineSpacing = 12;
+        int centerX = popupX + popupWidth / 2;
 
         String authorLine = "Created by: " + INFO_POPUP_AUTHOR;
         String targetLine = "Built for Minecraft: " + INFO_POPUP_TARGET_VERSION;
@@ -932,11 +925,11 @@ public class PathmindVisualEditorScreen extends Screen {
         String buildLine = "Current Build: " + getModVersion();
         String loaderLine = "Fabric Loader: " + getFabricLoaderVersion();
 
-        context.drawTextWithShadow(this.textRenderer, Text.literal(authorLine), popupX + 20, textStartY, 0xFFCCCCCC);
-        context.drawTextWithShadow(this.textRenderer, Text.literal(targetLine), popupX + 20, textStartY + lineSpacing, 0xFFCCCCCC);
-        context.drawTextWithShadow(this.textRenderer, Text.literal(currentLine), popupX + 20, textStartY + lineSpacing * 2, 0xFFCCCCCC);
-        context.drawTextWithShadow(this.textRenderer, Text.literal(buildLine), popupX + 20, textStartY + lineSpacing * 3, 0xFFCCCCCC);
-        context.drawTextWithShadow(this.textRenderer, Text.literal(loaderLine), popupX + 20, textStartY + lineSpacing * 4, 0xFFCCCCCC);
+        context.drawCenteredTextWithShadow(this.textRenderer, Text.literal(authorLine), centerX, textStartY, 0xFFCCCCCC);
+        context.drawCenteredTextWithShadow(this.textRenderer, Text.literal(targetLine), centerX, textStartY + lineSpacing, 0xFFCCCCCC);
+        context.drawCenteredTextWithShadow(this.textRenderer, Text.literal(currentLine), centerX, textStartY + lineSpacing * 2, 0xFFCCCCCC);
+        context.drawCenteredTextWithShadow(this.textRenderer, Text.literal(buildLine), centerX, textStartY + lineSpacing * 3, 0xFFCCCCCC);
+        context.drawCenteredTextWithShadow(this.textRenderer, Text.literal(loaderLine), centerX, textStartY + lineSpacing * 4, 0xFFCCCCCC);
 
         int buttonWidth = 100;
         int buttonHeight = 20;
@@ -945,6 +938,19 @@ public class PathmindVisualEditorScreen extends Screen {
         boolean closeHovered = isPointInRect(mouseX, mouseY, buttonX, buttonY, buttonWidth, buttonHeight);
 
         drawPopupButton(context, buttonX, buttonY, buttonWidth, buttonHeight, closeHovered, Text.literal("Close"), false);
+    }
+
+    private void drawTitle(DrawContext context, boolean underline) {
+        int centerX = this.width / 2;
+        int textY = (TITLE_BAR_HEIGHT - this.textRenderer.fontHeight) / 2 + 1;
+        context.drawCenteredTextWithShadow(this.textRenderer, TITLE_TEXT, centerX, textY, WHITE);
+
+        if (underline) {
+            int textWidth = this.textRenderer.getWidth(TITLE_TEXT);
+            int underlineStartX = centerX - textWidth / 2;
+            int underlineY = textY + this.textRenderer.fontHeight;
+            context.fill(underlineStartX, underlineY, underlineStartX + textWidth, underlineY + 1, WHITE);
+        }
     }
 
     private boolean handleClearPopupClick(double mouseX, double mouseY, int button) {
@@ -1848,15 +1854,19 @@ public class PathmindVisualEditorScreen extends Screen {
     }
 
     private boolean isTitleClicked(int mouseX, int mouseY) {
-        int textWidth = this.textRenderer.getWidth("Pathmind Node Editor");
-        int textX = this.width / 2 - textWidth / 2;
-        int textY = (TITLE_BAR_HEIGHT - this.textRenderer.fontHeight) / 2;
-        int padding = 4;
+        return isTitleHovered(mouseX, mouseY);
+    }
+
+    private boolean isTitleHovered(int mouseX, int mouseY) {
+        int textWidth = this.textRenderer.getWidth(TITLE_TEXT);
         int textHeight = this.textRenderer.fontHeight;
-        return mouseX >= textX - padding
-                && mouseX <= textX + textWidth + padding
-                && mouseY >= textY - padding
-                && mouseY <= textY + textHeight + padding;
+        int textX = this.width / 2 - textWidth / 2;
+        int textY = (TITLE_BAR_HEIGHT - textHeight) / 2;
+        int hitboxX = textX - TITLE_INTERACTION_PADDING;
+        int hitboxY = textY - TITLE_INTERACTION_PADDING;
+        int hitboxWidth = textWidth + TITLE_INTERACTION_PADDING * 2;
+        int hitboxHeight = textHeight + TITLE_INTERACTION_PADDING * 2;
+        return isPointInRect(mouseX, mouseY, hitboxX, hitboxY, hitboxWidth, hitboxHeight);
     }
 
     private String getModVersion() {
