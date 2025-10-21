@@ -386,6 +386,9 @@ public class Node {
     }
 
     public boolean canAcceptParameter() {
+        if (type == NodeType.OPEN_INVENTORY || type == NodeType.CLOSE_INVENTORY) {
+            return false;
+        }
         return !isParameterNode()
             && type != NodeType.START
             && type != NodeType.EVENT_CALL
@@ -1245,50 +1248,21 @@ public class Node {
                 parameters.add(new NodeParameter("Name", ParameterType.STRING, "function"));
                 break;
             case SENSOR_TOUCHING_BLOCK:
-                parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, "minecraft:stone"));
-                break;
             case SENSOR_TOUCHING_ENTITY:
-                parameters.add(new NodeParameter("Entity", ParameterType.ENTITY_TYPE, "minecraft:zombie"));
-                break;
             case SENSOR_AT_COORDINATES:
-                parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
-                parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "64"));
-                parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
-                break;
             case SENSOR_BLOCK_AHEAD:
-                parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, "minecraft:stone"));
-                break;
             case SENSOR_BLOCK_BELOW:
-                parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, "minecraft:stone"));
-                break;
             case SENSOR_LIGHT_LEVEL_BELOW:
-                parameters.add(new NodeParameter("Threshold", ParameterType.INTEGER, "7"));
-                break;
             case SENSOR_IS_DAYTIME:
-                break;
             case SENSOR_IS_RAINING:
-                break;
             case SENSOR_HEALTH_BELOW:
-                parameters.add(new NodeParameter("Amount", ParameterType.DOUBLE, "10.0"));
-                break;
             case SENSOR_HUNGER_BELOW:
-                parameters.add(new NodeParameter("Amount", ParameterType.INTEGER, "10"));
-                break;
             case SENSOR_ENTITY_NEARBY:
-                parameters.add(new NodeParameter("Entity", ParameterType.ENTITY_TYPE, "minecraft:zombie"));
-                parameters.add(new NodeParameter("Range", ParameterType.INTEGER, "6"));
-                break;
             case SENSOR_ITEM_IN_INVENTORY:
-                parameters.add(new NodeParameter("Item", ParameterType.STRING, "minecraft:stone"));
-                break;
             case SENSOR_IS_SWIMMING:
-                break;
             case SENSOR_IS_IN_LAVA:
-                break;
             case SENSOR_IS_UNDERWATER:
-                break;
             case SENSOR_IS_FALLING:
-                parameters.add(new NodeParameter("Distance", ParameterType.DOUBLE, "2.0"));
                 break;
             case PARAM_COORDINATE:
                 parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
@@ -1351,6 +1325,18 @@ public class Node {
                 parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
                 parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "0"));
                 parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
+                break;
+            case PARAM_LIGHT_THRESHOLD:
+                parameters.add(new NodeParameter("Threshold", ParameterType.INTEGER, "7"));
+                break;
+            case PARAM_HEALTH_THRESHOLD:
+                parameters.add(new NodeParameter("Amount", ParameterType.DOUBLE, "10.0"));
+                break;
+            case PARAM_HUNGER_THRESHOLD:
+                parameters.add(new NodeParameter("Amount", ParameterType.INTEGER, "10"));
+                break;
+            case PARAM_FALL_DISTANCE:
+                parameters.add(new NodeParameter("Distance", ParameterType.DOUBLE, "2.0"));
                 break;
             default:
                 // No parameters needed
@@ -5596,6 +5582,20 @@ public class Node {
         }
     }
 
+    private Node getAttachedParameterOfType(NodeType... allowedTypes) {
+        if (attachedParameter == null || !attachedParameter.isParameterNode()) {
+            return null;
+        }
+        NodeType parameterType = attachedParameter.getType();
+        for (NodeType allowed : allowedTypes) {
+            if (parameterType == allowed) {
+                return attachedParameter;
+            }
+        }
+        sendIncompatibleParameterMessage(attachedParameter);
+        return null;
+    }
+
     public boolean evaluateSensor() {
         if (!isSensorNode()) {
             return false;
@@ -5605,11 +5605,25 @@ public class Node {
         switch (type) {
             case SENSOR_TOUCHING_BLOCK: {
                 String blockId = getStringParameter("Block", "minecraft:stone");
+                Node parameterNode = getAttachedParameterOfType(NodeType.PARAM_BLOCK, NodeType.PARAM_PLACE_TARGET);
+                if (parameterNode != null) {
+                    String nodeBlock = getParameterString(parameterNode, "Block");
+                    if (nodeBlock != null && !nodeBlock.isEmpty()) {
+                        blockId = nodeBlock;
+                    }
+                }
                 result = evaluateSensorCondition(SensorConditionType.TOUCHING_BLOCK, blockId, null, 0, 0, 0);
                 break;
             }
             case SENSOR_TOUCHING_ENTITY: {
                 String entityId = getStringParameter("Entity", "minecraft:zombie");
+                Node parameterNode = getAttachedParameterOfType(NodeType.PARAM_ENTITY);
+                if (parameterNode != null) {
+                    String nodeEntity = getParameterString(parameterNode, "Entity");
+                    if (nodeEntity != null && !nodeEntity.isEmpty()) {
+                        entityId = nodeEntity;
+                    }
+                }
                 result = evaluateSensorCondition(SensorConditionType.TOUCHING_ENTITY, null, entityId, 0, 0, 0);
                 break;
             }
@@ -5617,21 +5631,45 @@ public class Node {
                 int x = getIntParameter("X", 0);
                 int y = getIntParameter("Y", 64);
                 int z = getIntParameter("Z", 0);
+                Node parameterNode = getAttachedParameterOfType(NodeType.PARAM_COORDINATE, NodeType.PARAM_PLACE_TARGET);
+                if (parameterNode != null) {
+                    x = parseNodeInt(parameterNode, "X", x);
+                    y = parseNodeInt(parameterNode, "Y", y);
+                    z = parseNodeInt(parameterNode, "Z", z);
+                }
                 result = evaluateSensorCondition(SensorConditionType.AT_COORDINATES, null, null, x, y, z);
                 break;
             }
             case SENSOR_BLOCK_AHEAD: {
                 String blockId = getStringParameter("Block", "minecraft:stone");
+                Node parameterNode = getAttachedParameterOfType(NodeType.PARAM_BLOCK, NodeType.PARAM_PLACE_TARGET);
+                if (parameterNode != null) {
+                    String nodeBlock = getParameterString(parameterNode, "Block");
+                    if (nodeBlock != null && !nodeBlock.isEmpty()) {
+                        blockId = nodeBlock;
+                    }
+                }
                 result = isBlockAhead(blockId);
                 break;
             }
             case SENSOR_BLOCK_BELOW: {
                 String blockId = getStringParameter("Block", "minecraft:stone");
+                Node parameterNode = getAttachedParameterOfType(NodeType.PARAM_BLOCK, NodeType.PARAM_PLACE_TARGET);
+                if (parameterNode != null) {
+                    String nodeBlock = getParameterString(parameterNode, "Block");
+                    if (nodeBlock != null && !nodeBlock.isEmpty()) {
+                        blockId = nodeBlock;
+                    }
+                }
                 result = isBlockBelow(blockId);
                 break;
             }
             case SENSOR_LIGHT_LEVEL_BELOW: {
                 int threshold = MathHelper.clamp(getIntParameter("Threshold", 7), 0, 15);
+                Node parameterNode = getAttachedParameterOfType(NodeType.PARAM_LIGHT_THRESHOLD);
+                if (parameterNode != null) {
+                    threshold = MathHelper.clamp(parseNodeInt(parameterNode, "Threshold", threshold), 0, 15);
+                }
                 result = isLightLevelBelow(threshold);
                 break;
             }
@@ -5643,22 +5681,45 @@ public class Node {
                 break;
             case SENSOR_HEALTH_BELOW: {
                 double amount = MathHelper.clamp(getDoubleParameter("Amount", 10.0), 0.0, 40.0);
+                Node parameterNode = getAttachedParameterOfType(NodeType.PARAM_HEALTH_THRESHOLD);
+                if (parameterNode != null) {
+                    amount = MathHelper.clamp(parseNodeDouble(parameterNode, "Amount", amount), 0.0, 40.0);
+                }
                 result = isHealthBelow(amount);
                 break;
             }
             case SENSOR_HUNGER_BELOW: {
                 int amount = MathHelper.clamp(getIntParameter("Amount", 10), 0, 20);
+                Node parameterNode = getAttachedParameterOfType(NodeType.PARAM_HUNGER_THRESHOLD);
+                if (parameterNode != null) {
+                    amount = MathHelper.clamp(parseNodeInt(parameterNode, "Amount", amount), 0, 20);
+                }
                 result = isHungerBelow(amount);
                 break;
             }
             case SENSOR_ENTITY_NEARBY: {
                 String entityId = getStringParameter("Entity", "minecraft:zombie");
                 double range = Math.max(1.0, getIntParameter("Range", 6));
+                Node parameterNode = getAttachedParameterOfType(NodeType.PARAM_ENTITY);
+                if (parameterNode != null) {
+                    String nodeEntity = getParameterString(parameterNode, "Entity");
+                    if (nodeEntity != null && !nodeEntity.isEmpty()) {
+                        entityId = nodeEntity;
+                    }
+                    range = Math.max(1.0, parseNodeDouble(parameterNode, "Range", range));
+                }
                 result = isEntityNearby(entityId, range);
                 break;
             }
             case SENSOR_ITEM_IN_INVENTORY: {
                 String itemId = getStringParameter("Item", "minecraft:stone");
+                Node parameterNode = getAttachedParameterOfType(NodeType.PARAM_ITEM);
+                if (parameterNode != null) {
+                    String nodeItem = getParameterString(parameterNode, "Item");
+                    if (nodeItem != null && !nodeItem.isEmpty()) {
+                        itemId = nodeItem;
+                    }
+                }
                 result = hasItemInInventory(itemId);
                 break;
             }
@@ -5673,6 +5734,10 @@ public class Node {
                 break;
             case SENSOR_IS_FALLING: {
                 double distance = Math.max(0.0, getDoubleParameter("Distance", 2.0));
+                Node parameterNode = getAttachedParameterOfType(NodeType.PARAM_FALL_DISTANCE);
+                if (parameterNode != null) {
+                    distance = Math.max(0.0, parseNodeDouble(parameterNode, "Distance", distance));
+                }
                 result = isFalling(distance);
                 break;
             }

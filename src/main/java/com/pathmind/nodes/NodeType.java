@@ -110,7 +110,11 @@ public enum NodeType {
     PARAM_HAND("Hand", 0xFF8BC34A, "Represents a preferred hand selection"),
     PARAM_RANGE("Range", 0xFF8BC34A, "Represents a generic radius or range"),
     PARAM_ROTATION("Rotation", 0xFF8BC34A, "Represents yaw and pitch angles"),
-    PARAM_PLACE_TARGET("Place", 0xFF8BC34A, "Represents a block placement with coordinates");
+    PARAM_PLACE_TARGET("Place", 0xFF8BC34A, "Represents a block placement with coordinates"),
+    PARAM_LIGHT_THRESHOLD("Light Threshold", 0xFF8BC34A, "Represents a light level threshold"),
+    PARAM_HEALTH_THRESHOLD("Health Threshold", 0xFF8BC34A, "Represents a health threshold"),
+    PARAM_HUNGER_THRESHOLD("Hunger Threshold", 0xFF8BC34A, "Represents a hunger threshold"),
+    PARAM_FALL_DISTANCE("Fall Distance", 0xFF8BC34A, "Represents a falling distance trigger");
 
     private final String displayName;
     private final String description;
@@ -242,6 +246,10 @@ public enum NodeType {
             case PARAM_RANGE:
             case PARAM_ROTATION:
             case PARAM_PLACE_TARGET:
+            case PARAM_LIGHT_THRESHOLD:
+            case PARAM_HEALTH_THRESHOLD:
+            case PARAM_HUNGER_THRESHOLD:
+            case PARAM_FALL_DISTANCE:
                 return NodeCategory.PARAMETERS;
             default:
                 return NodeCategory.UTILITY;
@@ -315,6 +323,10 @@ public enum NodeType {
             case PARAM_RANGE:
             case PARAM_ROTATION:
             case PARAM_PLACE_TARGET:
+            case PARAM_LIGHT_THRESHOLD:
+            case PARAM_HEALTH_THRESHOLD:
+            case PARAM_HUNGER_THRESHOLD:
+            case PARAM_FALL_DISTANCE:
                 return true;
             default:
                 return false;
