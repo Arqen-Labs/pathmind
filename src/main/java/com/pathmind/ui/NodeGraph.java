@@ -1767,6 +1767,7 @@ public class NodeGraph {
             return;
         }
         markWorkspaceDirty();
+        save();
     }
 
     public void clearWorkspace() {

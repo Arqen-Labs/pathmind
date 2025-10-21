@@ -1963,6 +1963,24 @@ public class Node {
         setParameterValueAndPropagate("Z", Integer.toString(z));
     }
 
+    private boolean isPlayerAtCoordinates(Integer targetX, Integer targetY, Integer targetZ) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            return false;
+        }
+        BlockPos playerPos = client.player.getBlockPos();
+        if (targetX != null && playerPos.getX() != targetX) {
+            return false;
+        }
+        if (targetY != null && playerPos.getY() != targetY) {
+            return false;
+        }
+        if (targetZ != null && playerPos.getZ() != targetZ) {
+            return false;
+        }
+        return true;
+    }
+
     private boolean resolveLookOrientation(Node parameterNode, RuntimeParameterData data, CompletableFuture<Void> future) {
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null) {
@@ -2463,11 +2481,16 @@ public class Node {
                 NodeParameter xParam = getParameter("X");
                 NodeParameter yParam = getParameter("Y");
                 NodeParameter zParam = getParameter("Z");
-                
+
                 if (xParam != null) x = xParam.getIntValue();
                 if (yParam != null) y = yParam.getIntValue();
                 if (zParam != null) z = zParam.getIntValue();
-                
+
+                if (isPlayerAtCoordinates(x, y, z)) {
+                    future.complete(null);
+                    return;
+                }
+
                 System.out.println("Executing goto to: " + x + ", " + y + ", " + z);
                 PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
                 GoalBlock goal = new GoalBlock(x, y, z);
@@ -2481,7 +2504,12 @@ public class Node {
                 
                 if (xParam2 != null) x2 = xParam2.getIntValue();
                 if (zParam2 != null) z2 = zParam2.getIntValue();
-                
+
+                if (isPlayerAtCoordinates(x2, null, z2)) {
+                    future.complete(null);
+                    return;
+                }
+
                 System.out.println("Executing goto to: " + x2 + ", " + z2);
                 PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
                 GoalBlock goal2 = new GoalBlock(x2, 0, z2); // Y will be determined by pathfinding
@@ -2498,6 +2526,10 @@ public class Node {
                 // For Y-only movement, we need to get current X,Z and set goal there
                 net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
                 if (client != null && client.player != null) {
+                    if (isPlayerAtCoordinates(null, y3, null)) {
+                        future.complete(null);
+                        return;
+                    }
                     int currentX = (int) client.player.getX();
                     int currentZ = (int) client.player.getZ();
                     GoalBlock goal3 = new GoalBlock(currentX, y3, currentZ);
@@ -3577,6 +3609,10 @@ public class Node {
                     throw new PlacementFailure("Cannot place block at " + formatBlockPos(targetPos) + ": placement rejected (" + result + ").");
                 }
             });
+            boolean placed = waitForBlockPlacement(client, targetPos, desiredBlock);
+            if (!placed) {
+                sendNodeErrorMessage(client, "Attempted to place block \"" + resolvedBlockId + "\" at " + formatBlockPos(targetPos) + " but it did not appear. Make sure the space is clear and within reach.");
+            }
             future.complete(null);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -4558,6 +4594,25 @@ public class Node {
         if (client.player.networkHandler != null) {
             client.player.networkHandler.sendPacket(new UpdateSelectedSlotC2SPacket(slot));
         }
+    }
+
+    private boolean waitForBlockPlacement(net.minecraft.client.MinecraftClient client, BlockPos targetPos, Block desiredBlock) throws InterruptedException {
+        if (client == null || targetPos == null || desiredBlock == null) {
+            return false;
+        }
+        for (int attempt = 0; attempt < 10; attempt++) {
+            boolean matches = supplyFromClient(client, () -> {
+                if (client.world == null) {
+                    return false;
+                }
+                return client.world.getBlockState(targetPos).isOf(desiredBlock);
+            });
+            if (matches) {
+                return true;
+            }
+            Thread.sleep(50L);
+        }
+        return false;
     }
 
     private int findHotbarSlotWithItem(PlayerInventory inventory, Item targetItem) {
