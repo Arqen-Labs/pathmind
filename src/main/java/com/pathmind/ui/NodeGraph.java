@@ -10,6 +10,7 @@ import com.pathmind.nodes.NodeParameter;
 import com.pathmind.nodes.NodeType;
 import com.pathmind.nodes.ParameterType;
 import com.pathmind.execution.ExecutionManager;
+import org.lwjgl.glfw.GLFW;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.text.Text;
@@ -79,6 +80,16 @@ public class NodeGraph {
     private String activePreset;
     private final Set<Node> cascadeDeletionPreviewNodes;
 
+    private static final long COORDINATE_CARET_BLINK_INTERVAL_MS = 500;
+    private static final String[] COORDINATE_AXES = {"X", "Y", "Z"};
+
+    private Node coordinateEditingNode = null;
+    private int coordinateEditingAxis = -1;
+    private String coordinateEditBuffer = "";
+    private String coordinateEditOriginalValue = "";
+    private long coordinateCaretLastToggleTime = 0L;
+    private boolean coordinateCaretVisible = true;
+
     public NodeGraph() {
         this.nodes = new ArrayList<>();
         this.connections = new ArrayList<>();
@@ -132,6 +143,10 @@ public class NodeGraph {
     private void removeNodeInternal(Node node, boolean autoReconnect, boolean repositionDetachments) {
         if (node == null) {
             return;
+        }
+
+        if (coordinateEditingNode == node) {
+            stopCoordinateEditing(false);
         }
 
         if (node.hasAttachedSensor()) {
@@ -264,6 +279,7 @@ public class NodeGraph {
     }
 
     public void startDragging(Node node, int mouseX, int mouseY) {
+        stopCoordinateEditing(true);
         sensorDropTarget = null;
         actionDropTarget = null;
         parameterDropTarget = null;
@@ -1120,10 +1136,17 @@ public class NodeGraph {
     }
 
     private void renderCoordinateInputFields(DrawContext context, TextRenderer textRenderer, Node node, boolean isOverSidebar) {
-        int labelColor = isOverSidebar ? 0xFF777777 : 0xFFAAAAAA;
+        int baseLabelColor = isOverSidebar ? 0xFF777777 : 0xFFAAAAAA;
         int fieldBackground = isOverSidebar ? 0xFF252525 : 0xFF1A1A1A;
+        int activeFieldBackground = isOverSidebar ? 0xFF2F2F2F : 0xFF242424;
         int fieldBorder = isOverSidebar ? 0xFF555555 : 0xFF444444;
+        int activeFieldBorder = 0xFF87CEEB;
         int textColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0;
+        int activeTextColor = 0xFFE6F7FF;
+
+        if (isEditingCoordinateField() && coordinateEditingNode == node) {
+            updateCoordinateCaretBlink();
+        }
 
         int labelTop = node.getCoordinateFieldLabelTop() - cameraY;
         int labelHeight = node.getCoordinateFieldLabelHeight();
@@ -1133,27 +1156,225 @@ public class NodeGraph {
         int spacing = node.getCoordinateFieldSpacing();
         int startX = node.getCoordinateFieldStartX() - cameraX;
 
-        String[] axes = {"X", "Y", "Z"};
-        for (int i = 0; i < axes.length; i++) {
+        for (int i = 0; i < COORDINATE_AXES.length; i++) {
             int fieldX = startX + i * (fieldWidth + spacing);
 
-            String axisLabel = axes[i];
+            boolean editingAxis = isEditingCoordinateField()
+                && coordinateEditingNode == node
+                && coordinateEditingAxis == i;
+
+            String axisLabel = COORDINATE_AXES[i];
             int labelWidth = textRenderer.getWidth(axisLabel);
             int labelX = fieldX + Math.max(0, (fieldWidth - labelWidth) / 2);
             int labelY = labelTop + Math.max(0, (labelHeight - textRenderer.fontHeight) / 2);
+            int labelColor = editingAxis ? 0xFFB8E7FF : baseLabelColor;
             context.drawTextWithShadow(textRenderer, Text.literal(axisLabel), labelX, labelY, labelColor);
 
             int inputBottom = inputTop + fieldHeight;
-            context.fill(fieldX, inputTop, fieldX + fieldWidth, inputBottom, fieldBackground);
-            context.drawBorder(fieldX, inputTop, fieldWidth, fieldHeight, fieldBorder);
+            int backgroundColor = editingAxis ? activeFieldBackground : fieldBackground;
+            int borderColor = editingAxis ? activeFieldBorder : fieldBorder;
+            int valueColor = editingAxis ? activeTextColor : textColor;
 
-            NodeParameter parameter = node.getParameter(axisLabel);
-            String value = parameter != null ? parameter.getDisplayValue() : "";
-            String display = trimTextToWidth(value, textRenderer, fieldWidth - 6);
+            context.fill(fieldX, inputTop, fieldX + fieldWidth, inputBottom, backgroundColor);
+            context.drawBorder(fieldX, inputTop, fieldWidth, fieldHeight, borderColor);
+
+            String value;
+            if (editingAxis) {
+                value = coordinateEditBuffer;
+            } else {
+                NodeParameter parameter = node.getParameter(axisLabel);
+                value = parameter != null ? parameter.getDisplayValue() : "";
+            }
+
+            String display = editingAxis
+                ? textRenderer.trimToWidth(value, fieldWidth - 6)
+                : trimTextToWidth(value, textRenderer, fieldWidth - 6);
+
             int textX = fieldX + 3;
             int textY = inputTop + (fieldHeight - textRenderer.fontHeight) / 2 + 1;
-            context.drawTextWithShadow(textRenderer, Text.literal(display), textX, textY, textColor);
+            context.drawTextWithShadow(textRenderer, Text.literal(display), textX, textY, valueColor);
+
+            if (editingAxis && coordinateCaretVisible) {
+                int caretX = textX + textRenderer.getWidth(display);
+                caretX = Math.min(caretX, fieldX + fieldWidth - 2);
+                context.fill(caretX, inputTop + 2, caretX + 1, inputBottom - 2, 0xFFE6F7FF);
+            }
         }
+    }
+
+    public boolean isEditingCoordinateField() {
+        return coordinateEditingNode != null && coordinateEditingAxis >= 0;
+    }
+
+    private void updateCoordinateCaretBlink() {
+        long now = System.currentTimeMillis();
+        if (now - coordinateCaretLastToggleTime >= COORDINATE_CARET_BLINK_INTERVAL_MS) {
+            coordinateCaretVisible = !coordinateCaretVisible;
+            coordinateCaretLastToggleTime = now;
+        }
+    }
+
+    private void resetCoordinateCaretBlink() {
+        coordinateCaretVisible = true;
+        coordinateCaretLastToggleTime = System.currentTimeMillis();
+    }
+
+    public int getCoordinateFieldAxisAt(Node node, int screenX, int screenY) {
+        if (node == null || !node.hasCoordinateInputFields()) {
+            return -1;
+        }
+
+        int worldX = screenX + cameraX;
+        int worldY = screenY + cameraY;
+        int inputTop = node.getCoordinateFieldInputTop();
+        int inputBottom = inputTop + node.getCoordinateFieldHeight();
+        if (worldY < inputTop || worldY > inputBottom) {
+            return -1;
+        }
+
+        int startX = node.getCoordinateFieldStartX();
+        int fieldWidth = node.getCoordinateFieldWidth();
+        int spacing = node.getCoordinateFieldSpacing();
+
+        for (int i = 0; i < COORDINATE_AXES.length; i++) {
+            int fieldX = startX + i * (fieldWidth + spacing);
+            if (worldX >= fieldX && worldX <= fieldX + fieldWidth) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    public void startCoordinateEditing(Node node, int axisIndex) {
+        if (node == null || !node.hasCoordinateInputFields() || axisIndex < 0
+            || axisIndex >= COORDINATE_AXES.length) {
+            stopCoordinateEditing(false);
+            return;
+        }
+
+        if (isEditingCoordinateField()) {
+            if (coordinateEditingNode == node && coordinateEditingAxis == axisIndex) {
+                return;
+            }
+            applyCoordinateEdit();
+        }
+
+        coordinateEditingNode = node;
+        coordinateEditingAxis = axisIndex;
+
+        NodeParameter parameter = getCoordinateParameter(node, axisIndex);
+        coordinateEditBuffer = parameter != null ? parameter.getDisplayValue() : "";
+        coordinateEditOriginalValue = coordinateEditBuffer;
+        resetCoordinateCaretBlink();
+    }
+
+    public void stopCoordinateEditing(boolean commit) {
+        if (!isEditingCoordinateField()) {
+            return;
+        }
+
+        if (commit) {
+            applyCoordinateEdit();
+        } else {
+            revertCoordinateEdit();
+        }
+
+        coordinateEditingNode = null;
+        coordinateEditingAxis = -1;
+        coordinateEditBuffer = "";
+        coordinateEditOriginalValue = "";
+        coordinateCaretVisible = true;
+    }
+
+    private void applyCoordinateEdit() {
+        if (!isEditingCoordinateField()) {
+            return;
+        }
+        NodeParameter parameter = getCoordinateParameter(coordinateEditingNode, coordinateEditingAxis);
+        if (parameter == null) {
+            return;
+        }
+
+        String value = coordinateEditBuffer;
+        if (value == null || value.isEmpty() || "-".equals(value)) {
+            value = "0";
+        }
+        parameter.setStringValue(value);
+        coordinateEditingNode.recalculateDimensions();
+    }
+
+    private void revertCoordinateEdit() {
+        if (!isEditingCoordinateField()) {
+            return;
+        }
+        NodeParameter parameter = getCoordinateParameter(coordinateEditingNode, coordinateEditingAxis);
+        if (parameter == null) {
+            return;
+        }
+        parameter.setStringValue(coordinateEditOriginalValue);
+        coordinateEditingNode.recalculateDimensions();
+    }
+
+    private NodeParameter getCoordinateParameter(Node node, int axisIndex) {
+        if (node == null || axisIndex < 0 || axisIndex >= COORDINATE_AXES.length) {
+            return null;
+        }
+        return node.getParameter(COORDINATE_AXES[axisIndex]);
+    }
+
+    public boolean handleCoordinateKeyPressed(int keyCode, int modifiers) {
+        if (!isEditingCoordinateField()) {
+            return false;
+        }
+
+        switch (keyCode) {
+            case GLFW.GLFW_KEY_BACKSPACE:
+                if (!coordinateEditBuffer.isEmpty()) {
+                    coordinateEditBuffer = coordinateEditBuffer.substring(0, coordinateEditBuffer.length() - 1);
+                    resetCoordinateCaretBlink();
+                }
+                return true;
+            case GLFW.GLFW_KEY_ENTER:
+            case GLFW.GLFW_KEY_KP_ENTER:
+                stopCoordinateEditing(true);
+                return true;
+            case GLFW.GLFW_KEY_ESCAPE:
+                stopCoordinateEditing(false);
+                return true;
+            case GLFW.GLFW_KEY_TAB:
+                Node node = coordinateEditingNode;
+                int direction = (modifiers & GLFW.GLFW_MOD_SHIFT) != 0 ? -1 : 1;
+                int nextAxis = (coordinateEditingAxis + direction + COORDINATE_AXES.length) % COORDINATE_AXES.length;
+                applyCoordinateEdit();
+                startCoordinateEditing(node, nextAxis);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    public boolean handleCoordinateCharTyped(char chr, int modifiers, TextRenderer textRenderer) {
+        if (!isEditingCoordinateField()) {
+            return false;
+        }
+
+        if (chr >= '0' && chr <= '9') {
+            int availableWidth = coordinateEditingNode.getCoordinateFieldWidth() - 6;
+            String candidate = coordinateEditBuffer + chr;
+            if (textRenderer.getWidth(candidate) <= availableWidth) {
+                coordinateEditBuffer = candidate;
+                resetCoordinateCaretBlink();
+            }
+            return true;
+        }
+
+        if (chr == '-' && coordinateEditBuffer.isEmpty()) {
+            coordinateEditBuffer = "-";
+            resetCoordinateCaretBlink();
+            return true;
+        }
+
+        return false;
     }
 
     private String trimTextToWidth(String text, TextRenderer renderer, int maxWidth) {
@@ -1405,6 +1626,8 @@ public class NodeGraph {
         if (startNode == null) {
             return false;
         }
+
+        stopCoordinateEditing(true);
 
         hoveredStartNode = startNode;
 

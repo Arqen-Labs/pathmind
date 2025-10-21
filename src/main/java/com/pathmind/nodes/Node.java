@@ -110,7 +110,7 @@ public class Node {
     private static final int SLOT_AREA_PADDING_TOP = 0;
     private static final int SLOT_AREA_PADDING_BOTTOM = 6;
     private static final int SLOT_VERTICAL_SPACING = 6;
-    private static final int COORDINATE_FIELD_WIDTH = 48;
+    private static final int COORDINATE_FIELD_WIDTH = 44;
     private static final int COORDINATE_FIELD_HEIGHT = 16;
     private static final int COORDINATE_FIELD_SPACING = 6;
     private static final int COORDINATE_FIELD_TOP_MARGIN = 6;

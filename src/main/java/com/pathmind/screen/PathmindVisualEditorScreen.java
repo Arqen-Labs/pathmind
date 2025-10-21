@@ -438,6 +438,7 @@ public class PathmindVisualEditorScreen extends Screen {
             for (int i = 0; i < node.getInputSocketCount(); i++) {
                 if (node.isSocketClicked(worldMouseX, worldMouseY, i, true)) {
                     if (button == 0) { // Left click - start dragging connection from input
+                        nodeGraph.stopCoordinateEditing(true);
                         nodeGraph.startDraggingConnection(node, i, false, (int)mouseX, (int)mouseY);
                         return true;
                     }
@@ -448,6 +449,7 @@ public class PathmindVisualEditorScreen extends Screen {
             for (int i = 0; i < node.getOutputSocketCount(); i++) {
                 if (node.isSocketClicked(worldMouseX, worldMouseY, i, false)) {
                     if (button == 0) { // Left click - start dragging connection from output
+                        nodeGraph.stopCoordinateEditing(true);
                         nodeGraph.startDraggingConnection(node, i, true, (int)mouseX, (int)mouseY);
                         return true;
                     }
@@ -461,13 +463,24 @@ public class PathmindVisualEditorScreen extends Screen {
         if (clickedNode != null) {
             // Node body clicked (not socket)
             if (button == 0) { // Left click - select node or start dragging
+                int coordinateAxis = nodeGraph.getCoordinateFieldAxisAt(clickedNode, (int)mouseX, (int)mouseY);
+                if (coordinateAxis != -1) {
+                    nodeGraph.selectNode(clickedNode);
+                    nodeGraph.startCoordinateEditing(clickedNode, coordinateAxis);
+                    return true;
+                }
+
+                nodeGraph.stopCoordinateEditing(true);
+
                 // Check for double-click to open parameter editor
                 boolean shouldOpenOverlay = clickedNode.isParameterNode()
                     || clickedNode.getType() == NodeType.EVENT_FUNCTION
-                    || clickedNode.getType() == NodeType.EVENT_CALL;
+                    || clickedNode.getType() == NodeType.EVENT_CALL
+                    || clickedNode.hasParameters();
                 if (shouldOpenOverlay &&
                     nodeGraph.handleNodeClick(clickedNode, (int)mouseX, (int)mouseY)) {
                     // Open parameter overlay
+                    nodeGraph.stopCoordinateEditing(true);
                     parameterOverlay = new NodeParameterOverlay(
                         clickedNode,
                         this.width,
@@ -495,9 +508,12 @@ public class PathmindVisualEditorScreen extends Screen {
             // Clicked on empty space - deselect and stop dragging
             nodeGraph.selectNode(null);
             nodeGraph.stopDraggingConnection();
+            if (button == 0) {
+                nodeGraph.stopCoordinateEditing(true);
+            }
             return true;
         }
-        
+
         return false;
     }
     
@@ -657,7 +673,11 @@ public class PathmindVisualEditorScreen extends Screen {
                 return true;
             }
         }
-        
+
+        if (nodeGraph.handleCoordinateKeyPressed(keyCode, modifiers)) {
+            return true;
+        }
+
         // Close screen with Escape key
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
             close();
@@ -703,7 +723,11 @@ public class PathmindVisualEditorScreen extends Screen {
                 return true;
             }
         }
-        
+
+        if (nodeGraph.handleCoordinateCharTyped(chr, modifiers, this.textRenderer)) {
+            return true;
+        }
+
         return super.charTyped(chr, modifiers);
     }
     
@@ -755,6 +779,8 @@ public class PathmindVisualEditorScreen extends Screen {
         }
 
         hasSavedOnClose = true;
+
+        nodeGraph.stopCoordinateEditing(true);
 
         if (nodeGraph.save()) {
             System.out.println("Node graph auto-saved successfully");
