@@ -47,6 +47,7 @@ public class Sidebar {
     private int scrollOffset = 0;
     private int maxScroll = 0;
     private int currentSidebarHeight = 400; // Store current sidebar height
+    private int currentInnerSidebarWidth = INNER_SIDEBAR_WIDTH;
     
     public Sidebar() {
         this.categoryExpanded = new HashMap<>();
@@ -102,22 +103,6 @@ public class Sidebar {
         this.currentSidebarHeight = sidebarHeight;
         calculateMaxScroll(sidebarHeight);
         
-        int totalWidth = getWidth();
-        
-        // Outer sidebar background
-        int outerColor = totalWidth > INNER_SIDEBAR_WIDTH ? DARK_GREY_ALT : DARKER_GREY;
-        context.fill(0, sidebarStartY, totalWidth, sidebarStartY + sidebarHeight, outerColor);
-        context.drawVerticalLine(totalWidth, sidebarStartY, sidebarStartY + sidebarHeight, GREY_LINE);
-        
-        // Inner sidebar background (for tabs)
-        context.fill(0, sidebarStartY, INNER_SIDEBAR_WIDTH, sidebarStartY + sidebarHeight, DARKER_GREY);
-        context.drawVerticalLine(INNER_SIDEBAR_WIDTH, sidebarStartY, sidebarStartY + sidebarHeight, GREY_LINE);
-        
-        // Tabs stay static (don't scroll with content)
-        int currentY = sidebarStartY + TOP_PADDING;
-        
-        // Render colored tabs
-        hoveredCategory = null;
         NodeCategory[] categories = NodeCategory.values();
         int totalVisibleTabs = 0;
         for (NodeCategory category : categories) {
@@ -130,6 +115,32 @@ public class Sidebar {
         int rowsFromHeight = Math.max(1, (availableTabHeight + TAB_SPACING) / (TAB_SIZE + TAB_SPACING));
         int minRowsNeeded = totalVisibleTabs > 0 ? (int) Math.ceil(totalVisibleTabs / (double) TAB_COLUMNS) : 1;
         int rowsPerColumn = Math.max(rowsFromHeight, minRowsNeeded);
+        int columnsUsed = totalVisibleTabs > 0 ? (int) Math.ceil(totalVisibleTabs / (double) rowsPerColumn) : 1;
+        columnsUsed = Math.min(columnsUsed, TAB_COLUMNS);
+
+        if (columnsUsed > 1) {
+            currentInnerSidebarWidth = INNER_SIDEBAR_WIDTH * 2;
+        } else {
+            currentInnerSidebarWidth = INNER_SIDEBAR_WIDTH;
+        }
+
+        int totalWidth = getWidth();
+        
+        // Outer sidebar background
+        int outerColor = totalWidth > currentInnerSidebarWidth ? DARK_GREY_ALT : DARKER_GREY;
+        context.fill(0, sidebarStartY, totalWidth, sidebarStartY + sidebarHeight, outerColor);
+        context.drawVerticalLine(totalWidth, sidebarStartY, sidebarStartY + sidebarHeight, GREY_LINE);
+        
+        // Inner sidebar background (for tabs)
+        context.fill(0, sidebarStartY, currentInnerSidebarWidth, sidebarStartY + sidebarHeight, DARKER_GREY);
+        context.drawVerticalLine(currentInnerSidebarWidth, sidebarStartY, sidebarStartY + sidebarHeight, GREY_LINE);
+
+        // Tabs stay static (don't scroll with content)
+        int currentY = sidebarStartY + TOP_PADDING;
+
+        // Render colored tabs
+        hoveredCategory = null;
+        // rowsPerColumn already calculated above
 
         int visibleTabIndex = 0; // Track visible tabs separately from array index
         for (int i = 0; i < categories.length; i++) {
@@ -192,7 +203,7 @@ public class Sidebar {
             context.drawTextWithShadow(
                 textRenderer,
                 Text.literal(selectedCategory.getDisplayName()),
-                INNER_SIDEBAR_WIDTH + 8,
+                currentInnerSidebarWidth + 8,
                 contentY + 4,
                 selectedCategory.getColor()
             );
@@ -205,19 +216,19 @@ public class Sidebar {
                 for (NodeType nodeType : nodes) {
                     if (contentY >= sidebarStartY + sidebarHeight) break; // Don't render beyond sidebar
                     
-                    boolean nodeHovered = mouseX >= INNER_SIDEBAR_WIDTH && mouseX <= totalWidth && 
-                                        mouseY >= contentY && mouseY < contentY + NODE_HEIGHT;
-                    
-                    if (nodeHovered) {
-                        hoveredNodeType = nodeType;
-                        context.fill(INNER_SIDEBAR_WIDTH, contentY, totalWidth, contentY + NODE_HEIGHT, HOVER_COLOR);
-                    }
-                    
-                    // Node color indicator (using category color) - proper square/rectangle
-                    int indicatorSize = 12;
-                    int indicatorX = INNER_SIDEBAR_WIDTH + 8; // Align with category title
-                    int indicatorY = contentY + 3;
-                    context.fill(indicatorX, indicatorY, indicatorX + indicatorSize, indicatorY + indicatorSize, nodeType.getColor());
+            boolean nodeHovered = mouseX >= currentInnerSidebarWidth && mouseX <= totalWidth &&
+                                mouseY >= contentY && mouseY < contentY + NODE_HEIGHT;
+
+            if (nodeHovered) {
+                hoveredNodeType = nodeType;
+                context.fill(currentInnerSidebarWidth, contentY, totalWidth, contentY + NODE_HEIGHT, HOVER_COLOR);
+            }
+
+            // Node color indicator (using category color) - proper square/rectangle
+            int indicatorSize = 12;
+            int indicatorX = currentInnerSidebarWidth + 8; // Align with category title
+            int indicatorY = contentY + 3;
+            context.fill(indicatorX, indicatorY, indicatorX + indicatorSize, indicatorY + indicatorSize, nodeType.getColor());
                     context.drawBorder(indicatorX, indicatorY, indicatorSize, indicatorSize, 0xFF000000);
                     
                     // Node name
@@ -248,7 +259,7 @@ public class Sidebar {
         
         if (button == 0) { // Left click
             // Check tab clicks
-            if (mouseX >= 0 && mouseX <= INNER_SIDEBAR_WIDTH && hoveredCategory != null) {
+            if (mouseX >= 0 && mouseX <= currentInnerSidebarWidth && hoveredCategory != null) {
                 if (selectedCategory != null && hoveredCategory == selectedCategory) {
                     selectedCategory = null;
                 } else {
@@ -296,7 +307,7 @@ public class Sidebar {
     }
     
     public int getWidth() {
-        return selectedCategory != null ? OUTER_SIDEBAR_WIDTH : INNER_SIDEBAR_WIDTH;
+        return selectedCategory != null ? OUTER_SIDEBAR_WIDTH : currentInnerSidebarWidth;
     }
 
     /**
