@@ -10,6 +10,7 @@ import net.minecraft.client.font.TextRenderer;
 import net.minecraft.text.Text;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Overlay widget for editing node parameters.
@@ -707,7 +708,7 @@ public class NodeParameterOverlay {
         if (hasModeSelection() && selectedMode != null) {
             node.setMode(selectedMode);
         }
-        
+
         // Update node parameters with field values
         List<NodeParameter> parameters = node.getParameters();
         for (int i = 0; i < parameters.size() && i < parameterValues.size(); i++) {
@@ -722,6 +723,7 @@ public class NodeParameterOverlay {
         }
 
         node.recalculateDimensions();
+        synchronizeAttachedPlaceParameter();
 
         close();
     }
@@ -751,11 +753,53 @@ public class NodeParameterOverlay {
     private void resetParameterFields() {
         parameterValues.clear();
         fieldFocused.clear();
-        
+
         for (NodeParameter param : node.getParameters()) {
             parameterValues.add(param.getStringValue());
             fieldFocused.add(false);
         }
+    }
+
+    private void synchronizeAttachedPlaceParameter() {
+        if (node.getType() != NodeType.PLACE || !node.hasAttachedParameter()) {
+            return;
+        }
+
+        Node attached = node.getAttachedParameter();
+        if (attached == null || attached.getType() != NodeType.PARAM_PLACE_TARGET) {
+            return;
+        }
+
+        boolean updated = false;
+        updated |= copyParameterValue(node, attached, "Block");
+        updated |= copyParameterValue(node, attached, "X");
+        updated |= copyParameterValue(node, attached, "Y");
+        updated |= copyParameterValue(node, attached, "Z");
+
+        if (updated) {
+            attached.recalculateDimensions();
+            node.updateAttachedParameterPosition();
+        }
+    }
+
+    private boolean copyParameterValue(Node source, Node target, String parameterName) {
+        NodeParameter sourceParam = source.getParameter(parameterName);
+        NodeParameter targetParam = target.getParameter(parameterName);
+        if (sourceParam == null || targetParam == null) {
+            return false;
+        }
+
+        String sourceValue = sourceParam.getStringValue();
+        if (sourceValue == null) {
+            sourceValue = "";
+        }
+
+        if (Objects.equals(sourceValue, targetParam.getStringValue())) {
+            return false;
+        }
+
+        targetParam.setStringValue(sourceValue);
+        return true;
     }
     
     private void updatePopupDimensions() {
