@@ -1560,11 +1560,10 @@ public class Node {
 
         this.height = Math.max(MIN_HEIGHT, contentHeight);
 
-        if (type == NodeType.EVENT_FUNCTION) {
-            int squareSize = Math.max(this.width, this.height);
-            this.width = squareSize;
-            this.height = squareSize;
-        }
+        // Function nodes used to be forced into a square layout. That made them as tall
+        // as they were wide, which left a large amount of empty space around their input
+        // field. By leaving the computed height untouched we keep the node compact while
+        // retaining the existing width.
 
         if (attachedSensor != null) {
             updateAttachedSensorPosition();
