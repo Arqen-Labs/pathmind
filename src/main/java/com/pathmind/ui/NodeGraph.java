@@ -1300,16 +1300,12 @@ public class NodeGraph {
         if (!isEditingCoordinateField()) {
             return;
         }
-        NodeParameter parameter = getCoordinateParameter(coordinateEditingNode, coordinateEditingAxis);
-        if (parameter == null) {
-            return;
-        }
-
         String value = coordinateEditBuffer;
         if (value == null || value.isEmpty() || "-".equals(value)) {
             value = "0";
         }
-        parameter.setStringValue(value);
+        String axisName = COORDINATE_AXES[coordinateEditingAxis];
+        coordinateEditingNode.setParameterValueAndPropagate(axisName, value);
         coordinateEditingNode.recalculateDimensions();
     }
 
@@ -1317,11 +1313,8 @@ public class NodeGraph {
         if (!isEditingCoordinateField()) {
             return;
         }
-        NodeParameter parameter = getCoordinateParameter(coordinateEditingNode, coordinateEditingAxis);
-        if (parameter == null) {
-            return;
-        }
-        parameter.setStringValue(coordinateEditOriginalValue);
+        String axisName = COORDINATE_AXES[coordinateEditingAxis];
+        coordinateEditingNode.setParameterValueAndPropagate(axisName, coordinateEditOriginalValue);
         coordinateEditingNode.recalculateDimensions();
     }
 

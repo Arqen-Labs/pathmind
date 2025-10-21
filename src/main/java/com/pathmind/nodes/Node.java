@@ -1342,6 +1342,25 @@ public class Node {
         return null;
     }
 
+    public void setParameterValueAndPropagate(String name, String value) {
+        if (name == null || value == null) {
+            return;
+        }
+
+        NodeParameter parameter = getParameter(name);
+        if (parameter != null) {
+            parameter.setStringValue(value);
+        }
+
+        if (attachedParameter != null && attachedParameter.isParameterNode()) {
+            NodeParameter attachedParam = attachedParameter.getParameter(name);
+            if (attachedParam != null) {
+                attachedParam.setStringValue(value);
+                attachedParameter.recalculateDimensions();
+            }
+        }
+    }
+
     public String getParameterLabel(NodeParameter parameter) {
         if (parameter == null) {
             return "";
@@ -1932,9 +1951,9 @@ public class Node {
         if (runtimeParameterData != null) {
             runtimeParameterData.targetBlockPos = new BlockPos(x, y, z);
         }
-        setParameterIfPresent("X", Integer.toString(x));
-        setParameterIfPresent("Y", Integer.toString(y));
-        setParameterIfPresent("Z", Integer.toString(z));
+        setParameterValueAndPropagate("X", Integer.toString(x));
+        setParameterValueAndPropagate("Y", Integer.toString(y));
+        setParameterValueAndPropagate("Z", Integer.toString(z));
     }
 
     private boolean resolveLookOrientation(Node parameterNode, RuntimeParameterData data, CompletableFuture<Void> future) {
