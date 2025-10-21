@@ -477,6 +477,9 @@ public class PathmindVisualEditorScreen extends Screen {
                     || clickedNode.getType() == NodeType.EVENT_FUNCTION
                     || clickedNode.getType() == NodeType.EVENT_CALL
                     || clickedNode.hasParameters();
+                if (clickedNode.getType() == NodeType.PLACE) {
+                    shouldOpenOverlay = false;
+                }
                 if (shouldOpenOverlay &&
                     nodeGraph.handleNodeClick(clickedNode, (int)mouseX, (int)mouseY)) {
                     // Open parameter overlay

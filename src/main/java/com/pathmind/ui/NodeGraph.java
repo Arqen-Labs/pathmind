@@ -254,7 +254,17 @@ public class NodeGraph {
 
         for (int i = nodes.size() - 1; i >= 0; i--) {
             Node node = nodes.get(i);
-            if (node.isSensorNode()) {
+            if (!node.isParameterNode()) {
+                continue;
+            }
+            if (node.containsPoint(worldX, worldY)) {
+                return node;
+            }
+        }
+
+        for (int i = nodes.size() - 1; i >= 0; i--) {
+            Node node = nodes.get(i);
+            if (node.isSensorNode() || node.isParameterNode()) {
                 continue;
             }
             if (node.containsPoint(worldX, worldY)) {
