@@ -20,6 +20,8 @@ import baritone.api.process.IExploreProcess;
 import baritone.api.process.IGetToBlockProcess;
 import baritone.api.process.IFarmProcess;
 import baritone.api.pathing.goals.GoalBlock;
+import baritone.api.pathing.goals.GoalXZ;
+import baritone.api.pathing.goals.GoalYLevel;
 import baritone.api.utils.BlockOptionalMeta;
 import com.pathmind.execution.PreciseCompletionTracker;
 import net.minecraft.entity.EquipmentSlot;
@@ -1915,6 +1917,47 @@ public class Node {
         setParameterIfPresent("Z", Integer.toString(z));
     }
 
+    private BlockPos getTargetPositionOrDefault(BlockPos fallback) {
+        if (runtimeParameterData != null && runtimeParameterData.targetBlockPos != null) {
+            return runtimeParameterData.targetBlockPos;
+        }
+        return fallback;
+    }
+
+    private boolean completeGotoIfPlayerAtPosition(BlockPos target, boolean matchY, CompletableFuture<Void> future) {
+        if (target == null || future == null || future.isDone()) {
+            return false;
+        }
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            return false;
+        }
+
+        BlockPos playerPos = client.player.getBlockPos();
+        boolean matchesXZ = playerPos.getX() == target.getX() && playerPos.getZ() == target.getZ();
+        boolean matchesY = !matchY || playerPos.getY() == target.getY();
+        if (matchesXZ && matchesY) {
+            future.complete(null);
+            return true;
+        }
+        return false;
+    }
+
+    private boolean completeGotoIfPlayerAtY(int targetY, CompletableFuture<Void> future) {
+        if (future == null || future.isDone()) {
+            return false;
+        }
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            return false;
+        }
+        if (client.player.getBlockPos().getY() == targetY) {
+            future.complete(null);
+            return true;
+        }
+        return false;
+    }
+
     private boolean resolveLookOrientation(Node parameterNode, RuntimeParameterData data, CompletableFuture<Void> future) {
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null) {
@@ -2404,6 +2447,10 @@ public class Node {
         }
 
         ICustomGoalProcess customGoalProcess = baritone.getCustomGoalProcess();
+        if (customGoalProcess == null) {
+            future.completeExceptionally(new RuntimeException("Baritone goal process not available"));
+            return;
+        }
 
         if (tryExecuteGotoUsingAttachedParameter(baritone, customGoalProcess, future)) {
             return;
@@ -2415,48 +2462,57 @@ public class Node {
                 NodeParameter xParam = getParameter("X");
                 NodeParameter yParam = getParameter("Y");
                 NodeParameter zParam = getParameter("Z");
-                
+
                 if (xParam != null) x = xParam.getIntValue();
                 if (yParam != null) y = yParam.getIntValue();
                 if (zParam != null) z = zParam.getIntValue();
-                
-                System.out.println("Executing goto to: " + x + ", " + y + ", " + z);
+
+                BlockPos xyzTarget = getTargetPositionOrDefault(new BlockPos(x, y, z));
+                if (completeGotoIfPlayerAtPosition(xyzTarget, true, future)) {
+                    return;
+                }
+
+                System.out.println("Executing goto to: " + xyzTarget.getX() + ", " + xyzTarget.getY() + ", " + xyzTarget.getZ());
                 PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
-                GoalBlock goal = new GoalBlock(x, y, z);
+                GoalBlock goal = new GoalBlock(xyzTarget.getX(), xyzTarget.getY(), xyzTarget.getZ());
                 customGoalProcess.setGoalAndPath(goal);
                 break;
-                
+
             case GOTO_XZ:
                 int x2 = 0, z2 = 0;
                 NodeParameter xParam2 = getParameter("X");
                 NodeParameter zParam2 = getParameter("Z");
-                
+
                 if (xParam2 != null) x2 = xParam2.getIntValue();
                 if (zParam2 != null) z2 = zParam2.getIntValue();
-                
-                System.out.println("Executing goto to: " + x2 + ", " + z2);
+
+                BlockPos xzTarget = getTargetPositionOrDefault(new BlockPos(x2, 0, z2));
+                if (completeGotoIfPlayerAtPosition(xzTarget, false, future)) {
+                    return;
+                }
+
+                System.out.println("Executing goto to: " + xzTarget.getX() + ", " + xzTarget.getZ());
                 PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
-                GoalBlock goal2 = new GoalBlock(x2, 0, z2); // Y will be determined by pathfinding
+                GoalXZ goal2 = new GoalXZ(xzTarget.getX(), xzTarget.getZ());
                 customGoalProcess.setGoalAndPath(goal2);
                 break;
-                
+
             case GOTO_Y:
                 int y3 = 64;
                 NodeParameter yParam3 = getParameter("Y");
                 if (yParam3 != null) y3 = yParam3.getIntValue();
-                
-                System.out.println("Executing goto to Y level: " + y3);
-                PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
-                // For Y-only movement, we need to get current X,Z and set goal there
-                net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
-                if (client != null && client.player != null) {
-                    int currentX = (int) client.player.getX();
-                    int currentZ = (int) client.player.getZ();
-                    GoalBlock goal3 = new GoalBlock(currentX, y3, currentZ);
-                    customGoalProcess.setGoalAndPath(goal3);
+
+                BlockPos yTarget = getTargetPositionOrDefault(new BlockPos(0, y3, 0));
+                if (completeGotoIfPlayerAtY(yTarget.getY(), future)) {
+                    return;
                 }
+
+                System.out.println("Executing goto to Y level: " + yTarget.getY());
+                PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
+                GoalYLevel goal3 = new GoalYLevel(yTarget.getY());
+                customGoalProcess.setGoalAndPath(goal3);
                 break;
-                
+
             case GOTO_BLOCK:
                 String block = "stone";
                 NodeParameter blockParam = getParameter("Block");
@@ -2537,6 +2593,9 @@ public class Node {
         }
 
         BlockPos pos = target.get();
+        if (completeGotoIfPlayerAtPosition(pos, true, future)) {
+            return true;
+        }
         PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
         customGoalProcess.setGoalAndPath(new GoalBlock(pos.getX(), pos.getY(), pos.getZ()));
         return true;
@@ -2576,6 +2635,9 @@ public class Node {
         }
 
         BlockPos pos = target.get().getBlockPos();
+        if (completeGotoIfPlayerAtPosition(pos, true, future)) {
+            return true;
+        }
         PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
         customGoalProcess.setGoalAndPath(new GoalBlock(pos.getX(), pos.getY(), pos.getZ()));
         return true;
@@ -2609,6 +2671,9 @@ public class Node {
         }
 
         BlockPos pos = match.get().getBlockPos();
+        if (completeGotoIfPlayerAtPosition(pos, true, future)) {
+            return true;
+        }
         PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_GOTO, future);
         customGoalProcess.setGoalAndPath(new GoalBlock(pos.getX(), pos.getY(), pos.getZ()));
         return true;
@@ -3519,14 +3584,29 @@ public class Node {
                     throw new RuntimeException("Block " + resolvedBlockId + " not found in hotbar");
                 }
 
+                double maxReach = client.player.getBlockInteractionRange();
+                double reachSquared = maxReach * maxReach;
+                Vec3d eyePos = client.player.getEyePos();
+                double distanceSquared = eyePos.squaredDistanceTo(Vec3d.ofCenter(targetPos));
+                if (distanceSquared > reachSquared) {
+                    throw new RuntimeException("Target block is out of reach for placement");
+                }
+
                 BlockHitResult hitResult = createPlacementHitResult(client, targetPos);
                 if (hitResult == null) {
                     throw new RuntimeException("No valid placement position at " + targetPos.getX() + ", " + targetPos.getY() + ", " + targetPos.getZ());
                 }
 
                 ActionResult result = client.interactionManager.interactBlock(client.player, hand, hitResult);
-                if (!result.isAccepted()) {
+                if (!isPlacementResultSuccessful(result)) {
                     throw new RuntimeException("Block placement rejected: " + result);
+                }
+
+                if (client.player != null) {
+                    client.player.swingHand(hand);
+                    if (client.player.networkHandler != null) {
+                        client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
+                    }
                 }
             });
             future.complete(null);
@@ -4595,6 +4675,10 @@ public class Node {
         }
 
         return state.getCollisionShape(world, targetPos).isEmpty();
+    }
+
+    private boolean isPlacementResultSuccessful(ActionResult result) {
+        return result != null && result.isAccepted();
     }
 
     private void executeLookCommand(CompletableFuture<Void> future) {
