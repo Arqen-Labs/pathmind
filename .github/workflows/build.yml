@@ -30,3 +30,11 @@ jobs:
 
       - name: Build
         run: ./gradlew build
+
+      - name: Upload mod jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: pathmind-mod-jar
+          path: |
+            build/libs/*.jar
+            !build/libs/*-sources.jar
