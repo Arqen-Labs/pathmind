@@ -860,10 +860,14 @@ public class Node {
         if (exported.isEmpty()) {
             return false;
         }
+
+        Map<String, String> existing = exportParameterValues();
         resetParametersToDefaults();
+        applyParameterValuesFromMap(existing);
+
         boolean applied = applyParameterValuesFromMap(exported);
         if (!applied) {
-            resetParametersToDefaults();
+            applyParameterValuesFromMap(existing);
         }
         return applied;
     }
