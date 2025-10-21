@@ -1,5 +1,6 @@
 package com.pathmind.screen;
 
+import com.pathmind.PathmindMod;
 import com.pathmind.data.NodeGraphPersistence;
 import com.pathmind.data.PresetManager;
 import com.pathmind.execution.ExecutionManager;
@@ -8,6 +9,8 @@ import com.pathmind.nodes.NodeType;
 import com.pathmind.ui.NodeGraph;
 import com.pathmind.ui.NodeParameterOverlay;
 import com.pathmind.ui.Sidebar;
+import net.fabricmc.loader.api.FabricLoader;
+import net.fabricmc.loader.api.ModContainer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.TextFieldWidget;
@@ -58,11 +61,15 @@ public class PathmindVisualEditorScreen extends Screen {
     private static final int PLAY_BUTTON_MARGIN = 8;
     private static final int STOP_BUTTON_SIZE = 18;
     private static final int CONTROL_BUTTON_GAP = 6;
+    private static final int INFO_POPUP_WIDTH = 320;
+    private static final int INFO_POPUP_HEIGHT = 180;
+    private static final String INFO_POPUP_AUTHOR = "ryduzz";
+    private static final String INFO_POPUP_TARGET_VERSION = "1.21.8";
 
     private NodeGraph nodeGraph;
     private Sidebar sidebar;
     private NodeParameterOverlay parameterOverlay;
-    
+
     // Drag and drop state
     private boolean isDraggingFromSidebar = false;
     private NodeType draggingNodeType = null;
@@ -81,6 +88,7 @@ public class PathmindVisualEditorScreen extends Screen {
     private TextFieldWidget createPresetField;
     private String createPresetStatus = "";
     private int createPresetStatusColor = 0xFFCCCCCC;
+    private boolean infoPopupVisible = false;
 
     public PathmindVisualEditorScreen() {
         super(Text.translatable("screen.pathmind.visual_editor.title"));
@@ -195,6 +203,10 @@ public class PathmindVisualEditorScreen extends Screen {
             renderCreatePresetPopup(context, mouseX, mouseY, delta);
         }
 
+        if (infoPopupVisible) {
+            renderInfoPopup(context, mouseX, mouseY);
+        }
+
         // Re-render title bar on top of everything to ensure it's always visible
         context.fill(0, 0, this.width, TITLE_BAR_HEIGHT, DARK_GREY_ALT);
         context.drawHorizontalLine(0, this.width, TITLE_BAR_HEIGHT, GREY_LINE);
@@ -211,7 +223,7 @@ public class PathmindVisualEditorScreen extends Screen {
 
     private boolean isPopupObscuringWorkspace() {
         boolean overlayVisible = parameterOverlay != null && parameterOverlay.isVisible();
-        return overlayVisible || clearPopupVisible || importExportPopupVisible || createPresetPopupVisible;
+        return overlayVisible || clearPopupVisible || importExportPopupVisible || createPresetPopupVisible || infoPopupVisible;
     }
     
     private void renderDraggingNode(DrawContext context, int mouseX, int mouseY) {
@@ -295,6 +307,13 @@ public class PathmindVisualEditorScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (infoPopupVisible) {
+            if (handleInfoPopupClick(mouseX, mouseY, button)) {
+                return true;
+            }
+            return true;
+        }
+
         if (createPresetPopupVisible) {
             if (createPresetField != null && createPresetField.mouseClicked(mouseX, mouseY, button)) {
                 return true;
@@ -335,6 +354,11 @@ public class PathmindVisualEditorScreen extends Screen {
         if (button == 0) {
             if (isPointInRect((int)mouseX, (int)mouseY, getPresetDropdownX(), getPresetDropdownY(), PRESET_DROPDOWN_WIDTH, PRESET_DROPDOWN_HEIGHT)) {
                 presetDropdownOpen = !presetDropdownOpen;
+                return true;
+            }
+
+            if (isTitleClicked((int) mouseX, (int) mouseY)) {
+                openInfoPopup();
                 return true;
             }
 
@@ -521,6 +545,10 @@ public class PathmindVisualEditorScreen extends Screen {
     
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (infoPopupVisible) {
+            return true;
+        }
+
         if (createPresetPopupVisible) {
             if (createPresetField != null) {
                 createPresetField.mouseReleased(mouseX, mouseY, button);
@@ -574,6 +602,14 @@ public class PathmindVisualEditorScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (infoPopupVisible) {
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE || keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
+                closeInfoPopup();
+                return true;
+            }
+            return true;
+        }
+
         if (createPresetPopupVisible) {
             if (createPresetField != null && createPresetField.keyPressed(keyCode, scanCode, modifiers)) {
                 return true;
@@ -650,6 +686,10 @@ public class PathmindVisualEditorScreen extends Screen {
     
     @Override
     public boolean charTyped(char chr, int modifiers) {
+        if (infoPopupVisible) {
+            return true;
+        }
+
         if (createPresetPopupVisible) {
             if (createPresetField != null && createPresetField.charTyped(chr, modifiers)) {
                 return true;
@@ -677,6 +717,10 @@ public class PathmindVisualEditorScreen extends Screen {
     
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        if (infoPopupVisible) {
+            return true;
+        }
+
         if (createPresetPopupVisible) {
             if (createPresetField != null && createPresetField.mouseScrolled(mouseX, mouseY, 0.0, verticalAmount)) {
                 return true;
@@ -860,6 +904,49 @@ public class PathmindVisualEditorScreen extends Screen {
         drawPopupButton(context, cancelX, buttonY, buttonWidth, buttonHeight, cancelHovered, Text.literal("Close"), false);
     }
 
+    private void renderInfoPopup(DrawContext context, int mouseX, int mouseY) {
+        context.fill(0, 0, this.width, this.height, OVERLAY_BACKGROUND);
+
+        int popupWidth = INFO_POPUP_WIDTH;
+        int popupHeight = INFO_POPUP_HEIGHT;
+        int popupX = (this.width - popupWidth) / 2;
+        int popupY = (this.height - popupHeight) / 2;
+
+        context.fill(popupX, popupY, popupX + popupWidth, popupY + popupHeight, DARK_GREY_ALT);
+        context.drawBorder(popupX, popupY, popupWidth, popupHeight, GREY_LINE);
+
+        context.drawCenteredTextWithShadow(
+            this.textRenderer,
+            Text.literal("Pathmind Node Editor"),
+            popupX + popupWidth / 2,
+            popupY + 14,
+            WHITE
+        );
+
+        int textStartY = popupY + 42;
+        int lineSpacing = 12;
+
+        String authorLine = "Created by: " + INFO_POPUP_AUTHOR;
+        String targetLine = "Built for Minecraft: " + INFO_POPUP_TARGET_VERSION;
+        String currentLine = "Running Minecraft: " + getCurrentMinecraftVersion();
+        String buildLine = "Current Build: " + getModVersion();
+        String loaderLine = "Fabric Loader: " + getFabricLoaderVersion();
+
+        context.drawTextWithShadow(this.textRenderer, Text.literal(authorLine), popupX + 20, textStartY, 0xFFCCCCCC);
+        context.drawTextWithShadow(this.textRenderer, Text.literal(targetLine), popupX + 20, textStartY + lineSpacing, 0xFFCCCCCC);
+        context.drawTextWithShadow(this.textRenderer, Text.literal(currentLine), popupX + 20, textStartY + lineSpacing * 2, 0xFFCCCCCC);
+        context.drawTextWithShadow(this.textRenderer, Text.literal(buildLine), popupX + 20, textStartY + lineSpacing * 3, 0xFFCCCCCC);
+        context.drawTextWithShadow(this.textRenderer, Text.literal(loaderLine), popupX + 20, textStartY + lineSpacing * 4, 0xFFCCCCCC);
+
+        int buttonWidth = 100;
+        int buttonHeight = 20;
+        int buttonX = popupX + (popupWidth - buttonWidth) / 2;
+        int buttonY = popupY + popupHeight - buttonHeight - 16;
+        boolean closeHovered = isPointInRect(mouseX, mouseY, buttonX, buttonY, buttonWidth, buttonHeight);
+
+        drawPopupButton(context, buttonX, buttonY, buttonWidth, buttonHeight, closeHovered, Text.literal("Close"), false);
+    }
+
     private boolean handleClearPopupClick(double mouseX, double mouseY, int button) {
         if (button != 0) {
             return true;
@@ -928,6 +1015,36 @@ public class PathmindVisualEditorScreen extends Screen {
         return true;
     }
 
+    private boolean handleInfoPopupClick(double mouseX, double mouseY, int button) {
+        if (button != 0) {
+            return true;
+        }
+
+        int popupWidth = INFO_POPUP_WIDTH;
+        int popupHeight = INFO_POPUP_HEIGHT;
+        int popupX = (this.width - popupWidth) / 2;
+        int popupY = (this.height - popupHeight) / 2;
+        int buttonWidth = 100;
+        int buttonHeight = 20;
+        int buttonX = popupX + (popupWidth - buttonWidth) / 2;
+        int buttonY = popupY + popupHeight - buttonHeight - 16;
+
+        int mouseXi = (int) mouseX;
+        int mouseYi = (int) mouseY;
+
+        if (isPointInRect(mouseXi, mouseYi, buttonX, buttonY, buttonWidth, buttonHeight)) {
+            closeInfoPopup();
+            return true;
+        }
+
+        if (!isPointInRect(mouseXi, mouseYi, popupX, popupY, popupWidth, popupHeight)) {
+            closeInfoPopup();
+            return true;
+        }
+
+        return true;
+    }
+
     private void drawPopupButton(DrawContext context, int x, int y, int width, int height, boolean hovered, Text label, boolean primary) {
         int bgColor = primary ? (hovered ? 0xFF3B6A7D : 0xFF2F4F5C) : (hovered ? 0xFF505050 : 0xFF3A3A3A);
         int borderColor = hovered || primary ? ACCENT_COLOR : 0xFF666666;
@@ -942,12 +1059,28 @@ public class PathmindVisualEditorScreen extends Screen {
         );
     }
 
+    private void openInfoPopup() {
+        dismissParameterOverlay();
+        clearPopupVisible = false;
+        importExportPopupVisible = false;
+        if (createPresetPopupVisible) {
+            closeCreatePresetPopup();
+        }
+        presetDropdownOpen = false;
+        infoPopupVisible = true;
+    }
+
+    private void closeInfoPopup() {
+        infoPopupVisible = false;
+    }
+
     private void openClearPopup() {
         dismissParameterOverlay();
         closeImportExportPopup();
         if (createPresetPopupVisible) {
             closeCreatePresetPopup();
         }
+        closeInfoPopup();
         presetDropdownOpen = false;
         clearPopupVisible = true;
     }
@@ -963,6 +1096,7 @@ public class PathmindVisualEditorScreen extends Screen {
         if (createPresetPopupVisible) {
             closeCreatePresetPopup();
         }
+        closeInfoPopup();
         presetDropdownOpen = false;
         importExportPopupVisible = true;
         clearImportExportStatus();
@@ -1345,6 +1479,7 @@ public class PathmindVisualEditorScreen extends Screen {
     private void openCreatePresetPopup() {
         presetDropdownOpen = false;
         clearCreatePresetStatus();
+        closeInfoPopup();
         createPresetPopupVisible = true;
         if (createPresetField != null) {
             createPresetField.setText("");
@@ -1710,6 +1845,32 @@ public class PathmindVisualEditorScreen extends Screen {
         int slatColor = (color & 0x00FFFFFF) | 0x66000000;
         context.fill(x + 2, y + 4, x + 3, y + PRESET_DELETE_ICON_SIZE - 1, slatColor);
         context.fill(x + PRESET_DELETE_ICON_SIZE - 3, y + 4, x + PRESET_DELETE_ICON_SIZE - 2, y + PRESET_DELETE_ICON_SIZE - 1, slatColor);
+    }
+
+    private boolean isTitleClicked(int mouseX, int mouseY) {
+        int textWidth = this.textRenderer.getWidth("Pathmind Node Editor");
+        int textX = this.width / 2 - textWidth / 2;
+        int textY = (TITLE_BAR_HEIGHT - this.textRenderer.fontHeight) / 2;
+        int padding = 4;
+        int textHeight = this.textRenderer.fontHeight;
+        return mouseX >= textX - padding
+                && mouseX <= textX + textWidth + padding
+                && mouseY >= textY - padding
+                && mouseY <= textY + textHeight + padding;
+    }
+
+    private String getModVersion() {
+        Optional<ModContainer> container = FabricLoader.getInstance().getModContainer(PathmindMod.MOD_ID);
+        return container.map(value -> value.getMetadata().getVersion().getFriendlyString()).orElse("Unknown");
+    }
+
+    private String getFabricLoaderVersion() {
+        Optional<ModContainer> container = FabricLoader.getInstance().getModContainer("fabricloader");
+        return container.map(value -> value.getMetadata().getVersion().getFriendlyString()).orElse("Unknown");
+    }
+
+    private String getCurrentMinecraftVersion() {
+        return this.client != null ? this.client.getGameVersion() : "Unknown";
     }
 
     private boolean isPointInRect(int mouseX, int mouseY, int x, int y, int width, int height) {
