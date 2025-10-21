@@ -673,7 +673,7 @@ public class NodeGraph {
         // Calculate the node's screen position (same as in renderNode)
         int nodeScreenX = node.getX() - cameraX;
         if (isNodeOverSidebar(node, sidebarWidth, nodeScreenX, node.getWidth())) {
-            if (node.getType().getCategory() == NodeCategory.LOGIC) {
+            if (shouldCascadeDelete(node)) {
                 removeNodeCascade(node);
             } else {
                 removeNode(node);
@@ -706,6 +706,16 @@ public class NodeGraph {
         }
 
         order.add(node);
+    }
+
+    private boolean shouldCascadeDelete(Node node) {
+        if (node == null) {
+            return false;
+        }
+        if (node.getType().getCategory() == NodeCategory.LOGIC) {
+            return true;
+        }
+        return node.hasAttachedSensor() || node.hasAttachedActionNode() || node.hasAttachedParameter();
     }
     
     public boolean isNodeOverSidebar(Node node, int sidebarWidth) {
@@ -1688,7 +1698,7 @@ public class NodeGraph {
     private void updateCascadeDeletionPreview() {
         cascadeDeletionPreviewNodes.clear();
         for (Node node : nodes) {
-            if (node.getType().getCategory() != NodeCategory.LOGIC) {
+            if (!shouldCascadeDelete(node)) {
                 continue;
             }
             if (!node.isDragging()) {
