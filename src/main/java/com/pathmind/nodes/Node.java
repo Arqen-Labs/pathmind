@@ -114,6 +114,14 @@ public class Node {
     private static final int PLACE_COORDINATE_DISPLAY_PADDING_BOTTOM = 4;
     private static final int PLACE_COORDINATE_DISPLAY_LINE_HEIGHT = PARAM_LINE_HEIGHT;
     private static final int PLACE_COORDINATE_DISPLAY_LINES = 3;
+    private static final Direction[] PLACE_NEIGHBOR_DIRECTIONS = new Direction[] {
+        Direction.DOWN,
+        Direction.NORTH,
+        Direction.SOUTH,
+        Direction.WEST,
+        Direction.EAST,
+        Direction.UP
+    };
     private static final int SLOT_AREA_PADDING_TOP = 0;
     private static final int SLOT_AREA_PADDING_BOTTOM = 6;
     private static final int SLOT_VERTICAL_SPACING = 6;
@@ -3556,7 +3564,7 @@ public class Node {
 
         System.out.println("Placing block '" + normalizedBlockId + "' at " + x + ", " + y + ", " + z);
 
-        BlockPos targetPos = new BlockPos(x, y, z);
+        BlockPos targetPos = getTargetPositionOrDefault(new BlockPos(x, y, z));
         Block desiredBlock = resolveBlockForPlacement(blockIdentifier);
         if (desiredBlock == null) {
             sendNodeErrorMessage(client, "Block '" + normalizedBlockId + "' is not placeable.");
@@ -3580,34 +3588,55 @@ public class Node {
                     return;
                 }
 
+                if (!isBlockReplaceable(client.world, targetPos)) {
+                    throw new RuntimeException("Cannot place block at " + targetPos.getX() + ", " + targetPos.getY() + ", " + targetPos.getZ() + ": position is not replaceable.");
+                }
+
                 if (!ensureBlockInHand(client, placementItemId, hand)) {
                     throw new RuntimeException("Block " + resolvedBlockId + " not found in hotbar");
+                }
+
+                List<BlockHitResult> placementCandidates = createPlacementHitResults(client, targetPos);
+                if (placementCandidates.isEmpty()) {
+                    throw new RuntimeException("No adjacent surface available to place block at " + targetPos.getX() + ", " + targetPos.getY() + ", " + targetPos.getZ());
                 }
 
                 double maxReach = client.player.getBlockInteractionRange();
                 double reachSquared = maxReach * maxReach;
                 Vec3d eyePos = client.player.getEyePos();
-                double distanceSquared = eyePos.squaredDistanceTo(Vec3d.ofCenter(targetPos));
-                if (distanceSquared > reachSquared) {
+                ActionResult lastResult = ActionResult.PASS;
+                boolean attemptedPlacement = false;
+                boolean withinReach = false;
+
+                for (BlockHitResult candidate : placementCandidates) {
+                    double distanceSquared = eyePos.squaredDistanceTo(candidate.getPos());
+                    if (distanceSquared > reachSquared) {
+                        continue;
+                    }
+
+                    withinReach = true;
+                    lastResult = client.interactionManager.interactBlock(client.player, hand, candidate);
+                    attemptedPlacement = true;
+                    if (isPlacementResultSuccessful(lastResult)) {
+                        if (client.player != null) {
+                            client.player.swingHand(hand);
+                            if (client.player.networkHandler != null) {
+                                client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
+                            }
+                        }
+                        return;
+                    }
+                }
+
+                if (!withinReach) {
                     throw new RuntimeException("Target block is out of reach for placement");
                 }
 
-                BlockHitResult hitResult = createPlacementHitResult(client, targetPos);
-                if (hitResult == null) {
-                    throw new RuntimeException("No valid placement position at " + targetPos.getX() + ", " + targetPos.getY() + ", " + targetPos.getZ());
+                if (!attemptedPlacement) {
+                    throw new RuntimeException("Unable to interact with placement target at " + targetPos.getX() + ", " + targetPos.getY() + ", " + targetPos.getZ());
                 }
 
-                ActionResult result = client.interactionManager.interactBlock(client.player, hand, hitResult);
-                if (!isPlacementResultSuccessful(result)) {
-                    throw new RuntimeException("Block placement rejected: " + result);
-                }
-
-                if (client.player != null) {
-                    client.player.swingHand(hand);
-                    if (client.player.networkHandler != null) {
-                        client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
-                    }
-                }
+                throw new RuntimeException("Block placement rejected: " + lastResult);
             });
             future.complete(null);
         } catch (InterruptedException e) {
@@ -4596,19 +4625,21 @@ public class Node {
         return -1;
     }
 
-    private BlockHitResult createPlacementHitResult(net.minecraft.client.MinecraftClient client, BlockPos targetPos) {
+    private List<BlockHitResult> createPlacementHitResults(net.minecraft.client.MinecraftClient client, BlockPos targetPos) {
+        List<BlockHitResult> results = new ArrayList<>();
         if (client.player == null || client.player.getWorld() == null) {
-            return null;
+            return results;
         }
 
         net.minecraft.world.World world = client.player.getWorld();
         if (!isBlockReplaceable(world, targetPos)) {
-            return null;
+            return results;
         }
 
-        for (Direction direction : Direction.values()) {
+        for (Direction direction : PLACE_NEIGHBOR_DIRECTIONS) {
             BlockPos clickedPos = targetPos.offset(direction);
-            if (world.getBlockState(clickedPos).isAir()) {
+            BlockState neighborState = world.getBlockState(clickedPos);
+            if (neighborState.isAir()) {
                 continue;
             }
 
@@ -4618,10 +4649,10 @@ public class Node {
                 placementSide.getOffsetY() * 0.5D,
                 placementSide.getOffsetZ() * 0.5D
             );
-            return new BlockHitResult(hitPos, placementSide, clickedPos, false);
+            results.add(new BlockHitResult(hitPos, placementSide, clickedPos, false));
         }
 
-        return null;
+        return results;
     }
 
     private Block resolveBlockForPlacement(Identifier blockIdentifier) {
