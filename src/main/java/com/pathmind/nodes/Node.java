@@ -107,6 +107,10 @@ public class Node {
     private static final int PARAMETER_SLOT_MIN_CONTENT_HEIGHT = 32;
     private static final int PARAMETER_SLOT_LABEL_HEIGHT = 12;
     private static final int PARAMETER_SLOT_BOTTOM_PADDING = 6;
+    private static final int PLACE_COORDINATE_DISPLAY_PADDING_TOP = 4;
+    private static final int PLACE_COORDINATE_DISPLAY_PADDING_BOTTOM = 4;
+    private static final int PLACE_COORDINATE_DISPLAY_LINE_HEIGHT = PARAM_LINE_HEIGHT;
+    private static final int PLACE_COORDINATE_DISPLAY_LINES = 3;
     private static final int SLOT_AREA_PADDING_TOP = 0;
     private static final int SLOT_AREA_PADDING_BOTTOM = 6;
     private static final int SLOT_VERTICAL_SPACING = 6;
@@ -538,6 +542,9 @@ public class Node {
             }
         } else if (hasParameterSlot()) {
             top += PARAMETER_SLOT_LABEL_HEIGHT + getParameterSlotHeight() + PARAMETER_SLOT_BOTTOM_PADDING;
+            if (shouldShowPlaceCoordinateSummary()) {
+                top += getPlaceCoordinateSummaryHeight();
+            }
             if (hasSensorSlot() || hasActionSlot()) {
                 top += SLOT_AREA_PADDING_TOP;
             }
@@ -592,6 +599,30 @@ public class Node {
     public int getParameterSlotHeight() {
         int contentHeight = attachedParameter != null ? attachedParameter.getHeight() : PARAMETER_SLOT_MIN_CONTENT_HEIGHT;
         return contentHeight + 2 * PARAMETER_SLOT_INNER_PADDING;
+    }
+
+    private int getPlaceCoordinateSummaryHeight() {
+        if (!shouldShowPlaceCoordinateSummary()) {
+            return 0;
+        }
+        return PLACE_COORDINATE_DISPLAY_PADDING_TOP
+            + PLACE_COORDINATE_DISPLAY_LINES * PLACE_COORDINATE_DISPLAY_LINE_HEIGHT
+            + PLACE_COORDINATE_DISPLAY_PADDING_BOTTOM;
+    }
+
+    public boolean shouldShowPlaceCoordinateSummary() {
+        if (type != NodeType.PLACE) {
+            return false;
+        }
+        return getParameter("X") != null && getParameter("Y") != null && getParameter("Z") != null;
+    }
+
+    public int getPlaceCoordinateSummaryTop() {
+        return getParameterSlotTop() + getParameterSlotHeight() + PLACE_COORDINATE_DISPLAY_PADDING_TOP;
+    }
+
+    public int getPlaceCoordinateSummaryLineHeight() {
+        return PLACE_COORDINATE_DISPLAY_LINE_HEIGHT;
     }
 
     public boolean isPointInsideParameterSlot(int pointX, int pointY) {
@@ -1536,6 +1567,9 @@ public class Node {
             }
         } else if (hasParameterSlot()) {
             contentHeight += PARAMETER_SLOT_LABEL_HEIGHT + getParameterSlotHeight() + PARAMETER_SLOT_BOTTOM_PADDING;
+            if (shouldShowPlaceCoordinateSummary()) {
+                contentHeight += getPlaceCoordinateSummaryHeight();
+            }
             if (hasSlots) {
                 contentHeight += SLOT_AREA_PADDING_TOP;
             }

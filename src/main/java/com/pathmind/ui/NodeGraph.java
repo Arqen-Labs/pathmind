@@ -1114,6 +1114,44 @@ public class NodeGraph {
         int textColor = node.hasAttachedParameter() ? 0xFFE0E0E0 : (isOverSidebar ? 0xFF666666 : 0xFF888888);
         int textY = slotY + slotHeight / 2 - textRenderer.fontHeight / 2;
         context.drawTextWithShadow(textRenderer, Text.literal(label), slotX + 4, textY, textColor);
+
+        if (node.shouldShowPlaceCoordinateSummary()) {
+            renderPlaceCoordinateSummary(context, textRenderer, node, slotX, slotWidth, isOverSidebar);
+        }
+    }
+
+    private void renderPlaceCoordinateSummary(DrawContext context, TextRenderer textRenderer, Node node, int slotX, int slotWidth, boolean isOverSidebar) {
+        int summaryTop = node.getPlaceCoordinateSummaryTop() - cameraY;
+        int lineHeight = node.getPlaceCoordinateSummaryLineHeight();
+        int textColor = isOverSidebar ? 0xFF666666 : 0xFFE0E0E0;
+
+        NodeParameter xParam = node.getParameter("X");
+        NodeParameter yParam = node.getParameter("Y");
+        NodeParameter zParam = node.getParameter("Z");
+
+        String[] lines = new String[] {
+            "X: " + formatCoordinateValue(xParam),
+            "Y: " + formatCoordinateValue(yParam),
+            "Z: " + formatCoordinateValue(zParam)
+        };
+
+        int textY = summaryTop;
+        for (String line : lines) {
+            String display = trimTextToWidth(line, textRenderer, slotWidth - 8);
+            context.drawTextWithShadow(textRenderer, Text.literal(display), slotX + 4, textY, textColor);
+            textY += lineHeight;
+        }
+    }
+
+    private String formatCoordinateValue(NodeParameter param) {
+        if (param == null) {
+            return "—";
+        }
+        String value = param.getStringValue();
+        if (value == null || value.isEmpty()) {
+            return "—";
+        }
+        return value;
     }
 
     private String trimTextToWidth(String text, TextRenderer renderer, int maxWidth) {

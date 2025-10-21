@@ -31,7 +31,6 @@ public class NodeParameterOverlay {
     private static final int POPUP_VERTICAL_MARGIN = 40;
     private static final int SCROLL_STEP = 18;
     private static final int SCROLLBAR_WIDTH = 6;
-    private static final int PARAMETER_SLOT_HEIGHT = 48;
     private static final int COORDINATE_FIELD_SPACING = 12;
 
     private final Node node;
@@ -124,8 +123,7 @@ public class NodeParameterOverlay {
         boolean[] rendered = new boolean[parameters.size()];
         boolean isPlaceNode = node.getType() == NodeType.PLACE;
         int placeFieldSections = isPlaceNode ? countPlaceFieldSections(parameters) : parameters.size();
-        boolean hasParameterSlotSection = isPlaceNode && node.hasParameterSlot();
-        boolean hasSectionsAfterMode = hasParameterSlotSection || placeFieldSections > 0;
+        boolean hasSectionsAfterMode = placeFieldSections > 0;
 
         if (hasModeSelection()) {
             context.drawTextWithShadow(
@@ -173,10 +171,6 @@ public class NodeParameterOverlay {
             }
         }
 
-        if (isPlaceNode && node.hasParameterSlot()) {
-            sectionY = renderPlaceParameterSlot(context, textRenderer, sectionY, placeFieldSections > 0);
-        }
-
         int blockIndex = isPlaceNode ? findParameterIndex(parameters, "Block") : -1;
         int xIndex = isPlaceNode ? findParameterIndex(parameters, "X") : -1;
         int yIndex = isPlaceNode ? findParameterIndex(parameters, "Y") : -1;
@@ -189,12 +183,12 @@ public class NodeParameterOverlay {
             rendered[zIndex] = true;
         }
 
-        if (isPlaceNode && blockIndex >= 0) {
-            sectionY = renderParameterField(context, textRenderer, parameters.get(blockIndex), blockIndex, sectionY);
-            rendered[blockIndex] = true;
-        }
-
         for (int i = 0; i < parameters.size(); i++) {
+            if (isPlaceNode && i == blockIndex) {
+                rendered[i] = true;
+                continue;
+            }
+
             if (!rendered[i]) {
                 sectionY = renderParameterField(context, textRenderer, parameters.get(i), i, sectionY);
                 rendered[i] = true;
@@ -273,6 +267,34 @@ public class NodeParameterOverlay {
         return fieldBounds.get(index);
     }
 
+    private int getNextFocusableFieldIndex(int currentIndex) {
+        if (fieldBounds.isEmpty()) {
+            return -1;
+        }
+
+        int size = fieldBounds.size();
+        int fallback = -1;
+        if (currentIndex >= 0 && currentIndex < size && fieldBounds.get(currentIndex) != null) {
+            fallback = currentIndex;
+        }
+
+        for (int offset = 1; offset <= size; offset++) {
+            int nextIndex = currentIndex + offset;
+            if (nextIndex < 0) {
+                nextIndex = (nextIndex % size + size) % size;
+            } else {
+                nextIndex %= size;
+            }
+
+            FieldBounds bounds = fieldBounds.get(nextIndex);
+            if (bounds != null) {
+                return nextIndex;
+            }
+        }
+
+        return fallback;
+    }
+
     private int findParameterIndex(List<NodeParameter> parameters, String name) {
         for (int i = 0; i < parameters.size(); i++) {
             if (parameters.get(i).getName().equals(name)) {
@@ -287,21 +309,23 @@ public class NodeParameterOverlay {
             return 0;
         }
 
-        boolean[] handled = new boolean[parameters.size()];
         int sections = 0;
-
         int xIndex = findParameterIndex(parameters, "X");
         int yIndex = findParameterIndex(parameters, "Y");
         int zIndex = findParameterIndex(parameters, "Z");
-        if (xIndex >= 0 && yIndex >= 0 && zIndex >= 0) {
+
+        boolean allAxesPresent = xIndex >= 0 && yIndex >= 0 && zIndex >= 0;
+        if (allAxesPresent) {
             sections++;
-            handled[xIndex] = true;
-            handled[yIndex] = true;
-            handled[zIndex] = true;
+        } else {
+            if (xIndex >= 0) sections++;
+            if (yIndex >= 0) sections++;
+            if (zIndex >= 0) sections++;
         }
 
-        for (int i = 0; i < parameters.size(); i++) {
-            if (!handled[i]) {
+        for (NodeParameter parameter : parameters) {
+            String name = parameter.getName();
+            if (!"Block".equals(name) && !"X".equals(name) && !"Y".equals(name) && !"Z".equals(name)) {
                 sections++;
             }
         }
@@ -415,47 +439,6 @@ public class NodeParameterOverlay {
         }
 
         setFieldBounds(index, fieldX, fieldY, fieldWidth, FIELD_HEIGHT);
-    }
-
-    private int renderPlaceParameterSlot(DrawContext context, TextRenderer textRenderer, int sectionY, boolean addSpacingAfter) {
-        int slotX = popupX + 20;
-        int slotY = sectionY + LABEL_TO_FIELD_OFFSET;
-        int slotWidth = popupWidth - 40;
-
-        context.drawTextWithShadow(
-            textRenderer,
-            Text.literal("Parameter:"),
-            slotX,
-            sectionY + 4,
-            0xFFE0E0E0
-        );
-
-        context.fill(slotX, slotY, slotX + slotWidth, slotY + PARAMETER_SLOT_HEIGHT, 0xFF1A1A1A);
-        int borderColor = node.hasAttachedParameter() ? 0xFF87CEEB : 0xFF666666;
-        context.drawBorder(slotX, slotY, slotWidth, PARAMETER_SLOT_HEIGHT, borderColor);
-
-        String display;
-        if (node.hasAttachedParameter()) {
-            display = "Attached: " + node.getAttachedParameter().getType().getDisplayName();
-        } else {
-            display = "No parameter attached";
-        }
-
-        String trimmed = textRenderer.trimToWidth(display, slotWidth - 12);
-        int textY = slotY + PARAMETER_SLOT_HEIGHT / 2 - textRenderer.fontHeight / 2 + 1;
-        context.drawTextWithShadow(
-            textRenderer,
-            Text.literal(trimmed),
-            slotX + 6,
-            textY,
-            0xFFE0E0E0
-        );
-
-        int nextSectionY = slotY + PARAMETER_SLOT_HEIGHT;
-        if (addSpacingAfter) {
-            nextSectionY += SECTION_SPACING;
-        }
-        return nextSectionY;
     }
 
     private String trimWithEllipsis(String text, int maxWidth, TextRenderer textRenderer) {
@@ -663,19 +646,21 @@ public class NodeParameterOverlay {
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
         if (!visible) return false;
 
+        if (keyCode == 258) { // Tab key
+            int nextIndex = getNextFocusableFieldIndex(focusedFieldIndex);
+            if (nextIndex != -1) {
+                focusedFieldIndex = nextIndex;
+            }
+            return true;
+        }
+
         // Handle text input for focused field
         if (focusedFieldIndex >= 0 && focusedFieldIndex < parameterValues.size()) {
             String currentText = parameterValues.get(focusedFieldIndex);
-            
+
             // Handle backspace
             if (keyCode == 259 && currentText.length() > 0) { // Backspace key
                 parameterValues.set(focusedFieldIndex, currentText.substring(0, currentText.length() - 1));
-                return true;
-            }
-            
-            // Handle tab to move to next field
-            if (keyCode == 258) { // Tab key
-                focusedFieldIndex = (focusedFieldIndex + 1) % node.getParameters().size();
                 return true;
             }
         }
@@ -777,21 +762,12 @@ public class NodeParameterOverlay {
         int longestLineLength = ("Edit Parameters: " + node.getType().getDisplayName()).length();
         List<NodeParameter> parameters = node.getParameters();
         boolean isPlaceNode = node.getType() == NodeType.PLACE;
-        boolean hasParameterSlotSection = isPlaceNode && node.hasParameterSlot();
         int placeFieldSections = isPlaceNode ? countPlaceFieldSections(parameters) : parameters.size();
 
         if (hasModeSelection()) {
             longestLineLength = Math.max(longestLineLength, "Mode:".length());
             String modeText = selectedMode != null ? selectedMode.getDisplayName() : "Select Mode";
             longestLineLength = Math.max(longestLineLength, modeText.length());
-        }
-
-        if (hasParameterSlotSection) {
-            longestLineLength = Math.max(longestLineLength, "Parameter:".length());
-            String slotText = node.hasAttachedParameter()
-                ? "Attached: " + node.getAttachedParameter().getType().getDisplayName()
-                : "No parameter attached";
-            longestLineLength = Math.max(longestLineLength, slotText.length());
         }
 
         for (NodeParameter param : parameters) {
@@ -815,17 +791,9 @@ public class NodeParameterOverlay {
 
         int contentHeight = CONTENT_START_OFFSET;
         boolean hasFields = placeFieldSections > 0;
-        boolean hasAnySections = hasParameterSlotSection || hasFields || (!isPlaceNode && !parameters.isEmpty());
 
         if (hasModeSelection()) {
             contentHeight += LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT;
-            if (hasAnySections) {
-                contentHeight += SECTION_SPACING;
-            }
-        }
-
-        if (hasParameterSlotSection) {
-            contentHeight += LABEL_TO_FIELD_OFFSET + PARAMETER_SLOT_HEIGHT;
             if (hasFields) {
                 contentHeight += SECTION_SPACING;
             }
@@ -876,20 +844,11 @@ public class NodeParameterOverlay {
         int offset = CONTENT_START_OFFSET;
         List<NodeParameter> parameters = node.getParameters();
         boolean isPlaceNode = node.getType() == NodeType.PLACE;
-        boolean hasParameterSlotSection = isPlaceNode && node.hasParameterSlot();
         int fieldSections = isPlaceNode ? countPlaceFieldSections(parameters) : parameters.size();
         boolean hasFields = fieldSections > 0;
-        boolean hasAnySections = hasParameterSlotSection || hasFields || (!isPlaceNode && !parameters.isEmpty());
 
         if (hasModeSelection()) {
             offset += LABEL_TO_FIELD_OFFSET + FIELD_HEIGHT;
-            if (hasAnySections) {
-                offset += SECTION_SPACING;
-            }
-        }
-
-        if (hasParameterSlotSection) {
-            offset += LABEL_TO_FIELD_OFFSET + PARAMETER_SLOT_HEIGHT;
             if (hasFields) {
                 offset += SECTION_SPACING;
             }
