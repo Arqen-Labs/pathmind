@@ -1251,6 +1251,12 @@ public class Node {
                 parameters.add(new NodeParameter("YawOffset", ParameterType.DOUBLE, "0.0"));
                 parameters.add(new NodeParameter("PitchOffset", ParameterType.DOUBLE, "0.0"));
                 break;
+            case PARAM_PLACE_TARGET:
+                parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, "minecraft:stone"));
+                parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
+                parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "0"));
+                parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
+                break;
             default:
                 // No parameters needed
                 break;
@@ -1413,6 +1419,14 @@ public class Node {
                 }
                 break;
             }
+            case PARAM_PLACE_TARGET: {
+                String blockId = values.get("Block");
+                if (blockId != null) {
+                    values.put("BlockId", blockId);
+                    values.put(normalizeParameterKey("BlockId"), blockId);
+                }
+                break;
+            }
             case PARAM_ROTATION: {
                 String yaw = values.get("Yaw");
                 if (yaw != null) {
@@ -1545,6 +1559,12 @@ public class Node {
         }
 
         this.height = Math.max(MIN_HEIGHT, contentHeight);
+
+        if (type == NodeType.EVENT_FUNCTION) {
+            int squareSize = Math.max(this.width, this.height);
+            this.width = squareSize;
+            this.height = squareSize;
+        }
 
         if (attachedSensor != null) {
             updateAttachedSensorPosition();
@@ -1686,6 +1706,17 @@ public class Node {
                 if (data != null) {
                     data.targetBlockPos = pos;
                     data.schematicName = getParameterString(parameterNode, "Schematic");
+                }
+                return Optional.of(Vec3d.ofCenter(pos));
+            }
+            case PARAM_PLACE_TARGET: {
+                int x = parseNodeInt(parameterNode, "X", 0);
+                int y = parseNodeInt(parameterNode, "Y", 0);
+                int z = parseNodeInt(parameterNode, "Z", 0);
+                BlockPos pos = new BlockPos(x, y, z);
+                if (data != null) {
+                    data.targetBlockPos = pos;
+                    data.targetBlockId = getParameterString(parameterNode, "Block");
                 }
                 return Optional.of(Vec3d.ofCenter(pos));
             }

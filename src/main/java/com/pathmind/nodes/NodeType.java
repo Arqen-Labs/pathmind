@@ -108,7 +108,8 @@ public enum NodeType {
     PARAM_BOOLEAN("Toggle", 0xFF8BC34A, "Represents a boolean toggle value"),
     PARAM_HAND("Hand", 0xFF8BC34A, "Represents a preferred hand selection"),
     PARAM_RANGE("Range", 0xFF8BC34A, "Represents a generic radius or range"),
-    PARAM_ROTATION("Rotation", 0xFF8BC34A, "Represents yaw and pitch angles");
+    PARAM_ROTATION("Rotation", 0xFF8BC34A, "Represents yaw and pitch angles"),
+    PARAM_PLACE_TARGET("Place", 0xFF8BC34A, "Represents a block placement with coordinates");
 
     private final String displayName;
     private final String description;
@@ -238,6 +239,7 @@ public enum NodeType {
             case PARAM_HAND:
             case PARAM_RANGE:
             case PARAM_ROTATION:
+            case PARAM_PLACE_TARGET:
                 return NodeCategory.PARAMETERS;
             default:
                 return NodeCategory.UTILITY;
@@ -310,6 +312,7 @@ public enum NodeType {
             case PARAM_HAND:
             case PARAM_RANGE:
             case PARAM_ROTATION:
+            case PARAM_PLACE_TARGET:
                 return true;
             default:
                 return false;
