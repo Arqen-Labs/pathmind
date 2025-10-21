@@ -3603,44 +3603,49 @@ public class Node {
             return;
         }
 
+        final BlockPos placementPos = targetPos;
+        final Block resolvedBlock = desiredBlock;
         final String resolvedBlockId = block;
+        final Hand resolvedHand = hand;
 
-        try {
-            runOnClientThread(client, () -> {
-                if (client.world.getBlockState(targetPos).isOf(desiredBlock)) {
-                    return;
-                }
-
-                ensureBlockInHand(client, resolvedBlockId, hand);
-
-                BlockHitResult hitResult = createPlacementHitResult(client, targetPos);
-
-                ActionResult result = client.interactionManager.interactBlock(client.player, hand, hitResult);
-                if (!result.isAccepted()) {
-                    throw new PlacementFailure("Cannot place block at " + formatBlockPos(targetPos) + ": placement rejected (" + result + ").");
-                }
-                if (client.player != null) {
-                    client.player.swingHand(hand);
-                    if (client.player.networkHandler != null) {
-                        client.player.networkHandler.sendPacket(new HandSwingC2SPacket(hand));
+        new Thread(() -> {
+            try {
+                runOnClientThread(client, () -> {
+                    if (client.world.getBlockState(placementPos).isOf(resolvedBlock)) {
+                        return;
                     }
+
+                    ensureBlockInHand(client, resolvedBlockId, resolvedHand);
+
+                    BlockHitResult hitResult = createPlacementHitResult(client, placementPos);
+
+                    ActionResult result = client.interactionManager.interactBlock(client.player, resolvedHand, hitResult);
+                    if (!result.isAccepted()) {
+                        throw new PlacementFailure("Cannot place block at " + formatBlockPos(placementPos) + ": placement rejected (" + result + ").");
+                    }
+                    if (client.player != null) {
+                        client.player.swingHand(resolvedHand);
+                        if (client.player.networkHandler != null) {
+                            client.player.networkHandler.sendPacket(new HandSwingC2SPacket(resolvedHand));
+                        }
+                    }
+                });
+                boolean placed = waitForBlockPlacement(client, placementPos, resolvedBlock);
+                if (!placed) {
+                    sendNodeErrorMessage(client, "Attempted to place block \"" + resolvedBlockId + "\" at " + formatBlockPos(placementPos) + " but it did not appear. Make sure the space is clear and within reach.");
                 }
-            });
-            boolean placed = waitForBlockPlacement(client, targetPos, desiredBlock);
-            if (!placed) {
-                sendNodeErrorMessage(client, "Attempted to place block \"" + resolvedBlockId + "\" at " + formatBlockPos(targetPos) + " but it did not appear. Make sure the space is clear and within reach.");
+                future.complete(null);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                future.completeExceptionally(e);
+            } catch (PlacementFailure e) {
+                sendNodeErrorMessage(client, e.getMessage());
+                future.complete(null);
+            } catch (RuntimeException e) {
+                sendNodeErrorMessage(client, "Failed to place block \"" + resolvedBlockId + "\": " + e.getMessage());
+                future.complete(null);
             }
-            future.complete(null);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            future.completeExceptionally(e);
-        } catch (PlacementFailure e) {
-            sendNodeErrorMessage(client, e.getMessage());
-            future.complete(null);
-        } catch (RuntimeException e) {
-            sendNodeErrorMessage(client, "Failed to place block \"" + resolvedBlockId + "\": " + e.getMessage());
-            future.complete(null);
-        }
+        }, "Pathmind-Place").start();
     }
     
     private void executeBuildCommand(CompletableFuture<Void> future) {
