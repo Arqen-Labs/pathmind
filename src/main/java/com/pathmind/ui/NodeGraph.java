@@ -910,7 +910,7 @@ public class NodeGraph {
             int boxLeft = x + 6;
             int boxRight = x + width - 6;
             int boxHeight = 16;
-            int boxTop = y + height / 2 - boxHeight / 2 + 4;
+            int boxTop = y + height / 2 - boxHeight / 2 + 6;
             int boxBottom = boxTop + boxHeight;
             int inputBackground = isOverSidebar ? 0xFF2E2E2E : 0xFF1F1F1F;
             context.fill(boxLeft, boxTop, boxRight, boxBottom, inputBackground);
