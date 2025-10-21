@@ -930,6 +930,42 @@ public class NodeGraph {
                 textY,
                 textColor
             );
+        } else if (node.getType() == NodeType.EVENT_CALL) {
+            int baseColor = isOverSidebar ? 0xFF423345 : 0xFFD81B60;
+            context.fill(x + 1, y + 1, x + width - 1, y + height - 1, baseColor);
+
+            int titleColor = isOverSidebar ? 0xFFE3BBCB : 0xFFFFF5F8;
+            context.drawTextWithShadow(
+                textRenderer,
+                Text.literal("Call Function"),
+                x + 6,
+                y + 4,
+                titleColor
+            );
+
+            int boxLeft = x + 6;
+            int boxRight = x + width - 6;
+            int boxHeight = 16;
+            int boxTop = y + height / 2 - boxHeight / 2;
+            int boxBottom = boxTop + boxHeight;
+            int inputBackground = isOverSidebar ? 0xFF2E2E2E : 0xFF1F1F1F;
+            context.fill(boxLeft, boxTop, boxRight, boxBottom, inputBackground);
+            int inputBorder = isOverSidebar ? 0xFF51323E : 0xFF000000;
+            context.drawBorder(boxLeft, boxTop, boxRight - boxLeft, boxHeight, inputBorder);
+
+            NodeParameter nameParam = node.getParameter("Name");
+            String value = nameParam != null ? nameParam.getDisplayValue() : "";
+            String display = value.isEmpty() ? "enter name" : value;
+            display = trimTextToWidth(display, textRenderer, boxRight - boxLeft - 8);
+            int textY = boxTop + (boxHeight - textRenderer.fontHeight) / 2 + 1;
+            int textColor = isOverSidebar ? 0xFFBFA1AF : 0xFFFFEEF5;
+            context.drawTextWithShadow(
+                textRenderer,
+                Text.literal(display),
+                boxLeft + 4,
+                textY,
+                textColor
+            );
         } else {
             if (node.isParameterNode()) {
                 if (shouldShowParameters(node)) {
