@@ -81,6 +81,7 @@ public class Node {
     private int x, y;
     private static final int MIN_WIDTH = 92;
     private static final int MIN_HEIGHT = 44;
+    private static final int EVENT_FUNCTION_MIN_HEIGHT = 36;
     private static final int CHAR_PIXEL_WIDTH = 6;
     private static final int HEADER_HEIGHT = 18;
     private static final int PARAM_LINE_HEIGHT = 10;
@@ -360,6 +361,7 @@ public class Node {
         return !isParameterNode()
             && type != NodeType.START
             && type != NodeType.EVENT_CALL
+            && type != NodeType.EVENT_FUNCTION
             && type.getCategory() != NodeCategory.LOGIC;
     }
 
@@ -1558,13 +1560,17 @@ public class Node {
             contentHeight += SLOT_AREA_PADDING_BOTTOM;
         }
 
-        this.height = Math.max(MIN_HEIGHT, contentHeight);
-
+        int computedHeight = Math.max(MIN_HEIGHT, contentHeight);
         if (type == NodeType.EVENT_FUNCTION) {
-            int squareSize = Math.max(this.width, this.height);
-            this.width = squareSize;
-            this.height = squareSize;
+            this.height = Math.max(EVENT_FUNCTION_MIN_HEIGHT, contentHeight);
+        } else {
+            this.height = computedHeight;
         }
+
+        // Function nodes used to be forced into a square layout. That made them as tall
+        // as they were wide and left a large amount of empty space around their input
+        // field. We now keep them compact by clamping their height to the minimal
+        // content they need instead of expanding to match their width.
 
         if (attachedSensor != null) {
             updateAttachedSensorPosition();
