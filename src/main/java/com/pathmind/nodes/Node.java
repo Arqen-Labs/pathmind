@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.Optional;
 import java.util.Locale;
+import java.util.EnumSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
@@ -126,6 +127,7 @@ public class Node {
     private Node attachedParameter;
     private Node parentParameterHost;
     private boolean socketsHidden;
+    private RuntimeParameterData runtimeParameterData;
 
     public Node(NodeType type, int x, int y) {
         this.id = java.util.UUID.randomUUID().toString();
@@ -144,6 +146,40 @@ public class Node {
         initializeParameters();
         recalculateDimensions();
         resetControlState();
+    }
+
+    private static final class RuntimeParameterData {
+        private BlockPos targetBlockPos;
+        private Vec3d targetVector;
+        private Entity targetEntity;
+        private Item targetItem;
+        private String targetBlockId;
+        private List<String> targetBlockIds;
+        private String targetPlayerName;
+        private String targetItemId;
+        private String targetEntityId;
+        private String message;
+        private Double durationSeconds;
+        private Boolean booleanValue;
+        private String handName;
+        private Integer slotIndex;
+        private String schematicName;
+        private Double rangeValue;
+        private Float resolvedYaw;
+        private Float resolvedPitch;
+        private Float resolvedYawOffset;
+        private Float resolvedPitchOffset;
+    }
+
+    private enum ParameterHandlingResult {
+        CONTINUE,
+        COMPLETE
+    }
+
+    private enum ParameterUsage {
+        POSITION,
+        LOOK_ORIENTATION,
+        TURN_OFFSET
     }
 
     private static String normalizeParameterKey(String key) {
@@ -784,20 +820,7 @@ public class Node {
     }
 
     private boolean canHandleParameterRuntime(Node parameter) {
-        if (parameter == null) {
-            return false;
-        }
-        NodeType parameterType = parameter.getType();
-        switch (this.type) {
-            case GOTO:
-                return parameterType == NodeType.PARAM_ITEM
-                    || parameterType == NodeType.PARAM_ENTITY
-                    || parameterType == NodeType.PARAM_PLAYER
-                    || parameterType == NodeType.PARAM_BLOCK
-                    || parameterType == NodeType.PARAM_BLOCK_LIST;
-            default:
-                return false;
-        }
+        return parameter != null && parameter.isParameterNode();
     }
 
     public boolean canAcceptActionNode(Node node) {
@@ -1557,7 +1580,7 @@ public class Node {
      */
     public CompletableFuture<Void> execute() {
         CompletableFuture<Void> future = new CompletableFuture<>();
-        
+
         // Execute on the main Minecraft thread
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client != null) {
@@ -1573,10 +1596,471 @@ public class Node {
         } else {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
         }
-        
+
         return future;
     }
-    
+
+    private ParameterHandlingResult preprocessAttachedParameter(EnumSet<ParameterUsage> usages, CompletableFuture<Void> future) {
+        Node parameterNode = attachedParameter;
+        runtimeParameterData = null;
+
+        if (parameterNode == null) {
+            return ParameterHandlingResult.CONTINUE;
+        }
+
+        runtimeParameterData = new RuntimeParameterData();
+        boolean handled = false;
+
+        Map<String, String> exported = parameterNode.exportParameterValues();
+        if (!exported.isEmpty()) {
+            handled = applyParameterValuesFromMap(exported);
+        }
+
+        if (usages.contains(ParameterUsage.POSITION)) {
+            Optional<Vec3d> targetVec = resolvePositionTarget(parameterNode, runtimeParameterData, future);
+            if (targetVec.isPresent()) {
+                handled = true;
+                runtimeParameterData.targetVector = targetVec.get();
+                applyVectorToCoordinateParameters(targetVec.get());
+            } else if (future != null && future.isDone()) {
+                return ParameterHandlingResult.COMPLETE;
+            }
+        }
+
+        if (usages.contains(ParameterUsage.LOOK_ORIENTATION)) {
+            boolean oriented = resolveLookOrientation(parameterNode, runtimeParameterData, future);
+            if (oriented) {
+                handled = true;
+            } else if (future != null && future.isDone()) {
+                return ParameterHandlingResult.COMPLETE;
+            }
+        }
+
+        if (usages.contains(ParameterUsage.TURN_OFFSET)) {
+            boolean offsets = resolveTurnOffsets(parameterNode, runtimeParameterData, future);
+            if (offsets) {
+                handled = true;
+            } else if (future != null && future.isDone()) {
+                return ParameterHandlingResult.COMPLETE;
+            }
+        }
+
+        if (!handled) {
+            if (future != null && !future.isDone()) {
+                sendIncompatibleParameterMessage(parameterNode);
+                future.complete(null);
+            }
+            return ParameterHandlingResult.COMPLETE;
+        }
+
+        return ParameterHandlingResult.CONTINUE;
+    }
+
+    private Optional<Vec3d> resolvePositionTarget(Node parameterNode, RuntimeParameterData data, CompletableFuture<Void> future) {
+        if (data != null && data.targetVector != null) {
+            return Optional.of(data.targetVector);
+        }
+
+        NodeType parameterType = parameterNode.getType();
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+
+        switch (parameterType) {
+            case PARAM_COORDINATE: {
+                int x = parseNodeInt(parameterNode, "X", 0);
+                int y = parseNodeInt(parameterNode, "Y", 0);
+                int z = parseNodeInt(parameterNode, "Z", 0);
+                BlockPos pos = new BlockPos(x, y, z);
+                if (data != null) {
+                    data.targetBlockPos = pos;
+                }
+                return Optional.of(Vec3d.ofCenter(pos));
+            }
+            case PARAM_SCHEMATIC: {
+                int x = parseNodeInt(parameterNode, "X", 0);
+                int y = parseNodeInt(parameterNode, "Y", 0);
+                int z = parseNodeInt(parameterNode, "Z", 0);
+                BlockPos pos = new BlockPos(x, y, z);
+                if (data != null) {
+                    data.targetBlockPos = pos;
+                    data.schematicName = getParameterString(parameterNode, "Schematic");
+                }
+                return Optional.of(Vec3d.ofCenter(pos));
+            }
+            case PARAM_ITEM: {
+                if (client == null || client.player == null) {
+                    return Optional.empty();
+                }
+                String itemId = getParameterString(parameterNode, "Item");
+                if (itemId == null || itemId.isEmpty()) {
+                    sendParameterSearchFailure("No item selected on parameter for " + type.getDisplayName() + ".", future);
+                    return Optional.empty();
+                }
+                Identifier identifier = Identifier.tryParse(itemId);
+                if (identifier == null || !Registries.ITEM.containsId(identifier)) {
+                    sendParameterSearchFailure("Unknown item \"" + itemId + "\" for " + type.getDisplayName() + ".", future);
+                    return Optional.empty();
+                }
+                Item item = Registries.ITEM.get(identifier);
+                double range = parseNodeDouble(parameterNode, "Range", PARAMETER_SEARCH_RADIUS);
+                Optional<BlockPos> match = findNearestDroppedItem(client, item, range);
+                if (match.isEmpty()) {
+                    sendParameterSearchFailure("No dropped " + itemId + " found for " + type.getDisplayName() + ".", future);
+                    return Optional.empty();
+                }
+                if (data != null) {
+                    data.targetBlockPos = match.get();
+                    data.targetItem = item;
+                    data.targetItemId = itemId;
+                }
+                return Optional.of(Vec3d.ofCenter(match.get()));
+            }
+            case PARAM_ENTITY: {
+                if (client == null || client.player == null) {
+                    return Optional.empty();
+                }
+                String entityId = getParameterString(parameterNode, "Entity");
+                if (entityId == null || entityId.isEmpty()) {
+                    sendParameterSearchFailure("No entity selected on parameter for " + type.getDisplayName() + ".", future);
+                    return Optional.empty();
+                }
+                Identifier identifier = Identifier.tryParse(entityId);
+                if (identifier == null || !Registries.ENTITY_TYPE.containsId(identifier)) {
+                    sendParameterSearchFailure("Unknown entity \"" + entityId + "\" for " + type.getDisplayName() + ".", future);
+                    return Optional.empty();
+                }
+                EntityType<?> entityType = Registries.ENTITY_TYPE.get(identifier);
+                double range = parseNodeDouble(parameterNode, "Range", PARAMETER_SEARCH_RADIUS);
+                Optional<Entity> entity = findNearestEntity(client, entityType, range);
+                if (entity.isEmpty()) {
+                    sendParameterSearchFailure("No nearby entity of type " + entityId + " for " + type.getDisplayName() + ".", future);
+                    return Optional.empty();
+                }
+                if (data != null) {
+                    data.targetEntity = entity.get();
+                    data.targetEntityId = entityId;
+                    data.targetBlockPos = entity.get().getBlockPos();
+                }
+                return Optional.of(entity.get().getPos());
+            }
+            case PARAM_PLAYER: {
+                if (client == null || client.player == null || client.world == null) {
+                    return Optional.empty();
+                }
+                String playerName = getParameterString(parameterNode, "Player");
+                if (playerName == null || playerName.isEmpty()) {
+                    sendParameterSearchFailure("No player selected on parameter for " + type.getDisplayName() + ".", future);
+                    return Optional.empty();
+                }
+                Optional<AbstractClientPlayerEntity> player = client.world.getPlayers().stream()
+                    .filter(p -> p.getGameProfile().getName().equalsIgnoreCase(playerName))
+                    .findFirst();
+                if (player.isEmpty()) {
+                    sendParameterSearchFailure("Player \"" + playerName + "\" is not nearby for " + type.getDisplayName() + ".", future);
+                    return Optional.empty();
+                }
+                if (data != null) {
+                    data.targetPlayerName = playerName;
+                    data.targetBlockPos = player.get().getBlockPos();
+                }
+                return Optional.of(player.get().getPos());
+            }
+            case PARAM_BLOCK:
+            case PARAM_BLOCK_LIST: {
+                if (client == null || client.player == null || client.world == null) {
+                    return Optional.empty();
+                }
+                List<Block> blocks = resolveBlocksFromParameter(parameterNode);
+                if (blocks.isEmpty()) {
+                    sendParameterSearchFailure("No blocks defined on parameter for " + type.getDisplayName() + ".", future);
+                    return Optional.empty();
+                }
+                double range = parseNodeDouble(parameterNode, "Range", PARAMETER_SEARCH_RADIUS);
+                Optional<BlockPos> match = findNearestBlock(client, blocks, range);
+                if (match.isEmpty()) {
+                    sendParameterSearchFailure("No matching block from parameter found for " + type.getDisplayName() + ".", future);
+                    return Optional.empty();
+                }
+                if (data != null) {
+                    data.targetBlockPos = match.get();
+                    data.targetBlockIds = new ArrayList<>();
+                    for (Block block : blocks) {
+                        Identifier id = Registries.BLOCK.getId(block);
+                        if (id != null) {
+                            data.targetBlockIds.add(id.toString());
+                        }
+                    }
+                }
+                return Optional.of(Vec3d.ofCenter(match.get()));
+            }
+            default: {
+                String xValue = getParameterString(parameterNode, "X");
+                String yValue = getParameterString(parameterNode, "Y");
+                String zValue = getParameterString(parameterNode, "Z");
+                if (xValue != null && yValue != null && zValue != null) {
+                    try {
+                        int x = Integer.parseInt(xValue.trim());
+                        int y = Integer.parseInt(yValue.trim());
+                        int z = Integer.parseInt(zValue.trim());
+                        BlockPos pos = new BlockPos(x, y, z);
+                        if (data != null) {
+                            data.targetBlockPos = pos;
+                        }
+                        return Optional.of(Vec3d.ofCenter(pos));
+                    } catch (NumberFormatException ignored) {
+                        // fall through to empty optional
+                    }
+                }
+                break;
+            }
+        }
+
+        return Optional.empty();
+    }
+
+    private void applyVectorToCoordinateParameters(Vec3d targetVec) {
+        if (targetVec == null) {
+            return;
+        }
+        int x = MathHelper.floor(targetVec.x);
+        int y = MathHelper.floor(targetVec.y);
+        int z = MathHelper.floor(targetVec.z);
+        if (runtimeParameterData != null) {
+            runtimeParameterData.targetBlockPos = new BlockPos(x, y, z);
+        }
+        setParameterIfPresent("X", Integer.toString(x));
+        setParameterIfPresent("Y", Integer.toString(y));
+        setParameterIfPresent("Z", Integer.toString(z));
+    }
+
+    private boolean resolveLookOrientation(Node parameterNode, RuntimeParameterData data, CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            return false;
+        }
+
+        Float yawParam = parseNodeFloat(parameterNode, "Yaw");
+        Float pitchParam = parseNodeFloat(parameterNode, "Pitch");
+        if (yawParam != null || pitchParam != null) {
+            if (yawParam != null) {
+                setParameterIfPresent("Yaw", formatFloat(yawParam));
+                if (data != null) {
+                    data.resolvedYaw = yawParam;
+                }
+            }
+            if (pitchParam != null) {
+                float clamped = MathHelper.clamp(pitchParam, -90.0F, 90.0F);
+                setParameterIfPresent("Pitch", formatFloat(clamped));
+                if (data != null) {
+                    data.resolvedPitch = clamped;
+                }
+            }
+            return true;
+        }
+
+        Vec3d target = data != null ? data.targetVector : null;
+        if (target == null) {
+            Optional<Vec3d> resolved = resolvePositionTarget(parameterNode, data, future);
+            if (resolved.isEmpty()) {
+                return false;
+            }
+            target = resolved.get();
+        }
+
+        Vec3d eyes = client.player.getEyePos();
+        Vec3d delta = target.subtract(eyes);
+        if (delta.lengthSquared() < 1.0E-6) {
+            return false;
+        }
+        float yaw = (float) (MathHelper.wrapDegrees(Math.toDegrees(Math.atan2(delta.z, delta.x)) - 90.0D));
+        float pitch = (float) (-Math.toDegrees(Math.atan2(delta.y, Math.sqrt(delta.x * delta.x + delta.z * delta.z))));
+        float clampedPitch = MathHelper.clamp(pitch, -90.0F, 90.0F);
+
+        setParameterIfPresent("Yaw", formatFloat(yaw));
+        setParameterIfPresent("Pitch", formatFloat(clampedPitch));
+
+        if (data != null) {
+            data.resolvedYaw = yaw;
+            data.resolvedPitch = clampedPitch;
+        }
+        return true;
+    }
+
+    private boolean resolveTurnOffsets(Node parameterNode, RuntimeParameterData data, CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            return false;
+        }
+
+        Float yawOffset = parseNodeFloat(parameterNode, "YawOffset");
+        Float pitchOffset = parseNodeFloat(parameterNode, "PitchOffset");
+        if (yawOffset != null || pitchOffset != null) {
+            if (yawOffset != null) {
+                setParameterIfPresent("YawOffset", formatFloat(yawOffset));
+                if (data != null) {
+                    data.resolvedYawOffset = yawOffset;
+                }
+            }
+            if (pitchOffset != null) {
+                float clamped = MathHelper.clamp(pitchOffset, -180.0F, 180.0F);
+                setParameterIfPresent("PitchOffset", formatFloat(clamped));
+                if (data != null) {
+                    data.resolvedPitchOffset = clamped;
+                }
+            }
+            return true;
+        }
+
+        Vec3d target = data != null ? data.targetVector : null;
+        if (target == null) {
+            Optional<Vec3d> resolved = resolvePositionTarget(parameterNode, data, future);
+            if (resolved.isEmpty()) {
+                return false;
+            }
+            target = resolved.get();
+        }
+
+        Vec3d eyes = client.player.getEyePos();
+        Vec3d delta = target.subtract(eyes);
+        if (delta.lengthSquared() < 1.0E-6) {
+            return false;
+        }
+        float targetYaw = (float) (MathHelper.wrapDegrees(Math.toDegrees(Math.atan2(delta.z, delta.x)) - 90.0D));
+        float targetPitch = (float) (-Math.toDegrees(Math.atan2(delta.y, Math.sqrt(delta.x * delta.x + delta.z * delta.z))));
+        float yawOffsetComputed = MathHelper.wrapDegrees(targetYaw - client.player.getYaw());
+        float pitchOffsetComputed = MathHelper.wrapDegrees(targetPitch - client.player.getPitch());
+
+        setParameterIfPresent("YawOffset", formatFloat(yawOffsetComputed));
+        setParameterIfPresent("PitchOffset", formatFloat(pitchOffsetComputed));
+
+        if (data != null) {
+            data.resolvedYawOffset = yawOffsetComputed;
+            data.resolvedPitchOffset = pitchOffsetComputed;
+        }
+        return true;
+    }
+
+    private void sendIncompatibleParameterMessage(Node parameterNode) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null) {
+            return;
+        }
+        sendNodeErrorMessage(client, "Parameter \"" + parameterNode.getType().getDisplayName() + "\" cannot be used with \"" + this.type.getDisplayName() + "\".");
+    }
+
+    private void sendParameterSearchFailure(String message, CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client != null) {
+            sendNodeErrorMessage(client, message);
+        }
+        if (future != null && !future.isDone()) {
+            future.complete(null);
+        }
+    }
+
+    private void setParameterIfPresent(String name, String value) {
+        if (name == null || value == null) {
+            return;
+        }
+        NodeParameter parameter = getParameter(name);
+        if (parameter != null) {
+            parameter.setStringValue(value);
+        }
+    }
+
+    private static String formatFloat(float value) {
+        return String.format(Locale.ROOT, "%.3f", value);
+    }
+
+    private static int parseNodeInt(Node node, String name, int defaultValue) {
+        String value = getParameterString(node, name);
+        if (value == null || value.isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    private static double parseNodeDouble(Node node, String name, double defaultValue) {
+        String value = getParameterString(node, name);
+        if (value == null || value.isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            return Double.parseDouble(value.trim());
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    private static Float parseNodeFloat(Node node, String name) {
+        String value = getParameterString(node, name);
+        if (value == null || value.isEmpty()) {
+            return null;
+        }
+        try {
+            return Float.parseFloat(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private List<Block> resolveBlocksFromParameter(Node parameterNode) {
+        List<Block> blocks = new ArrayList<>();
+        String primary = getParameterString(parameterNode, "Block");
+        String listValue = getParameterString(parameterNode, "Blocks");
+        if (listValue != null && !listValue.isEmpty()) {
+            for (String entry : listValue.split(",")) {
+                addBlockById(blocks, entry.trim());
+            }
+        }
+        if (primary != null && !primary.isEmpty()) {
+            addBlockById(blocks, primary.trim());
+        }
+        return blocks;
+    }
+
+    private void addBlockById(List<Block> blocks, String idString) {
+        if (idString == null || idString.isEmpty()) {
+            return;
+        }
+        Identifier identifier = Identifier.tryParse(idString);
+        if (identifier != null && Registries.BLOCK.containsId(identifier)) {
+            blocks.add(Registries.BLOCK.get(identifier));
+        }
+    }
+
+    private Optional<BlockPos> findNearestBlock(net.minecraft.client.MinecraftClient client, List<Block> blocks, double range) {
+        if (client == null || client.player == null || client.world == null || blocks == null || blocks.isEmpty()) {
+            return Optional.empty();
+        }
+        int radius = Math.max(1, Math.min((int) Math.ceil(range), 64));
+        BlockPos playerPos = client.player.getBlockPos();
+        BlockPos.Mutable mutable = new BlockPos.Mutable();
+        BlockPos bestPos = null;
+        double bestDistance = Double.MAX_VALUE;
+
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dy = -radius; dy <= radius; dy++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    mutable.set(playerPos.getX() + dx, playerPos.getY() + dy, playerPos.getZ() + dz);
+                    BlockState state = client.world.getBlockState(mutable);
+                    if (blocks.contains(state.getBlock())) {
+                        double distance = mutable.getSquaredDistance(playerPos);
+                        if (distance < bestDistance) {
+                            bestDistance = distance;
+                            bestPos = mutable.toImmutable();
+                        }
+                    }
+                }
+            }
+        }
+
+        return Optional.ofNullable(bestPos);
+    }
+
     /**
      * Execute the actual command for this node type.
      * This method should be overridden by specific node implementations if needed.
@@ -1763,11 +2247,14 @@ public class Node {
     
     // Command execution methods that wait for Baritone completion
     private void executeGotoCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.of(ParameterUsage.POSITION), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         if (mode == null) {
             future.completeExceptionally(new RuntimeException("No mode set for GOTO node"));
             return;
         }
-        
+
         IBaritone baritone = getBaritone();
         if (baritone == null) {
             System.err.println("Baritone not available for goto command");
@@ -2047,11 +2534,14 @@ public class Node {
     }
     
     private void executeMineCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         if (mode == null) {
             future.completeExceptionally(new RuntimeException("No mode set for MINE node"));
             return;
         }
-        
+
         IBaritone baritone = getBaritone();
         if (baritone == null) {
             System.err.println("Baritone not available for mine command");
@@ -2096,6 +2586,9 @@ public class Node {
     }
     
     private void executeCraftCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         String itemId = "stick";
         int quantity = 1;
 
@@ -2200,6 +2693,9 @@ public class Node {
     }
 
     private void executeScreenControlCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         NodeMode screenMode = mode != null ? mode : NodeMode.SCREEN_OPEN_CHAT;
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
 
@@ -2235,6 +2731,9 @@ public class Node {
     }
 
     private void executePlayerGuiCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         NodeMode playerGuiMode = mode != null ? mode : NodeMode.PLAYER_GUI_OPEN;
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
 
@@ -2811,6 +3310,9 @@ public class Node {
     }
 
     private void executePlaceCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.of(ParameterUsage.POSITION), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         String block = "stone";
         int x = 0, y = 0, z = 0;
 
@@ -2868,6 +3370,9 @@ public class Node {
     }
     
     private void executeBuildCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.of(ParameterUsage.POSITION), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         if (mode == null) {
             future.completeExceptionally(new RuntimeException("No mode set for BUILD node"));
             return;
@@ -2910,6 +3415,9 @@ public class Node {
     }
     
     private void executeExploreCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.of(ParameterUsage.POSITION), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         if (mode == null) {
             future.completeExceptionally(new RuntimeException("No mode set for EXPLORE node"));
             return;
@@ -2963,6 +3471,9 @@ public class Node {
     }
     
     private void executeFollowCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.of(ParameterUsage.POSITION), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         if (mode == null) {
             future.completeExceptionally(new RuntimeException("No mode set for FOLLOW node"));
             return;
@@ -3012,6 +3523,9 @@ public class Node {
     }
     
     private void executeWaitCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         double baseDuration = Math.max(0.0, getDoubleParameter("Duration", 1.0));
         double minimum = Math.max(0.0, getDoubleParameter("MinimumDurationSeconds", 0.0));
         double variance = Math.max(0.0, getDoubleParameter("RandomVarianceSeconds", 0.0));
@@ -3037,6 +3551,9 @@ public class Node {
     }
     
     private void executeControlRepeat(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         int count = Math.max(0, getIntParameter("Count", 1));
         if (!repeatActive) {
             repeatRemainingIterations = count;
@@ -3054,6 +3571,9 @@ public class Node {
     }
     
     private void executeControlRepeatUntil(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         boolean conditionMet = evaluateConditionFromParameters();
         if (conditionMet) {
             repeatRemainingIterations = 0;
@@ -3067,24 +3587,36 @@ public class Node {
     }
     
     private void executeControlForever(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         repeatActive = true;
         setNextOutputSocket(0);
         future.complete(null);
     }
 
     private void executeControlIf(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         boolean condition = evaluateConditionFromParameters();
         setNextOutputSocket(condition ? 0 : NO_OUTPUT);
         future.complete(null);
     }
 
     private void executeControlIfElse(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         boolean condition = evaluateConditionFromParameters();
         setNextOutputSocket(condition ? 0 : 1);
         future.complete(null);
     }
-    
+
     private void executeMessageCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         String text = "Hello World";
         NodeParameter textParam = getParameter("Text");
         if (textParam != null) {
@@ -3101,11 +3633,14 @@ public class Node {
     }
     
     private void executeGoalCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.of(ParameterUsage.POSITION), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         if (mode == null) {
             future.completeExceptionally(new RuntimeException("No mode set for GOAL node"));
             return;
         }
-        
+
         IBaritone baritone = getBaritone();
         if (baritone == null) {
             System.err.println("Baritone not available for goal command");
@@ -3187,17 +3722,25 @@ public class Node {
     }
     
     private void executePathCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.of(ParameterUsage.POSITION), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
+
         System.out.println("Executing path command");
-        
+
         IBaritone baritone = getBaritone();
         if (baritone != null) {
             // Start precise tracking of this task
             PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_PATH, future);
-            
+
             // Start the Baritone pathing task
             ICustomGoalProcess customGoalProcess = baritone.getCustomGoalProcess();
+            if (runtimeParameterData != null && runtimeParameterData.targetBlockPos != null) {
+                BlockPos target = runtimeParameterData.targetBlockPos;
+                customGoalProcess.setGoal(new GoalBlock(target.getX(), target.getY(), target.getZ()));
+            }
             customGoalProcess.path();
-            
+
             // The future will be completed by the PreciseCompletionTracker when the path actually reaches the goal
         } else {
             System.err.println("Baritone not available for path command");
@@ -3206,6 +3749,9 @@ public class Node {
     }
     
     private void executeStopCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         if (mode == null) {
             future.completeExceptionally(new RuntimeException("No mode set for STOP node"));
             return;
@@ -3253,38 +3799,53 @@ public class Node {
     }
     
     private void executeInvertCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         String command = "#invert";
         System.out.println("Executing command: " + command);
-        
+
         executeCommand(command);
         future.complete(null); // Invert commands complete immediately
     }
-    
+
     private void executeComeCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         String command = "#come";
         System.out.println("Executing command: " + command);
-        
+
         executeCommand(command);
         future.complete(null); // These commands complete immediately
     }
-    
+
     private void executeSurfaceCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         String command = "#surface";
         System.out.println("Executing command: " + command);
-        
+
         executeCommand(command);
         future.complete(null); // These commands complete immediately
     }
-    
+
     private void executeTunnelCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         String command = "#tunnel";
         System.out.println("Executing command: " + command);
-        
+
         executeCommand(command);
         future.complete(null); // These commands complete immediately
     }
     
     private void executeFarmCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         if (mode == null) {
             future.completeExceptionally(new RuntimeException("No mode set for FARM node"));
             return;
@@ -3338,6 +3899,9 @@ public class Node {
     }
     
     private void executeHotbarCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null || client.player.networkHandler == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -3351,6 +3915,9 @@ public class Node {
     }
     
     private void executeDropItemCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -3390,6 +3957,9 @@ public class Node {
     }
     
     private void executeDropSlotCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -3424,6 +3994,9 @@ public class Node {
     }
     
     private void executeMoveItemCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -3488,6 +4061,9 @@ public class Node {
     }
     
     private void executeSwapSlotsCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -3514,6 +4090,9 @@ public class Node {
     }
     
     private void executeClearSlotCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -3535,6 +4114,9 @@ public class Node {
     }
     
     private void executeUseCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null || client.interactionManager == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -3656,6 +4238,9 @@ public class Node {
     }
 
     private void executePlaceHandCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null || client.interactionManager == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -3817,6 +4402,9 @@ public class Node {
     }
 
     private void executeLookCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.of(ParameterUsage.LOOK_ORIENTATION, ParameterUsage.POSITION), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -3832,6 +4420,9 @@ public class Node {
     }
 
     private void executeTurnCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.of(ParameterUsage.TURN_OFFSET, ParameterUsage.POSITION), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -3849,6 +4440,9 @@ public class Node {
     }
     
     private void executeJumpCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -3875,6 +4469,9 @@ public class Node {
     }
     
     private void executeCrouchCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -3896,6 +4493,9 @@ public class Node {
     }
 
     private void executeSprintCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -3920,6 +4520,9 @@ public class Node {
     }
     
     private void executeInteractCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null || client.interactionManager == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -3978,6 +4581,9 @@ public class Node {
     }
     
     private void executeAttackCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null || client.interactionManager == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -4051,6 +4657,9 @@ public class Node {
     }
 
     private void executeSwingCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -4084,6 +4693,9 @@ public class Node {
     }
     
     private void executeSwapHandsCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null || client.player.networkHandler == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -4105,6 +4717,9 @@ public class Node {
     }
     
     private void executeEquipArmorCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -4130,6 +4745,9 @@ public class Node {
     }
     
     private void executeUnequipArmorCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -4165,6 +4783,9 @@ public class Node {
     }
     
     private void executeEquipHandCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
@@ -4190,6 +4811,9 @@ public class Node {
     }
     
     private void executeUnequipHandCommand(CompletableFuture<Void> future) {
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (client == null || client.player == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
