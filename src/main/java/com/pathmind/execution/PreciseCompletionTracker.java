@@ -13,12 +13,13 @@ import baritone.api.pathing.goals.Goal;
 import java.util.concurrent.CompletableFuture;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.Timer;
-import java.util.TimerTask;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 
 import net.minecraft.block.Block;
 import net.minecraft.client.MinecraftClient;
@@ -39,7 +40,8 @@ public class PreciseCompletionTracker {
     private final Map<String, CompletableFuture<Void>> pendingTasks = new ConcurrentHashMap<>();
     private final Map<String, ProcessState> processStates = new ConcurrentHashMap<>();
     private final Map<String, Long> taskStartTimes = new ConcurrentHashMap<>();
-    private Timer monitoringTimer;
+    private final ScheduledExecutorService monitoringExecutor;
+    private final Map<String, ScheduledFuture<?>> monitoringTasks = new ConcurrentHashMap<>();
     private MineTaskData mineTaskData;
     
     // Task types
@@ -78,7 +80,11 @@ public class PreciseCompletionTracker {
     }
     
     private PreciseCompletionTracker() {
-        this.monitoringTimer = new Timer("PreciseCompletionTimer", true);
+        this.monitoringExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread thread = new Thread(r, "PreciseCompletionTimer");
+            thread.setDaemon(true);
+            return thread;
+        });
     }
     
     public static PreciseCompletionTracker getInstance() {
@@ -134,28 +140,46 @@ public class PreciseCompletionTracker {
      * Start monitoring a specific task
      */
     private void startMonitoringTask(String taskId) {
-        // Schedule monitoring every 100ms for precise detection
-        TimerTask monitoringTask = new TimerTask() {
-            @Override
-            public void run() {
+        cancelMonitoringTask(taskId);
+
+        Runnable monitoringTask = () -> {
+            if (!pendingTasks.containsKey(taskId)) {
+                cancelMonitoringTask(taskId);
+                return;
+            }
+
+            Runnable check = () -> {
                 if (!pendingTasks.containsKey(taskId)) {
-                    this.cancel();
+                    cancelMonitoringTask(taskId);
                     return;
                 }
-                
+
                 try {
                     if (checkTaskCompletion(taskId)) {
-                        this.cancel();
+                        cancelMonitoringTask(taskId);
                     }
                 } catch (Exception e) {
                     System.err.println("Error monitoring task " + taskId + ": " + e.getMessage());
                     completeTaskWithError(taskId, "Monitoring error: " + e.getMessage());
-                    this.cancel();
+                    cancelMonitoringTask(taskId);
                 }
+            };
+
+            MinecraftClient client = MinecraftClient.getInstance();
+            if (client != null && !client.isOnThread()) {
+                client.execute(check);
+            } else {
+                check.run();
             }
         };
-        
-        monitoringTimer.schedule(monitoringTask, 100, 100); // Start in 100ms, repeat every 100ms
+
+        ScheduledFuture<?> future = monitoringExecutor.scheduleAtFixedRate(
+                monitoringTask,
+                100,
+                100,
+                TimeUnit.MILLISECONDS
+        );
+        monitoringTasks.put(taskId, future);
     }
     
     /**
@@ -411,6 +435,7 @@ public class PreciseCompletionTracker {
      * Complete a task successfully
      */
     private void completeTask(String taskId) {
+        cancelMonitoringTask(taskId);
         CompletableFuture<Void> future = pendingTasks.remove(taskId);
         processStates.remove(taskId);
         Long startTime = taskStartTimes.remove(taskId);
@@ -431,6 +456,7 @@ public class PreciseCompletionTracker {
      * Complete a task with an error
      */
     private void completeTaskWithError(String taskId, String reason) {
+        cancelMonitoringTask(taskId);
         CompletableFuture<Void> future = pendingTasks.remove(taskId);
         processStates.remove(taskId);
         taskStartTimes.remove(taskId);
@@ -460,10 +486,14 @@ public class PreciseCompletionTracker {
         }
 
         mineTaskData = null;
-        
+
         pendingTasks.clear();
         processStates.clear();
         taskStartTimes.clear();
+        for (ScheduledFuture<?> future : monitoringTasks.values()) {
+            future.cancel(false);
+        }
+        monitoringTasks.clear();
     }
     
     /**
@@ -473,7 +503,7 @@ public class PreciseCompletionTracker {
         try {
             return BaritoneAPI.getProvider().getPrimaryBaritone();
         } catch (Exception e) {
-            System.err.println("Failed to get Baritone instance: " + e.getMessage());
+            System.err.println("PreciseCompletionTracker: Failed to get Baritone instance: " + e.getMessage());
             return null;
         }
     }
@@ -490,5 +520,12 @@ public class PreciseCompletionTracker {
      */
     public boolean isTaskPending(String taskId) {
         return pendingTasks.containsKey(taskId);
+    }
+
+    private void cancelMonitoringTask(String taskId) {
+        ScheduledFuture<?> future = monitoringTasks.remove(taskId);
+        if (future != null) {
+            future.cancel(false);
+        }
     }
 }
