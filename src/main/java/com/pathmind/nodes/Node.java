@@ -5597,18 +5597,21 @@ public class Node {
 
         Item targetItem = Registries.ITEM.get(identifier);
 
-        final int startingCount;
-        try {
-            startingCount = supplyFromClient(client, () -> client.player != null
-                ? client.player.getInventory().count(targetItem)
-                : 0);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return;
-        }
+        Runnable startMonitor = () -> {
+            if (client.player == null) {
+                return;
+            }
 
-        final int targetCount = startingCount + quantity;
-        MineQuantityMonitor.getInstance().begin(client, baritone, mineProcess, targetItem, targetCount, normalizedId);
+            int startingCount = client.player.getInventory().count(targetItem);
+            int targetCount = startingCount + quantity;
+            MineQuantityMonitor.getInstance().begin(client, baritone, mineProcess, targetItem, targetCount, normalizedId);
+        };
+
+        if (client.isOnThread()) {
+            startMonitor.run();
+        } else {
+            client.execute(startMonitor);
+        }
     }
 
     private double getDoubleParameter(String name, double defaultValue) {
