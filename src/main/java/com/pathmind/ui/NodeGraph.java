@@ -90,6 +90,11 @@ public class NodeGraph {
     private String coordinateEditOriginalValue = "";
     private long coordinateCaretLastToggleTime = 0L;
     private boolean coordinateCaretVisible = true;
+    private Node amountEditingNode = null;
+    private String amountEditBuffer = "";
+    private String amountEditOriginalValue = "";
+    private long amountCaretLastToggleTime = 0L;
+    private boolean amountCaretVisible = true;
     private boolean workspaceDirty = false;
 
     public NodeGraph() {
@@ -149,6 +154,10 @@ public class NodeGraph {
 
         if (coordinateEditingNode == node) {
             stopCoordinateEditing(false);
+        }
+
+        if (amountEditingNode == node) {
+            stopAmountEditing(false);
         }
 
         if (node.hasAttachedSensor()) {
@@ -304,6 +313,7 @@ public class NodeGraph {
 
     public void startDragging(Node node, int mouseX, int mouseY) {
         stopCoordinateEditing(true);
+        stopAmountEditing(true);
         resetDropTargets();
 
         draggingNode = node;
@@ -316,6 +326,8 @@ public class NodeGraph {
     }
     
     public void startDraggingConnection(Node node, int socketIndex, boolean isOutput, int mouseX, int mouseY) {
+        stopCoordinateEditing(true);
+        stopAmountEditing(true);
         isDraggingConnection = true;
         connectionSourceNode = node;
         connectionSourceSocket = socketIndex;
@@ -1150,6 +1162,9 @@ public class NodeGraph {
                     if (node.hasCoordinateInputFields()) {
                         renderCoordinateInputFields(context, textRenderer, node, isOverSidebar);
                     }
+                    if (node.hasAmountInputField()) {
+                        renderAmountInputField(context, textRenderer, node, isOverSidebar);
+                    }
                 }
             }
 
@@ -1326,6 +1341,61 @@ public class NodeGraph {
         }
     }
 
+    private void renderAmountInputField(DrawContext context, TextRenderer textRenderer, Node node, boolean isOverSidebar) {
+        int baseLabelColor = isOverSidebar ? 0xFF777777 : 0xFFAAAAAA;
+        int fieldBackground = isOverSidebar ? 0xFF252525 : 0xFF1A1A1A;
+        int activeFieldBackground = isOverSidebar ? 0xFF2F2F2F : 0xFF242424;
+        int fieldBorder = isOverSidebar ? 0xFF555555 : 0xFF444444;
+        int activeFieldBorder = 0xFF87CEEB;
+        int textColor = isOverSidebar ? 0xFF888888 : 0xFFE0E0E0;
+        int activeTextColor = 0xFFE6F7FF;
+
+        boolean editing = isEditingAmountField() && amountEditingNode == node;
+        if (editing) {
+            updateAmountCaretBlink();
+        }
+
+        int labelTop = node.getAmountFieldLabelTop() - cameraY;
+        int labelHeight = node.getAmountFieldLabelHeight();
+        int fieldTop = node.getAmountFieldInputTop() - cameraY;
+        int fieldHeight = node.getAmountFieldHeight();
+        int fieldLeft = node.getAmountFieldLeft() - cameraX;
+        int fieldWidth = node.getAmountFieldWidth();
+
+        int labelY = labelTop + Math.max(0, (labelHeight - textRenderer.fontHeight) / 2);
+        context.drawTextWithShadow(textRenderer, Text.literal("Amount"), fieldLeft + 2, labelY, baseLabelColor);
+
+        int fieldBottom = fieldTop + fieldHeight;
+        int backgroundColor = editing ? activeFieldBackground : fieldBackground;
+        int borderColor = editing ? activeFieldBorder : fieldBorder;
+        int valueColor = editing ? activeTextColor : textColor;
+
+        context.fill(fieldLeft, fieldTop, fieldLeft + fieldWidth, fieldBottom, backgroundColor);
+        context.drawBorder(fieldLeft, fieldTop, fieldWidth, fieldHeight, borderColor);
+
+        String value;
+        if (editing) {
+            value = amountEditBuffer;
+        } else {
+            NodeParameter amountParam = node.getParameter("Amount");
+            value = amountParam != null ? amountParam.getDisplayValue() : "";
+        }
+
+        String display = editing
+            ? textRenderer.trimToWidth(value, fieldWidth - 6)
+            : trimTextToWidth(value, textRenderer, fieldWidth - 6);
+
+        int textX = fieldLeft + 3;
+        int textY = fieldTop + (fieldHeight - textRenderer.fontHeight) / 2 + 1;
+        context.drawTextWithShadow(textRenderer, Text.literal(display), textX, textY, valueColor);
+
+        if (editing && amountCaretVisible) {
+            int caretX = textX + textRenderer.getWidth(display);
+            caretX = Math.min(caretX, fieldLeft + fieldWidth - 2);
+            context.fill(caretX, fieldTop + 2, caretX + 1, fieldBottom - 2, 0xFFE6F7FF);
+        }
+    }
+
     public boolean isEditingCoordinateField() {
         return coordinateEditingNode != null && coordinateEditingAxis >= 0;
     }
@@ -1375,6 +1445,8 @@ public class NodeGraph {
             stopCoordinateEditing(false);
             return;
         }
+
+        stopAmountEditing(true);
 
         if (isEditingCoordinateField()) {
             if (coordinateEditingNode == node && coordinateEditingAxis == axisIndex) {
@@ -1502,6 +1574,155 @@ public class NodeGraph {
         }
 
         return false;
+    }
+
+    public boolean isEditingAmountField() {
+        return amountEditingNode != null;
+    }
+
+    private void updateAmountCaretBlink() {
+        long now = System.currentTimeMillis();
+        if (now - amountCaretLastToggleTime >= COORDINATE_CARET_BLINK_INTERVAL_MS) {
+            amountCaretVisible = !amountCaretVisible;
+            amountCaretLastToggleTime = now;
+        }
+    }
+
+    private void resetAmountCaretBlink() {
+        amountCaretVisible = true;
+        amountCaretLastToggleTime = System.currentTimeMillis();
+    }
+
+    public void startAmountEditing(Node node) {
+        if (node == null || !node.hasAmountInputField()) {
+            stopAmountEditing(false);
+            return;
+        }
+
+        if (isEditingAmountField()) {
+            if (amountEditingNode == node) {
+                return;
+            }
+            boolean changed = applyAmountEdit();
+            if (changed) {
+                notifyNodeParametersChanged(amountEditingNode);
+            }
+        }
+
+        stopCoordinateEditing(true);
+
+        amountEditingNode = node;
+        NodeParameter amountParam = node.getParameter("Amount");
+        amountEditBuffer = amountParam != null ? amountParam.getDisplayValue() : "";
+        amountEditOriginalValue = amountEditBuffer;
+        resetAmountCaretBlink();
+    }
+
+    public void stopAmountEditing(boolean commit) {
+        if (!isEditingAmountField()) {
+            return;
+        }
+
+        boolean changed = false;
+        if (commit) {
+            changed = applyAmountEdit();
+        } else {
+            revertAmountEdit();
+        }
+
+        if (commit && changed) {
+            notifyNodeParametersChanged(amountEditingNode);
+        }
+
+        amountEditingNode = null;
+        amountEditBuffer = "";
+        amountEditOriginalValue = "";
+        amountCaretVisible = true;
+    }
+
+    private boolean applyAmountEdit() {
+        if (!isEditingAmountField()) {
+            return false;
+        }
+
+        String value = amountEditBuffer;
+        if (value == null || value.isEmpty()) {
+            value = amountEditOriginalValue != null && !amountEditOriginalValue.isEmpty()
+                ? amountEditOriginalValue
+                : "0";
+        }
+
+        NodeParameter amountParam = amountEditingNode.getParameter("Amount");
+        String previous = amountParam != null ? amountParam.getStringValue() : "";
+        amountEditingNode.setParameterValueAndPropagate("Amount", value);
+        amountEditingNode.recalculateDimensions();
+        return !Objects.equals(previous, value);
+    }
+
+    private void revertAmountEdit() {
+        if (!isEditingAmountField()) {
+            return;
+        }
+        amountEditingNode.setParameterValueAndPropagate("Amount", amountEditOriginalValue);
+        amountEditingNode.recalculateDimensions();
+    }
+
+    public boolean handleAmountKeyPressed(int keyCode, int modifiers) {
+        if (!isEditingAmountField()) {
+            return false;
+        }
+
+        switch (keyCode) {
+            case GLFW.GLFW_KEY_BACKSPACE:
+                if (!amountEditBuffer.isEmpty()) {
+                    amountEditBuffer = amountEditBuffer.substring(0, amountEditBuffer.length() - 1);
+                    resetAmountCaretBlink();
+                }
+                return true;
+            case GLFW.GLFW_KEY_ENTER:
+            case GLFW.GLFW_KEY_KP_ENTER:
+                stopAmountEditing(true);
+                return true;
+            case GLFW.GLFW_KEY_ESCAPE:
+                stopAmountEditing(false);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    public boolean handleAmountCharTyped(char chr, int modifiers, TextRenderer textRenderer) {
+        if (!isEditingAmountField()) {
+            return false;
+        }
+
+        if (chr >= '0' && chr <= '9') {
+            int availableWidth = amountEditingNode.getAmountFieldWidth() - 6;
+            String candidate = amountEditBuffer + chr;
+            if (textRenderer.getWidth(candidate) <= availableWidth) {
+                amountEditBuffer = candidate;
+                resetAmountCaretBlink();
+            }
+            return true;
+        }
+
+        return false;
+    }
+
+    public boolean isPointInsideAmountField(Node node, int screenX, int screenY) {
+        if (node == null || !node.hasAmountInputField()) {
+            return false;
+        }
+
+        int worldX = screenX + cameraX;
+        int worldY = screenY + cameraY;
+        int fieldLeft = node.getAmountFieldLeft();
+        int fieldTop = node.getAmountFieldInputTop();
+        int fieldWidth = node.getAmountFieldWidth();
+        int fieldHeight = node.getAmountFieldHeight();
+
+        return worldX >= fieldLeft && worldX <= fieldLeft + fieldWidth
+            && worldY >= fieldTop && worldY <= fieldTop + fieldHeight;
     }
 
     private String trimTextToWidth(String text, TextRenderer renderer, int maxWidth) {
@@ -1755,6 +1976,7 @@ public class NodeGraph {
         }
 
         stopCoordinateEditing(true);
+        stopAmountEditing(true);
 
         hoveredStartNode = startNode;
 

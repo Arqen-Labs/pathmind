@@ -16,6 +16,18 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import net.minecraft.block.Block;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.entity.player.PlayerInventory;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
+import net.minecraft.registry.Registries;
+import net.minecraft.util.Identifier;
 
 /**
  * Tracks Baritone processes precisely by monitoring their actual state changes.
@@ -28,6 +40,7 @@ public class PreciseCompletionTracker {
     private final Map<String, ProcessState> processStates = new ConcurrentHashMap<>();
     private final Map<String, Long> taskStartTimes = new ConcurrentHashMap<>();
     private Timer monitoringTimer;
+    private MineTaskData mineTaskData;
     
     // Task types
     public static final String TASK_GOTO = "goto";
@@ -46,6 +59,22 @@ public class PreciseCompletionTracker {
         COMPLETING,
         COMPLETED,
         FAILED
+    }
+
+    private static final class MineTaskData {
+        final String blockId;
+        final Item targetItem;
+        final int targetAmount;
+        final int startingCount;
+        volatile boolean stopIssued;
+
+        MineTaskData(String blockId, Item targetItem, int targetAmount, int startingCount) {
+            this.blockId = blockId;
+            this.targetItem = targetItem;
+            this.targetAmount = targetAmount;
+            this.startingCount = startingCount;
+            this.stopIssued = false;
+        }
     }
     
     private PreciseCompletionTracker() {
@@ -66,11 +95,39 @@ public class PreciseCompletionTracker {
         pendingTasks.put(taskId, future);
         processStates.put(taskId, ProcessState.STARTING);
         taskStartTimes.put(taskId, System.currentTimeMillis());
-        
+
         System.out.println("PreciseCompletionTracker: Started tracking task: " + taskId);
-        
+
         // Start monitoring this specific task
         startMonitoringTask(taskId);
+    }
+
+    public boolean startMineTask(String blockId, int targetAmount, CompletableFuture<Void> future) {
+        if (blockId == null || blockId.isEmpty() || future == null || targetAmount <= 0) {
+            return false;
+        }
+
+        Identifier identifier = Identifier.tryParse(blockId);
+        if (identifier == null || !Registries.BLOCK.containsId(identifier)) {
+            return false;
+        }
+
+        Block block = Registries.BLOCK.get(identifier);
+        Item targetItem = block.asItem();
+        if (targetItem == Items.AIR) {
+            return false;
+        }
+
+        int startingCount = getCurrentInventoryCount(targetItem);
+        mineTaskData = new MineTaskData(blockId, targetItem, targetAmount, startingCount);
+
+        System.out.println("PreciseCompletionTracker: tracking \"" + blockId + "\" until " + targetAmount + " blocks are mined");
+        startTrackingTask(TASK_MINE, future);
+        return true;
+    }
+
+    public void clearMineTracking() {
+        mineTaskData = null;
     }
     
     /**
@@ -215,21 +272,95 @@ public class PreciseCompletionTracker {
      */
     private boolean checkMiningCompletion(IBaritone baritone, String taskId) {
         IMineProcess mineProcess = baritone.getMineProcess();
-        
-        ProcessState currentState = processStates.get(taskId);
-        
-        if (currentState == ProcessState.STARTING && mineProcess.isActive()) {
-            // Mining has started
-            processStates.put(taskId, ProcessState.ACTIVE);
-            System.out.println("PreciseCompletionTracker: " + taskId + " is now active");
-        } else if (currentState == ProcessState.ACTIVE && !mineProcess.isActive()) {
-            // Mining has completed
-            System.out.println("PreciseCompletionTracker: " + taskId + " completed - no longer active");
-            completeTask(taskId);
+        if (mineProcess == null) {
+            completeTaskWithError(taskId, "Mine process unavailable");
             return true;
         }
-        
+
+        ProcessState currentState = processStates.get(taskId);
+
+        if (currentState == ProcessState.STARTING && mineProcess.isActive()) {
+            processStates.put(taskId, ProcessState.ACTIVE);
+            System.out.println("PreciseCompletionTracker: " + taskId + " is now active");
+        } else if (currentState == ProcessState.ACTIVE) {
+            if (mineTaskData != null) {
+                int mined = Math.max(0, getCurrentInventoryCount(mineTaskData.targetItem) - mineTaskData.startingCount);
+                if (mined >= mineTaskData.targetAmount && !mineTaskData.stopIssued) {
+                    System.out.println("PreciseCompletionTracker: mine target reached (" + mined + "/" + mineTaskData.targetAmount + ")");
+                    issueStopCommand();
+                    mineTaskData.stopIssued = true;
+                }
+            }
+
+            if (!mineProcess.isActive()) {
+                System.out.println("PreciseCompletionTracker: " + taskId + " completed - no longer active");
+                completeTask(taskId);
+                return true;
+            }
+        }
+
         return false;
+    }
+
+    private int getCurrentInventoryCount(Item targetItem) {
+        if (targetItem == null) {
+            return 0;
+        }
+
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client == null || client.player == null) {
+            return 0;
+        }
+
+        if (client.isOnThread()) {
+            return countItemInInventory(client.player.getInventory(), targetItem);
+        }
+
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicInteger result = new AtomicInteger(0);
+        client.execute(() -> {
+            try {
+                PlayerInventory inventory = client.player != null ? client.player.getInventory() : null;
+                result.set(countItemInInventory(inventory, targetItem));
+            } finally {
+                latch.countDown();
+            }
+        });
+
+        try {
+            latch.await(200, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        return result.get();
+    }
+
+    private int countItemInInventory(PlayerInventory inventory, Item targetItem) {
+        if (inventory == null || targetItem == null) {
+            return 0;
+        }
+
+        int total = 0;
+        for (int i = 0; i < inventory.size(); i++) {
+            ItemStack stack = inventory.getStack(i);
+            if (!stack.isEmpty() && stack.isOf(targetItem)) {
+                total += stack.getCount();
+            }
+        }
+        return total;
+    }
+
+    private void issueStopCommand() {
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client == null) {
+            return;
+        }
+        client.execute(() -> {
+            if (client.player != null && client.player.networkHandler != null) {
+                client.player.networkHandler.sendChatMessage("#stop");
+            }
+        });
     }
     
     /**
@@ -284,6 +415,10 @@ public class PreciseCompletionTracker {
         processStates.remove(taskId);
         Long startTime = taskStartTimes.remove(taskId);
         
+        if (TASK_MINE.equals(taskId)) {
+            mineTaskData = null;
+        }
+
         if (future != null && !future.isDone()) {
             long duration = startTime != null ? System.currentTimeMillis() - startTime : 0;
             System.out.println("PreciseCompletionTracker: Completing task " + taskId + " (duration: " + duration + "ms)");
@@ -300,6 +435,10 @@ public class PreciseCompletionTracker {
         processStates.remove(taskId);
         taskStartTimes.remove(taskId);
         
+        if (TASK_MINE.equals(taskId)) {
+            mineTaskData = null;
+        }
+
         if (future != null && !future.isDone()) {
             System.out.println("PreciseCompletionTracker: Completing task " + taskId + " with error: " + reason);
             processStates.put(taskId, ProcessState.FAILED);
@@ -312,13 +451,15 @@ public class PreciseCompletionTracker {
      */
     public void cancelAllTasks() {
         System.out.println("PreciseCompletionTracker: Canceling all pending tasks (" + pendingTasks.size() + " tasks)");
-        
+
         for (String taskId : pendingTasks.keySet()) {
             CompletableFuture<Void> future = pendingTasks.get(taskId);
             if (future != null && !future.isDone()) {
                 future.completeExceptionally(new RuntimeException("All tasks cancelled"));
             }
         }
+
+        mineTaskData = null;
         
         pendingTasks.clear();
         processStates.clear();
