@@ -26,6 +26,7 @@ import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.BlockItem;
 import net.minecraft.item.Item;
+import net.minecraft.item.Items;
 import net.minecraft.item.ItemPlacementContext;
 import net.minecraft.item.ItemStack;
 import net.minecraft.block.Block;
@@ -120,6 +121,10 @@ public class Node {
     private static final int COORDINATE_FIELD_TOP_MARGIN = 6;
     private static final int COORDINATE_FIELD_LABEL_HEIGHT = 10;
     private static final int COORDINATE_FIELD_BOTTOM_MARGIN = 6;
+    private static final int AMOUNT_FIELD_TOP_MARGIN = 6;
+    private static final int AMOUNT_FIELD_LABEL_HEIGHT = 10;
+    private static final int AMOUNT_FIELD_HEIGHT = 16;
+    private static final int AMOUNT_FIELD_BOTTOM_MARGIN = 6;
     private static final double PARAMETER_SEARCH_RADIUS = 64.0;
     private static final double DEFAULT_REACH_DISTANCE_SQUARED = 25.0D;
     private int width;
@@ -677,6 +682,45 @@ public class Node {
         return (COORDINATE_FIELD_WIDTH * 3) + (COORDINATE_FIELD_SPACING * 2);
     }
 
+    public boolean hasAmountInputField() {
+        return type == NodeType.MINE && (mode == null || mode == NodeMode.MINE_SINGLE);
+    }
+
+    public int getAmountFieldDisplayHeight() {
+        if (!hasAmountInputField()) {
+            return 0;
+        }
+        return AMOUNT_FIELD_TOP_MARGIN + AMOUNT_FIELD_LABEL_HEIGHT + AMOUNT_FIELD_HEIGHT + AMOUNT_FIELD_BOTTOM_MARGIN;
+    }
+
+    public int getAmountFieldLabelTop() {
+        int top = getParameterSlotTop() + getParameterSlotHeight();
+        if (hasCoordinateInputFields()) {
+            top += getCoordinateFieldDisplayHeight();
+        }
+        return top + AMOUNT_FIELD_TOP_MARGIN;
+    }
+
+    public int getAmountFieldInputTop() {
+        return getAmountFieldLabelTop() + AMOUNT_FIELD_LABEL_HEIGHT;
+    }
+
+    public int getAmountFieldLabelHeight() {
+        return AMOUNT_FIELD_LABEL_HEIGHT;
+    }
+
+    public int getAmountFieldHeight() {
+        return AMOUNT_FIELD_HEIGHT;
+    }
+
+    public int getAmountFieldWidth() {
+        return getParameterSlotWidth();
+    }
+
+    public int getAmountFieldLeft() {
+        return getParameterSlotLeft();
+    }
+
     public boolean isPointInsideParameterSlot(int pointX, int pointY) {
         if (!hasParameterSlot()) {
             return false;
@@ -1039,7 +1083,8 @@ public class Node {
                     
                 // MINE modes
                 case MINE_SINGLE:
-                    parameters.add(new NodeParameter("Block", ParameterType.STRING, "stone"));
+                    parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, "minecraft:stone"));
+                    parameters.add(new NodeParameter("Amount", ParameterType.INTEGER, "1"));
                     break;
                 case MINE_MULTIPLE:
                     parameters.add(new NodeParameter("Blocks", ParameterType.STRING, "stone,dirt"));
@@ -1598,6 +1643,10 @@ public class Node {
                 int coordinateWidth = getCoordinateFieldTotalWidth() + 2 * PARAMETER_SLOT_MARGIN_HORIZONTAL;
                 computedWidth = Math.max(computedWidth, coordinateWidth);
             }
+            if (hasAmountInputField()) {
+                int amountWidth = PARAMETER_SLOT_MIN_CONTENT_WIDTH + 2 * PARAMETER_SLOT_MARGIN_HORIZONTAL;
+                computedWidth = Math.max(computedWidth, amountWidth);
+            }
         }
         if (hasSensorSlot()) {
             int sensorContentWidth = SENSOR_SLOT_MIN_CONTENT_WIDTH;
@@ -1640,6 +1689,9 @@ public class Node {
             contentHeight += PARAMETER_SLOT_LABEL_HEIGHT + getParameterSlotHeight() + PARAMETER_SLOT_BOTTOM_PADDING;
             if (hasCoordinateInputFields()) {
                 contentHeight += getCoordinateFieldDisplayHeight();
+            }
+            if (hasAmountInputField()) {
+                contentHeight += getAmountFieldDisplayHeight();
             }
             if (hasSlots) {
                 contentHeight += SLOT_AREA_PADDING_TOP;
@@ -2791,35 +2843,93 @@ public class Node {
         }
         
         IMineProcess mineProcess = baritone.getMineProcess();
-        PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_MINE, future);
-        
+        if (mineProcess == null) {
+            future.completeExceptionally(new RuntimeException("Mine process unavailable"));
+            return;
+        }
+
+        PreciseCompletionTracker tracker = PreciseCompletionTracker.getInstance();
+
         switch (mode) {
-            case MINE_SINGLE:
-                String block = "stone";
+            case MINE_SINGLE: {
+                String block = "minecraft:stone";
                 NodeParameter blockParam = getParameter("Block");
-                if (blockParam != null) {
+                if (blockParam != null && !blockParam.getStringValue().isEmpty()) {
                     block = blockParam.getStringValue();
                 }
-                
-                System.out.println("Executing mine for: " + block);
-                mineProcess.mineByName(block);
+
+                String normalizedBlock = normalizeResourceId(block, "minecraft");
+                Identifier blockIdentifier = Identifier.tryParse(normalizedBlock);
+                net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+                if (blockIdentifier == null || !Registries.BLOCK.containsId(blockIdentifier)) {
+                    if (client != null) {
+                        sendNodeErrorMessage(client, "Cannot mine \"" + block + "\": unknown block identifier.");
+                    }
+                    future.complete(null);
+                    return;
+                }
+
+                Block targetBlock = Registries.BLOCK.get(blockIdentifier);
+                Item blockItem = targetBlock.asItem();
+                if (blockItem == Items.AIR) {
+                    if (client != null) {
+                        sendNodeErrorMessage(client, "Cannot mine \"" + block + "\": block has no corresponding item.");
+                    }
+                    future.complete(null);
+                    return;
+                }
+
+                NodeParameter amountParam = getParameter("Amount");
+                int targetAmount = amountParam != null ? amountParam.getIntValue() : 1;
+                if (targetAmount < 0) {
+                    targetAmount = Math.abs(targetAmount);
+                }
+
+                if (amountParam != null) {
+                    setParameterValueAndPropagate("Amount", Integer.toString(targetAmount));
+                }
+
+                setParameterValueAndPropagate("Block", blockIdentifier.toString());
+
+                boolean startedTracking = false;
+                if (targetAmount > 0) {
+                    startedTracking = tracker.startMineTask(blockIdentifier.toString(), targetAmount, future);
+                    if (!startedTracking) {
+                        if (client != null) {
+                            sendNodeErrorMessage(client, "Cannot track mining progress for \"" + block + "\".");
+                        }
+                        future.complete(null);
+                        return;
+                    }
+                }
+                if (!startedTracking) {
+                    tracker.clearMineTracking();
+                    tracker.startTrackingTask(PreciseCompletionTracker.TASK_MINE, future);
+                }
+
+                System.out.println("Executing mine for: " + blockIdentifier + " (target: " + targetAmount + ")");
+                mineProcess.mineByName(blockIdentifier.toString());
                 break;
-                
+            }
+
             case MINE_MULTIPLE:
+                tracker.startTrackingTask(PreciseCompletionTracker.TASK_MINE, future);
                 String blocks = "stone,dirt";
                 NodeParameter blocksParam = getParameter("Blocks");
                 if (blocksParam != null) {
                     blocks = blocksParam.getStringValue();
                 }
-                
+
                 System.out.println("Executing mine for blocks: " + blocks);
-                // Split the comma-separated block names and mine them
                 String[] blockNames = blocks.split(",");
                 for (String blockName : blockNames) {
-                    mineProcess.mineByName(blockName.trim());
+                    String trimmed = blockName.trim();
+                    if (!trimmed.isEmpty()) {
+                        mineProcess.mineByName(trimmed);
+                    }
                 }
                 break;
-                
+
             default:
                 future.completeExceptionally(new RuntimeException("Unknown MINE mode: " + mode));
                 break;
