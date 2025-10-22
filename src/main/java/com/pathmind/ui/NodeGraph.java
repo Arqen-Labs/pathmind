@@ -18,10 +18,11 @@ import net.minecraft.text.Text;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.Map;
 
 /**
  * Manages the node graph for the Pathmind visual editor.
@@ -34,6 +35,8 @@ public class NodeGraph {
 
     private final List<Node> nodes;
     private final List<NodeConnection> connections;
+    private final Map<Node, Long> nodeZOrders;
+    private long nextZOrder;
     private Node selectedNode;
     private Node draggingNode;
     private int draggingNodeStartX;
@@ -102,6 +105,8 @@ public class NodeGraph {
     public NodeGraph() {
         this.nodes = new ArrayList<>();
         this.connections = new ArrayList<>();
+        this.nodeZOrders = new IdentityHashMap<>();
+        this.nextZOrder = 0L;
         this.selectedNode = null;
         this.draggingNode = null;
         this.draggingNodeStartX = 0;
@@ -119,6 +124,7 @@ public class NodeGraph {
         // Clear any existing nodes
         nodes.clear();
         connections.clear();
+        resetZOrderState();
         
         // Calculate workspace area
         int workspaceStartX = sidebarWidth;
@@ -250,6 +256,7 @@ public class NodeGraph {
         connections.removeIf(conn ->
             conn.getOutputNode().equals(node) || conn.getInputNode().equals(node));
         nodes.remove(node);
+        nodeZOrders.remove(node);
 
         if (selectedNode == node) {
             selectedNode = null;
@@ -978,21 +985,29 @@ public class NodeGraph {
             return;
         }
 
-        Set<Node> groupSet = new HashSet<>(group);
-        LinkedHashSet<Node> orderedSet = new LinkedHashSet<>();
-        for (Node existing : nodes) {
-            if (groupSet.contains(existing)) {
-                orderedSet.add(existing);
-            }
-        }
-        orderedSet.addAll(group);
-
-        if (orderedSet.isEmpty()) {
-            return;
+        for (Node member : group) {
+            nodeZOrders.put(member, ++nextZOrder);
         }
 
-        nodes.removeIf(groupSet::contains);
-        nodes.addAll(orderedSet);
+        sortNodesByZOrder();
+    }
+
+    private void sortNodesByZOrder() {
+        nodes.sort((a, b) -> Long.compare(getZOrder(a), getZOrder(b)));
+    }
+
+    private long getZOrder(Node node) {
+        Long order = nodeZOrders.get(node);
+        if (order == null) {
+            order = ++nextZOrder;
+            nodeZOrders.put(node, order);
+        }
+        return order;
+    }
+
+    private void resetZOrderState() {
+        nodeZOrders.clear();
+        nextZOrder = 0L;
     }
 
     private void renderNode(DrawContext context, TextRenderer textRenderer, Node node, int mouseX, int mouseY, float delta) {
@@ -2198,6 +2213,7 @@ public class NodeGraph {
 
         nodes.clear();
         connections.clear();
+        resetZOrderState();
         selectedNode = null;
         draggingNode = null;
         draggingNodeDetached = false;
@@ -2223,6 +2239,7 @@ public class NodeGraph {
     private boolean applyLoadedData(NodeGraphData data) {
         nodes.clear();
         connections.clear();
+        resetZOrderState();
         selectedNode = null;
         draggingNode = null;
         draggingNodeDetached = false;
