@@ -4,7 +4,7 @@
 [![Fabric](https://img.shields.io/badge/Fabric-0.17.2-CC6E3E?style=for-the-badge&logo=modrinth)](https://fabricmc.net)
 [![Java](https://img.shields.io/badge/Java-21+-FF6B6B?style=for-the-badge&logo=openjdk)](https://openjdk.java.net)
 [![License](https://img.shields.io/badge/License-CC%20BY--NC%204.0-blue?style=for-the-badge)](https://creativecommons.org/licenses/by-nc/4.0/)
-[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge)](https://github.com/Arqen-Labs/pathmind)
+[![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge)](https://github.com/hotlinemc/pathmind)
 
 A Minecraft Fabric mod that introduces a visual node editor system for creating complex workflows and automation sequences through an intuitive graphical interface.
 
@@ -46,7 +46,7 @@ A Minecraft Fabric mod that introduces a visual node editor system for creating 
 
 1. **Clone the Repository**
    ```bash
-   git clone https://github.com/Arqen-Labs/pathmind.git
+   git clone https://github.com/hotlinemc/pathmind.git
    cd pathmind
    ```
 
@@ -143,7 +143,7 @@ Need help? Here are some resources:
 
 <div align="center">
 
-[![GitHub](https://img.shields.io/badge/GitHub-Repository-black?style=for-the-badge&logo=github)](https://github.com/Arqen-Labs/pathmind)
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-black?style=for-the-badge&logo=github)](https://github.com/hotlinemc/pathmind)
 [![Modrinth](https://img.shields.io/badge/Modrinth-Download-00D5AA?style=for-the-badge&logo=modrinth)](https://modrinth.com/mod/pathmind)
 
 </div>
