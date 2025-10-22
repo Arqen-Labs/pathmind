@@ -33,7 +33,7 @@ public class PreciseCompletionTracker {
     public static final String TASK_GOTO = "goto";
     public static final String TASK_PATH = "path";
     public static final String TASK_GOAL = "goal";
-    public static final String TASK_MINE = "mine";
+    public static final String TASK_COLLECT = "collect";
     public static final String TASK_EXPLORE = "explore";
     public static final String TASK_FARM = "farm";
     
@@ -136,8 +136,8 @@ public class PreciseCompletionTracker {
                 completed = checkGoalCompletion(baritone, taskId);
                 break;
                 
-            case TASK_MINE:
-                completed = checkMiningCompletion(baritone, taskId);
+            case TASK_COLLECT:
+                completed = checkCollectCompletion(baritone, taskId);
                 break;
                 
             case TASK_EXPLORE:
@@ -213,10 +213,10 @@ public class PreciseCompletionTracker {
     /**
      * Check if mining has completed
      */
-    private boolean checkMiningCompletion(IBaritone baritone, String taskId) {
+    private boolean checkCollectCompletion(IBaritone baritone, String taskId) {
         IMineProcess mineProcess = baritone.getMineProcess();
         if (mineProcess == null) {
-            completeTaskWithError(taskId, "Mine process unavailable");
+            completeTaskWithError(taskId, "Collect process unavailable");
             return true;
         }
 

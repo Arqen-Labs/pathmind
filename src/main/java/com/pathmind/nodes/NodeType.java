@@ -19,8 +19,8 @@ public enum NodeType {
     COME("Come", 0xFF9C27B0, "Moves towards the camera's direction"),
     SURFACE("Surface", 0xFF4CAF50, "Moves to the nearest surface"),
     
-    // Mining and Building Commands
-    MINE("Mine", 0xFF2196F3, "Mines specified block types"),
+    // Resource collection and Building Commands
+    COLLECT("Collect", 0xFF2196F3, "Collects specified block types"),
     BUILD("Build", 0xFFFF9800, "Constructs structures from schematic files"),
     TUNNEL("Tunnel", 0xFF795548, "Digs a 2x3 tunnel forward automatically"),
     FARM("Farm", 0xFF4CAF50, "Automates harvesting and replanting crops"),
@@ -199,7 +199,7 @@ public enum NodeType {
             case SPRINT:
             case TURN:
                 return NodeCategory.MOVEMENT;
-            case MINE:
+            case COLLECT:
             case BUILD:
             case TUNNEL:
             case FARM:
@@ -265,7 +265,7 @@ public enum NodeType {
             case EVENT_CALL:
             case GOTO:
             case GOAL:
-            case MINE:
+            case COLLECT:
             case PLACE:
             case CRAFT:
             case BUILD:

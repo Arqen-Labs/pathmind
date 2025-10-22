@@ -98,6 +98,7 @@ public class Node {
     private static final int BODY_PADDING_NO_PARAMS = 10;
     private static final int START_END_SIZE = 36;
     private static final String ERROR_MESSAGE_PREFIX = "\u00A74[\u00A7cPathmind\u00A74] \u00A77";
+    private static final String INFO_MESSAGE_PREFIX = "\u00A7a[\u00A7bPathmind\u00A7a] \u00A77";
     private static final long CRAFTING_ACTION_DELAY_MS = 75L;
     private static final int CRAFTING_OUTPUT_POLL_LIMIT = 5;
     private static final int SENSOR_SLOT_MARGIN_HORIZONTAL = 8;
@@ -229,6 +230,22 @@ public class Node {
         }
 
         client.player.sendMessage(Text.literal(ERROR_MESSAGE_PREFIX + message), false);
+    }
+
+    private void sendNodeInfoMessage(net.minecraft.client.MinecraftClient client, String message) {
+        if (client == null || message == null || message.isEmpty()) {
+            return;
+        }
+
+        client.execute(() -> sendNodeInfoMessageOnClientThread(client, message));
+    }
+
+    private void sendNodeInfoMessageOnClientThread(net.minecraft.client.MinecraftClient client, String message) {
+        if (client == null || client.player == null || message == null || message.isEmpty()) {
+            return;
+        }
+
+        client.player.sendMessage(Text.literal(INFO_MESSAGE_PREFIX + message), false);
     }
 
     /**
@@ -686,7 +703,7 @@ public class Node {
     }
 
     public boolean hasAmountInputField() {
-        return type == NodeType.MINE && (mode == null || mode == NodeMode.MINE_SINGLE);
+        return type == NodeType.COLLECT && (mode == null || mode == NodeMode.COLLECT_SINGLE);
     }
 
     public int getAmountFieldDisplayHeight() {
@@ -1084,12 +1101,12 @@ public class Node {
                     // No parameters needed
                     break;
                     
-                // MINE modes
-                case MINE_SINGLE:
+                // COLLECT modes
+                case COLLECT_SINGLE:
                     parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, "minecraft:stone"));
                     parameters.add(new NodeParameter("Amount", ParameterType.INTEGER, "1"));
                     break;
-                case MINE_MULTIPLE:
+                case COLLECT_MULTIPLE:
                     parameters.add(new NodeParameter("Blocks", ParameterType.STRING, "stone,dirt"));
                     break;
                     
@@ -2374,8 +2391,8 @@ public class Node {
             case GOAL:
                 executeGoalCommand(future);
                 break;
-            case MINE:
-                executeMineCommand(future);
+            case COLLECT:
+                executeCollectCommand(future);
                 break;
             case BUILD:
                 executeBuildCommand(future);
@@ -2836,18 +2853,18 @@ public class Node {
         return true;
     }
     
-    private void executeMineCommand(CompletableFuture<Void> future) {
+    private void executeCollectCommand(CompletableFuture<Void> future) {
         if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
             return;
         }
         if (mode == null) {
-            future.completeExceptionally(new RuntimeException("No mode set for MINE node"));
+            future.completeExceptionally(new RuntimeException("No mode set for COLLECT node"));
             return;
         }
 
         IBaritone baritone = getBaritone();
         if (baritone == null) {
-            System.err.println("Baritone not available for mine command");
+            System.err.println("Baritone not available for collect command");
             future.completeExceptionally(new RuntimeException("Baritone not available"));
             return;
         }
@@ -2856,7 +2873,7 @@ public class Node {
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (mineProcess == null) {
             if (client != null) {
-                sendNodeErrorMessage(client, "Cannot start mining: mining process unavailable.");
+                sendNodeErrorMessage(client, "Cannot start collecting: mining process unavailable.");
             }
             future.complete(null);
             return;
@@ -2867,7 +2884,7 @@ public class Node {
         int requestedAmount = 0;
 
         switch (mode) {
-            case MINE_SINGLE: {
+            case COLLECT_SINGLE: {
                 String block = "minecraft:stone";
                 NodeParameter blockParam = getParameter("Block");
                 if (blockParam != null && !blockParam.getStringValue().isEmpty()) {
@@ -2879,7 +2896,7 @@ public class Node {
                 Identifier blockIdentifier = Identifier.tryParse(normalizedBlock);
                 if (blockIdentifier == null || !Registries.BLOCK.containsId(blockIdentifier)) {
                     if (client != null) {
-                        sendNodeErrorMessage(client, "Cannot mine \"" + block + "\": unknown block identifier.");
+                        sendNodeErrorMessage(client, "Cannot collect \"" + block + "\": unknown block identifier.");
                     }
                     future.complete(null);
                     return;
@@ -2889,7 +2906,7 @@ public class Node {
                 Item blockItem = targetBlock.asItem();
                 if (blockItem == Items.AIR) {
                     if (client != null) {
-                        sendNodeErrorMessage(client, "Cannot mine \"" + block + "\": block has no corresponding item.");
+                        sendNodeErrorMessage(client, "Cannot collect \"" + block + "\": block has no corresponding item.");
                     }
                     future.complete(null);
                     return;
@@ -2915,7 +2932,7 @@ public class Node {
                 trackedItem = blockItem;
                 break;
             }
-            case MINE_MULTIPLE: {
+            case COLLECT_MULTIPLE: {
                 String blocks = "stone,dirt";
                 NodeParameter blocksParam = getParameter("Blocks");
                 if (blocksParam != null && !blocksParam.getStringValue().isEmpty()) {
@@ -2934,7 +2951,7 @@ public class Node {
                     Identifier identifier = Identifier.tryParse(normalized);
                     if (identifier == null || !Registries.BLOCK.containsId(identifier)) {
                         if (client != null) {
-                            sendNodeErrorMessage(client, "Cannot mine \"" + trimmed + "\": unknown block identifier.");
+                            sendNodeErrorMessage(client, "Cannot collect \"" + trimmed + "\": unknown block identifier.");
                         }
                         future.complete(null);
                         return;
@@ -2942,7 +2959,7 @@ public class Node {
                     Block targetBlock = Registries.BLOCK.get(identifier);
                     if (targetBlock.asItem() == Items.AIR) {
                         if (client != null) {
-                            sendNodeErrorMessage(client, "Cannot mine \"" + trimmed + "\": block has no corresponding item.");
+                            sendNodeErrorMessage(client, "Cannot collect \"" + trimmed + "\": block has no corresponding item.");
                         }
                         future.complete(null);
                         return;
@@ -2964,7 +2981,7 @@ public class Node {
                 break;
             }
             default:
-                future.completeExceptionally(new RuntimeException("Unknown MINE mode: " + mode));
+                future.completeExceptionally(new RuntimeException("Unknown COLLECT mode: " + mode));
                 return;
         }
 
@@ -2983,18 +3000,18 @@ public class Node {
             ? client.player.getInventory().count(trackedItem)
             : -1;
 
-        final int desiredInventoryTotal;
-        if (trackAmount) {
-            int baseline = Math.max(startingCount, 0);
-            long combined = (long) amountToTrack + baseline;
-            desiredInventoryTotal = (int) Math.min(Integer.MAX_VALUE, combined);
-        } else {
-            desiredInventoryTotal = 0;
+        if (trackAmount && startingCount >= amountToTrack && client != null) {
+            String itemName = itemToTrack.getName().getString();
+            sendNodeInfoMessage(client, "Already have at least " + amountToTrack + " x " + itemName + "; skipping collect command.");
+            future.complete(null);
+            return;
         }
 
+        final int desiredInventoryTotal = trackAmount ? amountToTrack : 0;
+
         String targetList = String.join(" ", resolvedTargets);
-        System.out.println("Starting Baritone mine process for targets: " + targetList
-            + (trackAmount ? (" (target total in inventory: " + desiredInventoryTotal + ")") : ""));
+        System.out.println("Starting Baritone collect command for targets: " + targetList
+            + (trackAmount ? (" (target inventory total: " + desiredInventoryTotal + ")") : ""));
 
         String[] targetArray = resolvedTargets.toArray(new String[0]);
 
@@ -3007,27 +3024,27 @@ public class Node {
                         mineProcess.mineByName(targetArray);
                     }
                 } catch (Exception e) {
-                    throw new RuntimeException("Baritone mine process rejected the mine command.", e);
+                    throw new RuntimeException("Baritone mine process rejected the collect command.", e);
                 }
             })
             .whenComplete((ignored, throwable) -> {
                 if (throwable != null) {
                     String reason = throwable.getCause() != null ? throwable.getCause().getMessage() : throwable.getMessage();
-                    System.err.println("Failed to dispatch mine command: " + reason);
+                    System.err.println("Failed to dispatch collect command: " + reason);
                     if (client != null) {
-                        sendNodeErrorMessageOnClientThread(client, "Cannot start mining: " + (reason != null ? reason : "unknown error."));
+                        sendNodeErrorMessageOnClientThread(client, "Cannot start collecting: " + (reason != null ? reason : "unknown error."));
                     }
                     if (!future.isDone()) {
-                        future.completeExceptionally(new RuntimeException("Failed to execute mine command", throwable));
+                        future.completeExceptionally(new RuntimeException("Failed to execute collect command", throwable));
                     }
                     return;
                 }
 
                 PreciseCompletionTracker tracker = PreciseCompletionTracker.getInstance();
-                tracker.startTrackingTask(PreciseCompletionTracker.TASK_MINE, future);
+                tracker.startTrackingTask(PreciseCompletionTracker.TASK_COLLECT, future);
 
                 if (trackAmount) {
-                    startMineAmountMonitor(baritone, itemToTrack, startingCount, amountToTrack);
+                    startCollectAmountMonitor(baritone, itemToTrack, startingCount, amountToTrack);
                 }
             });
     }
@@ -5050,13 +5067,13 @@ public class Node {
         return trimmed;
     }
 
-    private void startMineAmountMonitor(IBaritone baritone, Item trackedItem, int initialCount, int targetAmount) {
+    private void startCollectAmountMonitor(IBaritone baritone, Item trackedItem, int initialCount, int targetAmount) {
         if (baritone == null || trackedItem == null || targetAmount <= 0) {
             return;
         }
 
-        final int[] baseline = new int[] { Math.max(initialCount, 0) };
-        final boolean[] baselineCaptured = new boolean[] { initialCount >= 0 };
+        final int[] observedStart = new int[] { Math.max(initialCount, 0) };
+        final boolean[] startCaptured = new boolean[] { initialCount >= 0 };
 
         Runnable pollTask = new Runnable() {
             @Override
@@ -5073,13 +5090,13 @@ public class Node {
                 }
 
                 CountDownLatch latch = new CountDownLatch(1);
-                int[] currentCount = new int[] { baseline[0] };
+                int[] currentCount = new int[] { observedStart[0] };
                 client.execute(() -> {
                     if (client.player != null) {
                         currentCount[0] = client.player.getInventory().count(trackedItem);
-                        if (!baselineCaptured[0]) {
-                            baseline[0] = currentCount[0];
-                            baselineCaptured[0] = true;
+                        if (!startCaptured[0]) {
+                            observedStart[0] = currentCount[0];
+                            startCaptured[0] = true;
                         }
                     }
                     latch.countDown();
@@ -5096,21 +5113,21 @@ public class Node {
                     return;
                 }
 
-                if (!baselineCaptured[0]) {
+                if (!startCaptured[0]) {
                     CompletableFuture.delayedExecutor(300, TimeUnit.MILLISECONDS).execute(this);
                     return;
                 }
 
-                if (currentCount[0] - baseline[0] >= targetAmount) {
+                if (currentCount[0] >= targetAmount) {
                     client.execute(() -> {
                         IMineProcess process = baritone.getMineProcess();
                         if (process != null && process.isActive()) {
                             Identifier itemId = Registries.ITEM.getId(trackedItem);
                             String debugName = itemId != null ? itemId.toString() : trackedItem.toString();
-                            System.out.println("Mine amount monitor: gathered " + targetAmount + " of " + debugName + ", cancelling mine process.");
+                            System.out.println("Collect amount monitor: reached " + currentCount[0] + " of " + debugName + ", cancelling collect process.");
                             process.cancel();
                         }
-                        PreciseCompletionTracker.getInstance().markTaskCompleted(PreciseCompletionTracker.TASK_MINE);
+                        PreciseCompletionTracker.getInstance().markTaskCompleted(PreciseCompletionTracker.TASK_COLLECT);
                     });
                     return;
                 }

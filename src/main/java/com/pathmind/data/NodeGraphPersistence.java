@@ -26,6 +26,7 @@ public class NodeGraphPersistence {
     private static final Gson GSON = new GsonBuilder()
             .setPrettyPrinting()
             .registerTypeAdapter(NodeType.class, new NodeTypeAdapter())
+            .registerTypeAdapter(com.pathmind.nodes.NodeMode.class, new NodeModeAdapter())
             .create();
 
     private static final Map<String, String> IN_MEMORY_JSON_CACHE = new ConcurrentHashMap<>();
@@ -357,10 +358,40 @@ class NodeTypeAdapter extends com.google.gson.TypeAdapter<NodeType> {
     public NodeType read(com.google.gson.stream.JsonReader in) throws java.io.IOException {
         String name = in.nextString();
         try {
+            if ("MINE".equals(name)) {
+                return NodeType.COLLECT;
+            }
             return NodeType.valueOf(name);
         } catch (IllegalArgumentException e) {
             // Handle unknown node types gracefully
             System.err.println("Unknown node type: " + name + ", skipping...");
+            return null;
+        }
+    }
+}
+
+/**
+ * Custom adapter for NodeMode enum serialization
+ */
+class NodeModeAdapter extends com.google.gson.TypeAdapter<com.pathmind.nodes.NodeMode> {
+    @Override
+    public void write(com.google.gson.stream.JsonWriter out, com.pathmind.nodes.NodeMode value) throws java.io.IOException {
+        out.value(value.name());
+    }
+
+    @Override
+    public com.pathmind.nodes.NodeMode read(com.google.gson.stream.JsonReader in) throws java.io.IOException {
+        String name = in.nextString();
+        try {
+            if ("MINE_SINGLE".equals(name)) {
+                return com.pathmind.nodes.NodeMode.COLLECT_SINGLE;
+            }
+            if ("MINE_MULTIPLE".equals(name)) {
+                return com.pathmind.nodes.NodeMode.COLLECT_MULTIPLE;
+            }
+            return com.pathmind.nodes.NodeMode.valueOf(name);
+        } catch (IllegalArgumentException e) {
+            System.err.println("Unknown node mode: " + name + ", skipping...");
             return null;
         }
     }
