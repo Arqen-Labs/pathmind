@@ -38,7 +38,6 @@ public class NodeGraph {
     private int draggingNodeStartX;
     private int draggingNodeStartY;
     private boolean draggingNodeDetached;
-    private boolean draggingNodeReordered;
     private boolean draggingNodeMoved;
     
     // Camera/viewport for infinite scrolling
@@ -107,7 +106,6 @@ public class NodeGraph {
         this.draggingNodeStartX = 0;
         this.draggingNodeStartY = 0;
         this.draggingNodeDetached = false;
-        this.draggingNodeReordered = false;
         this.draggingNodeMoved = false;
         this.activePreset = PresetManager.getActivePreset();
         this.cascadeDeletionPreviewNodes = new HashSet<>();
@@ -254,7 +252,6 @@ public class NodeGraph {
         if (draggingNode == node) {
             draggingNode = null;
             draggingNodeDetached = false;
-            draggingNodeReordered = false;
             draggingNodeMoved = false;
         }
     }
@@ -327,7 +324,6 @@ public class NodeGraph {
         draggingNodeStartX = node.getX();
         draggingNodeStartY = node.getY();
         draggingNodeDetached = false;
-        draggingNodeReordered = false;
         draggingNodeMoved = false;
         node.setDragging(true);
         node.setDragOffsetX(mouseX + cameraX - node.getX());
@@ -383,10 +379,7 @@ public class NodeGraph {
 
             if (hasMovedFromStart) {
                 draggingNodeMoved = true;
-                if (!draggingNodeReordered) {
-                    bringNodeGroupToFront(draggingNode);
-                    draggingNodeReordered = true;
-                }
+                bringNodeGroupToFront(draggingNode);
             }
 
             if (!draggingNodeDetached && hasMovedFromStart) {
@@ -662,7 +655,6 @@ public class NodeGraph {
         }
         draggingNode = null;
         draggingNodeDetached = false;
-        draggingNodeReordered = false;
         draggingNodeMoved = false;
         resetDropTargets();
     }
@@ -2183,7 +2175,6 @@ public class NodeGraph {
         selectedNode = null;
         draggingNode = null;
         draggingNodeDetached = false;
-        draggingNodeReordered = false;
         draggingNodeMoved = false;
         hoveredNode = null;
         hoveredSocketNode = null;
@@ -2209,7 +2200,6 @@ public class NodeGraph {
         selectedNode = null;
         draggingNode = null;
         draggingNodeDetached = false;
-        draggingNodeReordered = false;
         draggingNodeMoved = false;
 
         // Load nodes and create node map for connections
