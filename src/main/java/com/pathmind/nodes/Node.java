@@ -2978,24 +2978,27 @@ public class Node {
 
         try {
             startMineProcess(client, mineProcess, mineTargets);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            future.completeExceptionally(e);
         } catch (RuntimeException e) {
             sendNodeErrorMessage(client, "Failed to start mining: " + e.getMessage());
             future.complete(null);
         }
     }
 
-    private void startMineProcess(net.minecraft.client.MinecraftClient client, IMineProcess mineProcess, List<String> mineTargets) throws InterruptedException {
+    private void startMineProcess(net.minecraft.client.MinecraftClient client, IMineProcess mineProcess, List<String> mineTargets) {
         if (mineTargets == null || mineTargets.isEmpty()) {
             return;
         }
 
-        runOnClientThread(client, () -> {
+        Runnable startTask = () -> {
             System.out.println("Executing mine for blocks: " + String.join(", ", mineTargets));
             mineProcess.mineByName(mineTargets.toArray(new String[0]));
-        });
+        };
+
+        if (client == null || client.isOnThread()) {
+            startTask.run();
+        } else {
+            client.execute(startTask);
+        }
     }
     
     private void executeCraftCommand(CompletableFuture<Void> future) {
