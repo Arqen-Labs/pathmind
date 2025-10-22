@@ -39,6 +39,7 @@ public class NodeGraph {
     private int draggingNodeStartY;
     private boolean draggingNodeDetached;
     private boolean draggingNodeReordered;
+    private boolean draggingNodeMoved;
     
     // Camera/viewport for infinite scrolling
     private int cameraX = 0;
@@ -107,6 +108,7 @@ public class NodeGraph {
         this.draggingNodeStartY = 0;
         this.draggingNodeDetached = false;
         this.draggingNodeReordered = false;
+        this.draggingNodeMoved = false;
         this.activePreset = PresetManager.getActivePreset();
         this.cascadeDeletionPreviewNodes = new HashSet<>();
 
@@ -251,6 +253,9 @@ public class NodeGraph {
         }
         if (draggingNode == node) {
             draggingNode = null;
+            draggingNodeDetached = false;
+            draggingNodeReordered = false;
+            draggingNodeMoved = false;
         }
     }
 
@@ -323,6 +328,7 @@ public class NodeGraph {
         draggingNodeStartY = node.getY();
         draggingNodeDetached = false;
         draggingNodeReordered = false;
+        draggingNodeMoved = false;
         node.setDragging(true);
         node.setDragOffsetX(mouseX + cameraX - node.getX());
         node.setDragOffsetY(mouseY + cameraY - node.getY());
@@ -375,9 +381,12 @@ public class NodeGraph {
 
             boolean hasMovedFromStart = newX != draggingNodeStartX || newY != draggingNodeStartY;
 
-            if (hasMovedFromStart && !draggingNodeReordered) {
-                bringNodeGroupToFront(draggingNode);
-                draggingNodeReordered = true;
+            if (hasMovedFromStart) {
+                draggingNodeMoved = true;
+                if (!draggingNodeReordered) {
+                    bringNodeGroupToFront(draggingNode);
+                    draggingNodeReordered = true;
+                }
             }
 
             if (!draggingNodeDetached && hasMovedFromStart) {
@@ -646,10 +655,15 @@ public class NodeGraph {
                 node.setDragging(false);
                 node.setSocketsHidden(false);
             }
+
+            if (draggingNodeMoved) {
+                bringNodeGroupToFront(node);
+            }
         }
         draggingNode = null;
         draggingNodeDetached = false;
         draggingNodeReordered = false;
+        draggingNodeMoved = false;
         resetDropTargets();
     }
 
@@ -2168,6 +2182,9 @@ public class NodeGraph {
         connections.clear();
         selectedNode = null;
         draggingNode = null;
+        draggingNodeDetached = false;
+        draggingNodeReordered = false;
+        draggingNodeMoved = false;
         hoveredNode = null;
         hoveredSocketNode = null;
         hoveredSocketIndex = -1;
@@ -2191,6 +2208,9 @@ public class NodeGraph {
         connections.clear();
         selectedNode = null;
         draggingNode = null;
+        draggingNodeDetached = false;
+        draggingNodeReordered = false;
+        draggingNodeMoved = false;
 
         // Load nodes and create node map for connections
         java.util.Map<String, Node> nodeMap = new java.util.HashMap<>();
