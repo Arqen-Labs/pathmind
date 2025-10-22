@@ -8,18 +8,12 @@ import baritone.api.process.IGetToBlockProcess;
 import baritone.api.process.IMineProcess;
 import baritone.api.process.IExploreProcess;
 import baritone.api.process.IFarmProcess;
-import baritone.api.process.IBaritoneProcess;
-import baritone.api.pathing.goals.Goal;
-import java.util.concurrent.CompletableFuture;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
 
 import net.minecraft.block.Block;
 import net.minecraft.client.MinecraftClient;
@@ -40,10 +34,9 @@ public class PreciseCompletionTracker {
     private final Map<String, CompletableFuture<Void>> pendingTasks = new ConcurrentHashMap<>();
     private final Map<String, ProcessState> processStates = new ConcurrentHashMap<>();
     private final Map<String, Long> taskStartTimes = new ConcurrentHashMap<>();
-    private final ScheduledExecutorService monitoringExecutor;
-    private final Map<String, ScheduledFuture<?>> monitoringTasks = new ConcurrentHashMap<>();
+    private final Map<String, Long> nextCheckTimes = new ConcurrentHashMap<>();
     private MineTaskData mineTaskData;
-    
+
     // Task types
     public static final String TASK_GOTO = "goto";
     public static final String TASK_PATH = "path";
@@ -54,6 +47,7 @@ public class PreciseCompletionTracker {
     
     // Maximum monitoring duration (in milliseconds) - safety fallback
     private static final long MAX_MONITORING_DURATION = 300000; // 5 minutes
+    private static final long MONITOR_INTERVAL_MS = 100; // 100ms between checks
     
     private enum ProcessState {
         STARTING,
@@ -79,13 +73,7 @@ public class PreciseCompletionTracker {
         }
     }
     
-    private PreciseCompletionTracker() {
-        this.monitoringExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread thread = new Thread(r, "PreciseCompletionTimer");
-            thread.setDaemon(true);
-            return thread;
-        });
-    }
+    private PreciseCompletionTracker() {}
     
     public static PreciseCompletionTracker getInstance() {
         if (instance == null) {
@@ -141,45 +129,36 @@ public class PreciseCompletionTracker {
      */
     private void startMonitoringTask(String taskId) {
         cancelMonitoringTask(taskId);
+        nextCheckTimes.put(taskId, 0L);
+    }
 
-        Runnable monitoringTask = () -> {
+    public void tick() {
+        if (pendingTasks.isEmpty()) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        for (String taskId : pendingTasks.keySet()) {
+            long nextCheck = nextCheckTimes.getOrDefault(taskId, 0L);
+            if (now < nextCheck) {
+                continue;
+            }
+
             if (!pendingTasks.containsKey(taskId)) {
                 cancelMonitoringTask(taskId);
-                return;
+                continue;
             }
 
-            Runnable check = () -> {
-                if (!pendingTasks.containsKey(taskId)) {
-                    cancelMonitoringTask(taskId);
-                    return;
+            try {
+                boolean completed = checkTaskCompletion(taskId);
+                if (!completed) {
+                    scheduleNextCheck(taskId, now);
                 }
-
-                try {
-                    if (checkTaskCompletion(taskId)) {
-                        cancelMonitoringTask(taskId);
-                    }
-                } catch (Exception e) {
-                    System.err.println("Error monitoring task " + taskId + ": " + e.getMessage());
-                    completeTaskWithError(taskId, "Monitoring error: " + e.getMessage());
-                    cancelMonitoringTask(taskId);
-                }
-            };
-
-            MinecraftClient client = MinecraftClient.getInstance();
-            if (client != null && !client.isOnThread()) {
-                client.execute(check);
-            } else {
-                check.run();
+            } catch (Exception e) {
+                System.err.println("PreciseCompletionTracker: Error monitoring task " + taskId + ": " + e.getMessage());
+                completeTaskWithError(taskId, "Monitoring error: " + e.getMessage());
             }
-        };
-
-        ScheduledFuture<?> future = monitoringExecutor.scheduleAtFixedRate(
-                monitoringTask,
-                100,
-                100,
-                TimeUnit.MILLISECONDS
-        );
-        monitoringTasks.put(taskId, future);
+        }
     }
     
     /**
@@ -249,6 +228,11 @@ public class PreciseCompletionTracker {
         IPathingBehavior pathingBehavior = baritone.getPathingBehavior();
         ICustomGoalProcess customGoalProcess = baritone.getCustomGoalProcess();
         IGetToBlockProcess getToBlockProcess = baritone.getGetToBlockProcess();
+
+        if (pathingBehavior == null || customGoalProcess == null) {
+            completeTaskWithError(taskId, "Pathing behavior unavailable");
+            return true;
+        }
 
         // Check if pathing has stopped and no goal is active
         boolean hasPath = pathingBehavior.hasPath();
@@ -392,9 +376,14 @@ public class PreciseCompletionTracker {
      */
     private boolean checkExplorationCompletion(IBaritone baritone, String taskId) {
         IExploreProcess exploreProcess = baritone.getExploreProcess();
-        
+
+        if (exploreProcess == null) {
+            completeTaskWithError(taskId, "Explore process unavailable");
+            return true;
+        }
+
         ProcessState currentState = processStates.get(taskId);
-        
+
         if (currentState == ProcessState.STARTING && exploreProcess.isActive()) {
             // Exploration has started
             processStates.put(taskId, ProcessState.ACTIVE);
@@ -414,9 +403,14 @@ public class PreciseCompletionTracker {
      */
     private boolean checkFarmingCompletion(IBaritone baritone, String taskId) {
         IFarmProcess farmProcess = baritone.getFarmProcess();
-        
+
+        if (farmProcess == null) {
+            completeTaskWithError(taskId, "Farm process unavailable");
+            return true;
+        }
+
         ProcessState currentState = processStates.get(taskId);
-        
+
         if (currentState == ProcessState.STARTING && farmProcess.isActive()) {
             // Farming has started
             processStates.put(taskId, ProcessState.ACTIVE);
@@ -490,10 +484,7 @@ public class PreciseCompletionTracker {
         pendingTasks.clear();
         processStates.clear();
         taskStartTimes.clear();
-        for (ScheduledFuture<?> future : monitoringTasks.values()) {
-            future.cancel(false);
-        }
-        monitoringTasks.clear();
+        nextCheckTimes.clear();
     }
     
     /**
@@ -523,9 +514,10 @@ public class PreciseCompletionTracker {
     }
 
     private void cancelMonitoringTask(String taskId) {
-        ScheduledFuture<?> future = monitoringTasks.remove(taskId);
-        if (future != null) {
-            future.cancel(false);
-        }
+        nextCheckTimes.remove(taskId);
+    }
+
+    private void scheduleNextCheck(String taskId, long now) {
+        nextCheckTimes.put(taskId, now + MONITOR_INTERVAL_MS);
     }
 }
