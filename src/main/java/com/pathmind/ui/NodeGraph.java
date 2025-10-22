@@ -316,6 +316,7 @@ public class NodeGraph {
         stopAmountEditing(true);
         resetDropTargets();
 
+        bringNodeGroupToFront(node);
         draggingNode = node;
         draggingNodeStartX = node.getX();
         draggingNodeStartY = node.getY();
@@ -893,47 +894,65 @@ public class NodeGraph {
         }
 
         for (Node node : nodes) {
-            if (node.isSensorNode() || node.isAttachedToActionControl() || node.isParameterNode()) {
-                continue;
-            }
-            boolean shouldRender = onlyDragged ? node.isDragging() : !node.isDragging();
+            boolean parentDragging = isDraggedWithParent(node);
+            boolean isBeingDragged = node.isDragging() || parentDragging;
+            boolean shouldRender = onlyDragged ? isBeingDragged : !isBeingDragged;
             if (shouldRender) {
                 renderNode(context, textRenderer, node, mouseX, mouseY, delta);
             }
+        }
+    }
+
+    private boolean isDraggedWithParent(Node node) {
+        if (node == null) {
+            return false;
         }
 
-        for (Node node : nodes) {
-            if (!node.isSensorNode()) {
-                continue;
-            }
-            boolean parentDragging = node.isAttachedToControl() && node.getParentControl() != null && node.getParentControl().isDragging();
-            boolean shouldRender = onlyDragged ? (node.isDragging() || parentDragging) : !node.isDragging();
-            if (shouldRender) {
-                renderNode(context, textRenderer, node, mouseX, mouseY, delta);
-            }
+        if (node.isSensorNode() && node.getParentControl() != null && node.getParentControl().isDragging()) {
+            return true;
         }
 
-        for (Node node : nodes) {
-            if (!node.isParameterNode()) {
-                continue;
-            }
-            boolean parentDragging = node.getParentParameterHost() != null && node.getParentParameterHost().isDragging();
-            boolean shouldRender = onlyDragged ? (node.isDragging() || parentDragging) : !node.isDragging();
-            if (shouldRender) {
-                renderNode(context, textRenderer, node, mouseX, mouseY, delta);
-            }
+        if (node.isParameterNode() && node.getParentParameterHost() != null && node.getParentParameterHost().isDragging()) {
+            return true;
         }
 
-        for (Node node : nodes) {
-            if (!node.isAttachedToActionControl()) {
-                continue;
-            }
-            boolean parentDragging = node.getParentActionControl() != null && node.getParentActionControl().isDragging();
-            boolean shouldRender = onlyDragged ? (node.isDragging() || parentDragging) : !node.isDragging();
-            if (shouldRender) {
-                renderNode(context, textRenderer, node, mouseX, mouseY, delta);
-            }
+        if (node.isAttachedToActionControl() && node.getParentActionControl() != null && node.getParentActionControl().isDragging()) {
+            return true;
         }
+
+        return false;
+    }
+
+    private void bringNodeGroupToFront(Node node) {
+        if (node == null || nodes.isEmpty()) {
+            return;
+        }
+
+        List<Node> group = new ArrayList<>();
+        Set<Node> visited = new HashSet<>();
+        collectNodeAndAttachments(node, group, visited);
+        if (group.isEmpty()) {
+            return;
+        }
+
+        nodes.removeAll(group);
+        nodes.addAll(group);
+    }
+
+    private void collectNodeAndAttachments(Node node, List<Node> group, Set<Node> visited) {
+        if (node == null || visited.contains(node)) {
+            return;
+        }
+
+        visited.add(node);
+        if (!nodes.contains(node)) {
+            return;
+        }
+
+        group.add(node);
+        collectNodeAndAttachments(node.getAttachedSensor(), group, visited);
+        collectNodeAndAttachments(node.getAttachedActionNode(), group, visited);
+        collectNodeAndAttachments(node.getAttachedParameter(), group, visited);
     }
 
     private void renderNode(DrawContext context, TextRenderer textRenderer, Node node, int mouseX, int mouseY, float delta) {
