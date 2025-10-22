@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.process.ICustomGoalProcess;
-import baritone.api.process.IMineProcess;
+import baritone.api.command.manager.ICommandManager;
 import baritone.api.process.IExploreProcess;
 import baritone.api.process.IGetToBlockProcess;
 import baritone.api.process.IFarmProcess;
@@ -1772,6 +1772,13 @@ public class Node {
 
         // Execute on the main Minecraft thread
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+
+        if (hasParameterSlot() && attachedParameter == null) {
+            sendNodeErrorMessage(client, type.getDisplayName() + " requires a parameter node to be attached before it can run.");
+            future.complete(null);
+            return future;
+        }
+
         if (client != null) {
             client.execute(() -> {
                 try {
@@ -2841,14 +2848,18 @@ public class Node {
             future.completeExceptionally(new RuntimeException("Baritone not available"));
             return;
         }
-        
-        IMineProcess mineProcess = baritone.getMineProcess();
-        if (mineProcess == null) {
-            future.completeExceptionally(new RuntimeException("Mine process unavailable"));
+
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        ICommandManager commandManager = baritone.getCommandManager();
+        if (commandManager == null) {
+            sendNodeErrorMessage(client, "Cannot start mining: command manager unavailable.");
+            future.complete(null);
             return;
         }
 
         PreciseCompletionTracker tracker = PreciseCompletionTracker.getInstance();
+        List<String> resolvedTargets = new ArrayList<>();
+        Integer amountToTrack = null;
 
         switch (mode) {
             case MINE_SINGLE: {
@@ -2860,7 +2871,6 @@ public class Node {
 
                 String normalizedBlock = normalizeResourceId(block, "minecraft");
                 Identifier blockIdentifier = Identifier.tryParse(normalizedBlock);
-                net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
                 if (blockIdentifier == null || !Registries.BLOCK.containsId(blockIdentifier)) {
                     if (client != null) {
                         sendNodeErrorMessage(client, "Cannot mine \"" + block + "\": unknown block identifier.");
@@ -2881,59 +2891,144 @@ public class Node {
 
                 NodeParameter amountParam = getParameter("Amount");
                 int targetAmount = amountParam != null ? amountParam.getIntValue() : 1;
-                if (targetAmount < 0) {
-                    targetAmount = Math.abs(targetAmount);
+                if (targetAmount <= 0) {
+                    if (client != null) {
+                        sendNodeErrorMessage(client, "Set an amount greater than zero before running this node.");
+                    }
+                    future.complete(null);
+                    return;
                 }
 
                 if (amountParam != null) {
                     setParameterValueAndPropagate("Amount", Integer.toString(targetAmount));
                 }
 
-                setParameterValueAndPropagate("Block", blockIdentifier.toString());
+                String canonicalBlock = blockIdentifier.toString();
+                setParameterValueAndPropagate("Block", canonicalBlock);
+                resolvedTargets.add(canonicalBlock);
+                amountToTrack = targetAmount;
+                break;
+            }
+            case MINE_MULTIPLE: {
+                String blocks = "stone,dirt";
+                NodeParameter blocksParam = getParameter("Blocks");
+                if (blocksParam != null && !blocksParam.getStringValue().isEmpty()) {
+                    blocks = blocksParam.getStringValue();
+                }
 
-                boolean startedTracking = false;
-                if (targetAmount > 0) {
-                    startedTracking = tracker.startMineTask(blockIdentifier.toString(), targetAmount, future);
-                    if (!startedTracking) {
+                String[] blockNames = blocks.split("[,;]");
+                List<String> canonicalNames = new ArrayList<>();
+                for (String blockName : blockNames) {
+                    String trimmed = blockName.trim();
+                    if (trimmed.isEmpty()) {
+                        continue;
+                    }
+                    String normalized = normalizeResourceId(trimmed, "minecraft");
+                    Identifier identifier = Identifier.tryParse(normalized);
+                    if (identifier == null || !Registries.BLOCK.containsId(identifier)) {
                         if (client != null) {
-                            sendNodeErrorMessage(client, "Cannot track mining progress for \"" + block + "\".");
+                            sendNodeErrorMessage(client, "Cannot mine \"" + trimmed + "\": unknown block identifier.");
                         }
                         future.complete(null);
                         return;
                     }
-                }
-                if (!startedTracking) {
-                    tracker.clearMineTracking();
-                    tracker.startTrackingTask(PreciseCompletionTracker.TASK_MINE, future);
+                    Block targetBlock = Registries.BLOCK.get(identifier);
+                    if (targetBlock.asItem() == Items.AIR) {
+                        if (client != null) {
+                            sendNodeErrorMessage(client, "Cannot mine \"" + trimmed + "\": block has no corresponding item.");
+                        }
+                        future.complete(null);
+                        return;
+                    }
+                    canonicalNames.add(identifier.toString());
                 }
 
-                System.out.println("Executing mine for: " + blockIdentifier + " (target: " + targetAmount + ")");
-                mineProcess.mineByName(blockIdentifier.toString());
+                if (canonicalNames.isEmpty()) {
+                    if (client != null) {
+                        sendNodeErrorMessage(client, "Provide at least one block before running this node.");
+                    }
+                    future.complete(null);
+                    return;
+                }
+
+                String joined = String.join(",", canonicalNames);
+                setParameterValueAndPropagate("Blocks", joined);
+                resolvedTargets.addAll(canonicalNames);
                 break;
             }
-
-            case MINE_MULTIPLE:
-                tracker.startTrackingTask(PreciseCompletionTracker.TASK_MINE, future);
-                String blocks = "stone,dirt";
-                NodeParameter blocksParam = getParameter("Blocks");
-                if (blocksParam != null) {
-                    blocks = blocksParam.getStringValue();
-                }
-
-                System.out.println("Executing mine for blocks: " + blocks);
-                String[] blockNames = blocks.split(",");
-                for (String blockName : blockNames) {
-                    String trimmed = blockName.trim();
-                    if (!trimmed.isEmpty()) {
-                        mineProcess.mineByName(trimmed);
-                    }
-                }
-                break;
-
             default:
                 future.completeExceptionally(new RuntimeException("Unknown MINE mode: " + mode));
-                break;
+                return;
         }
+
+        if (resolvedTargets.isEmpty()) {
+            if (client != null) {
+                sendNodeErrorMessage(client, "Provide at least one block before running this node.");
+            }
+            future.complete(null);
+            return;
+        }
+
+        List<String> commandTargets = new ArrayList<>(resolvedTargets);
+        Integer trackedAmount = amountToTrack;
+        String command = "mine " + String.join(" ", commandTargets);
+        System.out.println("Executing mine command: " + command);
+
+        CompletableFuture
+            .supplyAsync(() -> {
+                try {
+                    return commandManager.execute(command);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            })
+            .whenComplete((accepted, throwable) -> {
+                net.minecraft.client.MinecraftClient mainClient = net.minecraft.client.MinecraftClient.getInstance();
+                if (mainClient == null) {
+                    if (!future.isDone()) {
+                        future.completeExceptionally(new RuntimeException("Minecraft client not available"));
+                    }
+                    return;
+                }
+
+                mainClient.execute(() -> {
+                    if (throwable != null) {
+                        System.err.println("Failed to execute mine command: " + throwable.getMessage());
+                        throwable.printStackTrace();
+                        sendNodeErrorMessage(mainClient, "Failed to start mining command.");
+                        if (!future.isDone()) {
+                            future.completeExceptionally(throwable);
+                        }
+                        return;
+                    }
+
+                    if (!Boolean.TRUE.equals(accepted)) {
+                        sendNodeErrorMessage(mainClient, "Failed to start mining command. Check Baritone configuration.");
+                        if (!future.isDone()) {
+                            future.complete(null);
+                        }
+                        return;
+                    }
+
+                    tracker.clearMineTracking();
+                    if (trackedAmount != null) {
+                        boolean started = tracker.startMineTask(commandTargets.get(0), trackedAmount, future);
+                        if (!started) {
+                            sendNodeErrorMessage(mainClient, "Cannot track mining progress for \"" + commandTargets.get(0) + "\".");
+                            try {
+                                commandManager.execute("stop");
+                            } catch (Exception ignored) {
+                            }
+                            if (!future.isDone()) {
+                                future.complete(null);
+                            }
+                            return;
+                        }
+                    } else {
+                        tracker.startTrackingTask(PreciseCompletionTracker.TASK_MINE, future);
+                    }
+                });
+            });
     }
     
     private void executeCraftCommand(CompletableFuture<Void> future) {

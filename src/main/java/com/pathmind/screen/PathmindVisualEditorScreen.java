@@ -11,6 +11,7 @@ import com.pathmind.ui.NodeParameterOverlay;
 import com.pathmind.ui.Sidebar;
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.widget.TextFieldWidget;
@@ -180,8 +181,10 @@ public class PathmindVisualEditorScreen extends Screen {
 
         boolean controlsDisabled = isPopupObscuringWorkspace();
 
-        renderStopButton(context, mouseX, mouseY, controlsDisabled);
-        renderPlayButton(context, mouseX, mouseY, controlsDisabled);
+        if (shouldShowExecutionControls()) {
+            renderStopButton(context, mouseX, mouseY, controlsDisabled);
+            renderPlayButton(context, mouseX, mouseY, controlsDisabled);
+        }
         renderPresetDropdown(context, mouseX, mouseY, controlsDisabled);
 
         // Render parameter overlay if visible
@@ -216,6 +219,11 @@ public class PathmindVisualEditorScreen extends Screen {
     private boolean isPopupObscuringWorkspace() {
         boolean overlayVisible = parameterOverlay != null && parameterOverlay.isVisible();
         return overlayVisible || clearPopupVisible || importExportPopupVisible || createPresetPopupVisible || infoPopupVisible;
+    }
+    
+    private boolean shouldShowExecutionControls() {
+        MinecraftClient client = MinecraftClient.getInstance();
+        return client != null && client.player != null;
     }
     
     private void renderDraggingNode(DrawContext context, int mouseX, int mouseY) {
@@ -330,7 +338,7 @@ public class PathmindVisualEditorScreen extends Screen {
             return true;
         }
 
-        if (!isPopupObscuringWorkspace() && button == 0) {
+        if (!isPopupObscuringWorkspace() && button == 0 && shouldShowExecutionControls()) {
             if (isPointInPlayButton((int) mouseX, (int) mouseY)) {
                 presetDropdownOpen = false;
                 startExecutingAllGraphs();
@@ -1450,7 +1458,10 @@ public class PathmindVisualEditorScreen extends Screen {
     }
 
     private int getPresetDropdownX() {
-        return getStopButtonX() - PRESET_DROPDOWN_MARGIN - PRESET_DROPDOWN_WIDTH;
+        if (shouldShowExecutionControls()) {
+            return getStopButtonX() - PRESET_DROPDOWN_MARGIN - PRESET_DROPDOWN_WIDTH;
+        }
+        return this.width - PRESET_DROPDOWN_MARGIN - PRESET_DROPDOWN_WIDTH;
     }
 
     private int getPresetDropdownY() {
