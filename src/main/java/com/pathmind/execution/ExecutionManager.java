@@ -1,6 +1,5 @@
 package com.pathmind.execution;
 
-import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.behavior.IPathingBehavior;
 import baritone.api.process.ICustomGoalProcess;
@@ -322,7 +321,7 @@ public class ExecutionManager {
         PreciseCompletionTracker.getInstance().cancelAllTasks();
 
         try {
-            IBaritone baritone = BaritoneAPI.getProvider().getPrimaryBaritone();
+            IBaritone baritone = BaritoneAccess.tryGetBaritone();
             if (baritone == null) {
                 return;
             }
@@ -352,8 +351,8 @@ public class ExecutionManager {
             if (farmProcess != null && farmProcess.isActive()) {
                 farmProcess.onLostControl();
             }
-        } catch (Exception e) {
-            System.err.println("ExecutionManager: Failed to cancel Baritone processes: " + e.getMessage());
+        } catch (Throwable throwable) {
+            System.err.println("ExecutionManager: Failed to cancel Baritone processes: " + throwable.getMessage());
         }
     }
     

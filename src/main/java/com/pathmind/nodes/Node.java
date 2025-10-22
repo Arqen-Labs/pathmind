@@ -12,7 +12,6 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
-import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.process.ICustomGoalProcess;
 import baritone.api.process.IMineProcess;
@@ -21,6 +20,7 @@ import baritone.api.process.IGetToBlockProcess;
 import baritone.api.process.IFarmProcess;
 import baritone.api.pathing.goals.GoalBlock;
 import baritone.api.utils.BlockOptionalMeta;
+import com.pathmind.execution.BaritoneAccess;
 import com.pathmind.execution.PreciseCompletionTracker;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.player.PlayerInventory;
@@ -233,12 +233,7 @@ public class Node {
      * @return IBaritone instance or null if not available
      */
     private IBaritone getBaritone() {
-        try {
-            return BaritoneAPI.getProvider().getPrimaryBaritone();
-        } catch (Exception e) {
-            System.err.println("Failed to get Baritone instance: " + e.getMessage());
-            return null;
-        }
+        return BaritoneAccess.tryGetBaritone();
     }
 
     public String getId() {
@@ -2827,6 +2822,7 @@ public class Node {
     }
     
     private void executeMineCommand(CompletableFuture<Void> future) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
             return;
         }
@@ -2837,6 +2833,13 @@ public class Node {
 
         IBaritone baritone = getBaritone();
         if (baritone == null) {
+            String reason = BaritoneAccess.getLastFailureMessage();
+            if (reason == null || reason.isEmpty()) {
+                reason = "Baritone is not available. Ensure the Baritone mod and its dependencies are installed.";
+            }
+            if (client != null) {
+                sendNodeErrorMessage(client, reason);
+            }
             System.err.println("Baritone not available for mine command");
             future.completeExceptionally(new RuntimeException("Baritone not available"));
             return;
@@ -2860,7 +2863,6 @@ public class Node {
 
                 String normalizedBlock = normalizeResourceId(block, "minecraft");
                 Identifier blockIdentifier = Identifier.tryParse(normalizedBlock);
-                net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
                 if (blockIdentifier == null || !Registries.BLOCK.containsId(blockIdentifier)) {
                     if (client != null) {
                         sendNodeErrorMessage(client, "Cannot mine \"" + block + "\": unknown block identifier.");
@@ -2908,7 +2910,19 @@ public class Node {
                 }
 
                 System.out.println("Executing mine for: " + blockIdentifier + " (target: " + targetAmount + ")");
-                mineProcess.mineByName(blockIdentifier.toString());
+                try {
+                    mineProcess.mineByName(blockIdentifier.toString());
+                } catch (Throwable throwable) {
+                    String reason = BaritoneAccess.getLastFailureMessage();
+                    if (reason == null || reason.isEmpty()) {
+                        reason = "Unable to start Baritone mine task: " + throwable.getClass().getSimpleName();
+                    }
+                    if (client != null) {
+                        sendNodeErrorMessage(client, reason);
+                    }
+                    future.completeExceptionally(new RuntimeException("Failed to start mine task", throwable));
+                    return;
+                }
                 break;
             }
 
@@ -2925,7 +2939,19 @@ public class Node {
                 for (String blockName : blockNames) {
                     String trimmed = blockName.trim();
                     if (!trimmed.isEmpty()) {
-                        mineProcess.mineByName(trimmed);
+                        try {
+                            mineProcess.mineByName(trimmed);
+                        } catch (Throwable throwable) {
+                            String reason = BaritoneAccess.getLastFailureMessage();
+                            if (reason == null || reason.isEmpty()) {
+                                reason = "Unable to start Baritone mine task: " + throwable.getClass().getSimpleName();
+                            }
+                            if (client != null) {
+                                sendNodeErrorMessage(client, reason);
+                            }
+                            future.completeExceptionally(new RuntimeException("Failed to start mine task", throwable));
+                            return;
+                        }
                     }
                 }
                 break;

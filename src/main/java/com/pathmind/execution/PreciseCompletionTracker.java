@@ -1,6 +1,5 @@
 package com.pathmind.execution;
 
-import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.behavior.IPathingBehavior;
 import baritone.api.process.ICustomGoalProcess;
@@ -166,7 +165,8 @@ public class PreciseCompletionTracker {
     private boolean checkTaskCompletion(String taskId) {
         IBaritone baritone = getBaritone();
         if (baritone == null) {
-            completeTaskWithError(taskId, "Baritone not available");
+            String reason = BaritoneAccess.getLastFailureMessage();
+            completeTaskWithError(taskId, reason != null ? reason : "Baritone not available");
             return true;
         }
         
@@ -497,12 +497,7 @@ public class PreciseCompletionTracker {
      * Get the Baritone instance
      */
     private IBaritone getBaritone() {
-        try {
-            return BaritoneAPI.getProvider().getPrimaryBaritone();
-        } catch (Exception e) {
-            System.err.println("PreciseCompletionTracker: Failed to get Baritone instance: " + e.getMessage());
-            return null;
-        }
+        return BaritoneAccess.tryGetBaritone();
     }
     
     /**
