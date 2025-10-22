@@ -316,6 +316,8 @@ public class NodeGraph {
         stopAmountEditing(true);
         resetDropTargets();
 
+        promoteRenderChainToFront(node);
+
         draggingNode = node;
         draggingNodeStartX = node.getX();
         draggingNodeStartY = node.getY();
@@ -992,6 +994,38 @@ public class NodeGraph {
         if (attachedAction != null) {
             renderNodeChain(context, textRenderer, attachedAction, mouseX, mouseY, delta, visited);
         }
+    }
+
+    private void promoteRenderChainToFront(Node node) {
+        Node root = findRenderChainRoot(node);
+        if (root == null) {
+            return;
+        }
+
+        List<Node> chain = new ArrayList<>();
+        collectRenderChainNodes(root, chain, new HashSet<>());
+        boolean modified = false;
+        for (Node chainNode : chain) {
+            if (nodes.remove(chainNode)) {
+                modified = true;
+            }
+        }
+
+        if (modified) {
+            nodes.addAll(chain);
+        }
+    }
+
+    private void collectRenderChainNodes(Node node, List<Node> chain, Set<Node> visited) {
+        if (node == null || !visited.add(node)) {
+            return;
+        }
+
+        chain.add(node);
+
+        collectRenderChainNodes(node.getAttachedSensor(), chain, visited);
+        collectRenderChainNodes(node.getAttachedParameter(), chain, visited);
+        collectRenderChainNodes(node.getAttachedActionNode(), chain, visited);
     }
 
     private void renderNode(DrawContext context, TextRenderer textRenderer, Node node, int mouseX, int mouseY, float delta) {
