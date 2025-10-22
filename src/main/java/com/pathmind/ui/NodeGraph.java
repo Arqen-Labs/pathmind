@@ -38,6 +38,7 @@ public class NodeGraph {
     private int draggingNodeStartX;
     private int draggingNodeStartY;
     private boolean draggingNodeDetached;
+    private boolean draggingNodeReordered;
     
     // Camera/viewport for infinite scrolling
     private int cameraX = 0;
@@ -105,6 +106,7 @@ public class NodeGraph {
         this.draggingNodeStartX = 0;
         this.draggingNodeStartY = 0;
         this.draggingNodeDetached = false;
+        this.draggingNodeReordered = false;
         this.activePreset = PresetManager.getActivePreset();
         this.cascadeDeletionPreviewNodes = new HashSet<>();
 
@@ -316,11 +318,11 @@ public class NodeGraph {
         stopAmountEditing(true);
         resetDropTargets();
 
-        bringNodeGroupToFront(node);
         draggingNode = node;
         draggingNodeStartX = node.getX();
         draggingNodeStartY = node.getY();
         draggingNodeDetached = false;
+        draggingNodeReordered = false;
         node.setDragging(true);
         node.setDragOffsetX(mouseX + cameraX - node.getX());
         node.setDragOffsetY(mouseY + cameraY - node.getY());
@@ -371,10 +373,15 @@ public class NodeGraph {
             int newX = worldMouseX - draggingNode.getDragOffsetX();
             int newY = worldMouseY - draggingNode.getDragOffsetY();
 
-            if (!draggingNodeDetached) {
-                if (newX != draggingNodeStartX || newY != draggingNodeStartY) {
-                    detachDraggingNodeFromParents();
-                }
+            boolean hasMovedFromStart = newX != draggingNodeStartX || newY != draggingNodeStartY;
+
+            if (hasMovedFromStart && !draggingNodeReordered) {
+                bringNodeGroupToFront(draggingNode);
+                draggingNodeReordered = true;
+            }
+
+            if (!draggingNodeDetached && hasMovedFromStart) {
+                detachDraggingNodeFromParents();
             }
 
             if (draggingNodeDetached) {
@@ -642,6 +649,7 @@ public class NodeGraph {
         }
         draggingNode = null;
         draggingNodeDetached = false;
+        draggingNodeReordered = false;
         resetDropTargets();
     }
 
