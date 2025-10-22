@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.process.ICustomGoalProcess;
-import baritone.api.command.manager.ICommandManager;
+import baritone.api.process.IMineProcess;
 import baritone.api.process.IExploreProcess;
 import baritone.api.process.IGetToBlockProcess;
 import baritone.api.process.IFarmProcess;
@@ -2849,17 +2849,19 @@ public class Node {
             return;
         }
 
+        IMineProcess mineProcess = baritone.getMineProcess();
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
-        ICommandManager commandManager = baritone.getCommandManager();
-        if (commandManager == null) {
-            sendNodeErrorMessage(client, "Cannot start mining: command manager unavailable.");
+        if (mineProcess == null) {
+            if (client != null) {
+                sendNodeErrorMessage(client, "Cannot start mining: mining process unavailable.");
+            }
             future.complete(null);
             return;
         }
 
         PreciseCompletionTracker tracker = PreciseCompletionTracker.getInstance();
         List<String> resolvedTargets = new ArrayList<>();
-        Integer amountToTrack = null;
+        int targetAmount = 0;
 
         switch (mode) {
             case MINE_SINGLE: {
@@ -2890,8 +2892,8 @@ public class Node {
                 }
 
                 NodeParameter amountParam = getParameter("Amount");
-                int targetAmount = amountParam != null ? amountParam.getIntValue() : 1;
-                if (targetAmount <= 0) {
+                int requestedAmount = amountParam != null ? amountParam.getIntValue() : 1;
+                if (requestedAmount <= 0) {
                     if (client != null) {
                         sendNodeErrorMessage(client, "Set an amount greater than zero before running this node.");
                     }
@@ -2900,13 +2902,13 @@ public class Node {
                 }
 
                 if (amountParam != null) {
-                    setParameterValueAndPropagate("Amount", Integer.toString(targetAmount));
+                    setParameterValueAndPropagate("Amount", Integer.toString(requestedAmount));
                 }
 
                 String canonicalBlock = blockIdentifier.toString();
                 setParameterValueAndPropagate("Block", canonicalBlock);
                 resolvedTargets.add(canonicalBlock);
-                amountToTrack = targetAmount;
+                targetAmount = requestedAmount;
                 break;
             }
             case MINE_MULTIPLE: {
@@ -2969,66 +2971,15 @@ public class Node {
             return;
         }
 
-        List<String> commandTargets = new ArrayList<>(resolvedTargets);
-        Integer trackedAmount = amountToTrack;
-        String command = "mine " + String.join(" ", commandTargets);
-        System.out.println("Executing mine command: " + command);
+        tracker.startTrackingTask(PreciseCompletionTracker.TASK_MINE, future);
 
-        CompletableFuture
-            .supplyAsync(() -> {
-                try {
-                    return commandManager.execute(command);
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-            })
-            .whenComplete((accepted, throwable) -> {
-                net.minecraft.client.MinecraftClient mainClient = net.minecraft.client.MinecraftClient.getInstance();
-                if (mainClient == null) {
-                    if (!future.isDone()) {
-                        future.completeExceptionally(new RuntimeException("Minecraft client not available"));
-                    }
-                    return;
-                }
-
-                mainClient.execute(() -> {
-                    if (throwable != null) {
-                        System.err.println("Failed to execute mine command: " + throwable.getMessage());
-                        throwable.printStackTrace();
-                        sendNodeErrorMessage(mainClient, "Failed to start mining command.");
-                        if (!future.isDone()) {
-                            future.completeExceptionally(throwable);
-                        }
-                        return;
-                    }
-
-                    if (!Boolean.TRUE.equals(accepted)) {
-                        sendNodeErrorMessage(mainClient, "Failed to start mining command. Check Baritone configuration.");
-                        if (!future.isDone()) {
-                            future.complete(null);
-                        }
-                        return;
-                    }
-
-                    tracker.clearMineTracking();
-                    if (trackedAmount != null) {
-                        boolean started = tracker.startMineTask(commandTargets.get(0), trackedAmount, future);
-                        if (!started) {
-                            sendNodeErrorMessage(mainClient, "Cannot track mining progress for \"" + commandTargets.get(0) + "\".");
-                            try {
-                                commandManager.execute("stop");
-                            } catch (Exception ignored) {
-                            }
-                            if (!future.isDone()) {
-                                future.complete(null);
-                            }
-                            return;
-                        }
-                    } else {
-                        tracker.startTrackingTask(PreciseCompletionTracker.TASK_MINE, future);
-                    }
-                });
-            });
+        if (mode == NodeMode.MINE_SINGLE) {
+            System.out.println("Executing mine for: " + resolvedTargets.get(0) + " (target: " + targetAmount + ")");
+            mineProcess.mineByName(targetAmount, resolvedTargets.get(0));
+        } else {
+            System.out.println("Executing mine for blocks: " + String.join(", ", resolvedTargets));
+            mineProcess.mineByName(resolvedTargets.toArray(new String[0]));
+        }
     }
     
     private void executeCraftCommand(CompletableFuture<Void> future) {
