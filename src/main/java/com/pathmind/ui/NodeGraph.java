@@ -896,7 +896,8 @@ public class NodeGraph {
             if (node.isSensorNode() || node.isAttachedToActionControl() || node.isParameterNode()) {
                 continue;
             }
-            boolean shouldRender = onlyDragged ? node.isDragging() : !node.isDragging();
+            boolean chainDragging = isNodeOrAttachmentChainDragging(node);
+            boolean shouldRender = onlyDragged ? chainDragging : !chainDragging;
             if (shouldRender) {
                 renderNode(context, textRenderer, node, mouseX, mouseY, delta);
             }
@@ -906,8 +907,8 @@ public class NodeGraph {
             if (!node.isSensorNode()) {
                 continue;
             }
-            boolean parentDragging = node.isAttachedToControl() && node.getParentControl() != null && node.getParentControl().isDragging();
-            boolean shouldRender = onlyDragged ? (node.isDragging() || parentDragging) : !node.isDragging();
+            boolean chainDragging = isNodeOrAttachmentChainDragging(node);
+            boolean shouldRender = onlyDragged ? chainDragging : !chainDragging;
             if (shouldRender) {
                 renderNode(context, textRenderer, node, mouseX, mouseY, delta);
             }
@@ -917,8 +918,8 @@ public class NodeGraph {
             if (!node.isParameterNode()) {
                 continue;
             }
-            boolean parentDragging = node.getParentParameterHost() != null && node.getParentParameterHost().isDragging();
-            boolean shouldRender = onlyDragged ? (node.isDragging() || parentDragging) : !node.isDragging();
+            boolean chainDragging = isNodeOrAttachmentChainDragging(node);
+            boolean shouldRender = onlyDragged ? chainDragging : !chainDragging;
             if (shouldRender) {
                 renderNode(context, textRenderer, node, mouseX, mouseY, delta);
             }
@@ -928,12 +929,40 @@ public class NodeGraph {
             if (!node.isAttachedToActionControl()) {
                 continue;
             }
-            boolean parentDragging = node.getParentActionControl() != null && node.getParentActionControl().isDragging();
-            boolean shouldRender = onlyDragged ? (node.isDragging() || parentDragging) : !node.isDragging();
+            boolean chainDragging = isNodeOrAttachmentChainDragging(node);
+            boolean shouldRender = onlyDragged ? chainDragging : !chainDragging;
             if (shouldRender) {
                 renderNode(context, textRenderer, node, mouseX, mouseY, delta);
             }
         }
+    }
+
+    private boolean isNodeOrAttachmentChainDragging(Node node) {
+        if (node == null) {
+            return false;
+        }
+        if (node.isDragging()) {
+            return true;
+        }
+        if (node.isSensorNode()) {
+            Node parent = node.getParentControl();
+            if (parent != null && isNodeOrAttachmentChainDragging(parent)) {
+                return true;
+            }
+        }
+        if (node.isParameterNode()) {
+            Node host = node.getParentParameterHost();
+            if (host != null && isNodeOrAttachmentChainDragging(host)) {
+                return true;
+            }
+        }
+        if (node.isAttachedToActionControl()) {
+            Node parent = node.getParentActionControl();
+            if (parent != null && isNodeOrAttachmentChainDragging(parent)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void renderNode(DrawContext context, TextRenderer textRenderer, Node node, int mouseX, int mouseY, float delta) {
