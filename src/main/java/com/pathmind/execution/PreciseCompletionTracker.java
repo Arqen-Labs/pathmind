@@ -11,9 +11,6 @@ import baritone.api.process.IFarmProcess;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 import net.minecraft.block.Block;
 import net.minecraft.client.MinecraftClient;
@@ -35,7 +32,7 @@ public class PreciseCompletionTracker {
     private final Map<String, ProcessState> processStates = new ConcurrentHashMap<>();
     private final Map<String, Long> taskStartTimes = new ConcurrentHashMap<>();
     private final Map<String, Long> nextCheckTimes = new ConcurrentHashMap<>();
-    private MineTaskData mineTaskData;
+    private volatile MineTaskData mineTaskData;
 
     // Task types
     public static final String TASK_GOTO = "goto";
@@ -63,6 +60,7 @@ public class PreciseCompletionTracker {
         final int targetAmount;
         final int startingCount;
         volatile boolean stopIssued;
+        volatile int lastObservedCount;
 
         MineTaskData(String blockId, Item targetItem, int targetAmount, int startingCount) {
             this.blockId = blockId;
@@ -70,6 +68,7 @@ public class PreciseCompletionTracker {
             this.targetAmount = targetAmount;
             this.startingCount = startingCount;
             this.stopIssued = false;
+            this.lastObservedCount = startingCount;
         }
     }
     
@@ -320,22 +319,20 @@ public class PreciseCompletionTracker {
             return 0;
         }
 
-        if (client.isOnThread()) {
-            return countItemInInventory(client.player.getInventory(), targetItem);
-        }
-
-        try {
-            return client.submit(() -> {
+        if (!client.isOnThread()) {
+            int fallback = getLastObservedCount(targetItem);
+            client.execute(() -> {
                 PlayerInventory inventory = client.player != null ? client.player.getInventory() : null;
-                return countItemInInventory(inventory, targetItem);
-            }).get(200, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } catch (ExecutionException | TimeoutException e) {
-            System.err.println("PreciseCompletionTracker: Failed to query inventory count: " + e.getMessage());
+                int counted = countItemInInventory(inventory, targetItem);
+                recordInventoryCount(targetItem, counted);
+            });
+            return fallback;
         }
 
-        return 0;
+        PlayerInventory inventory = client.player.getInventory();
+        int counted = countItemInInventory(inventory, targetItem);
+        recordInventoryCount(targetItem, counted);
+        return counted;
     }
 
     private int countItemInInventory(PlayerInventory inventory, Item targetItem) {
@@ -351,6 +348,21 @@ public class PreciseCompletionTracker {
             }
         }
         return total;
+    }
+
+    private int getLastObservedCount(Item targetItem) {
+        MineTaskData data = mineTaskData;
+        if (data != null && data.targetItem == targetItem) {
+            return data.lastObservedCount;
+        }
+        return 0;
+    }
+
+    private void recordInventoryCount(Item targetItem, int count) {
+        MineTaskData data = mineTaskData;
+        if (data != null && data.targetItem == targetItem) {
+            data.lastObservedCount = count;
+        }
     }
 
     private void issueStopCommand() {
