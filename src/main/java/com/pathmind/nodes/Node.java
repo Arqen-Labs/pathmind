@@ -5589,19 +5589,18 @@ public class Node {
             return;
         }
 
-        Identifier identifier = Identifier.tryParse(normalizedId);
-        if (identifier == null || !Registries.ITEM.containsId(identifier)) {
-            sendNodeErrorMessage(client, "Cannot monitor mining for \"" + blockId + "\": unknown item identifier.");
-            return;
-        }
-
-        Item targetItem = Registries.ITEM.get(identifier);
-
         Runnable startMonitor = () -> {
             if (client.player == null) {
                 return;
             }
 
+            Identifier identifier = Identifier.tryParse(normalizedId);
+            if (identifier == null || !Registries.ITEM.containsId(identifier)) {
+                sendNodeErrorMessage(client, "Cannot monitor mining for \"" + blockId + "\": unknown item identifier.");
+                return;
+            }
+
+            Item targetItem = Registries.ITEM.get(identifier);
             int startingCount = client.player.getInventory().count(targetItem);
             int targetCount = startingCount + quantity;
             MineQuantityMonitor.getInstance().begin(client, baritone, mineProcess, targetItem, targetCount, normalizedId);
