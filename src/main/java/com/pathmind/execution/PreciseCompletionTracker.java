@@ -11,9 +11,9 @@ import baritone.api.process.IFarmProcess;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.TimeoutException;
 
 import net.minecraft.block.Block;
 import net.minecraft.client.MinecraftClient;
@@ -324,24 +324,18 @@ public class PreciseCompletionTracker {
             return countItemInInventory(client.player.getInventory(), targetItem);
         }
 
-        CountDownLatch latch = new CountDownLatch(1);
-        AtomicInteger result = new AtomicInteger(0);
-        client.execute(() -> {
-            try {
-                PlayerInventory inventory = client.player != null ? client.player.getInventory() : null;
-                result.set(countItemInInventory(inventory, targetItem));
-            } finally {
-                latch.countDown();
-            }
-        });
-
         try {
-            latch.await(200, TimeUnit.MILLISECONDS);
+            return client.submit(() -> {
+                PlayerInventory inventory = client.player != null ? client.player.getInventory() : null;
+                return countItemInInventory(inventory, targetItem);
+            }).get(200, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        } catch (ExecutionException | TimeoutException e) {
+            System.err.println("PreciseCompletionTracker: Failed to query inventory count: " + e.getMessage());
         }
 
-        return result.get();
+        return 0;
     }
 
     private int countItemInInventory(PlayerInventory inventory, Item targetItem) {
