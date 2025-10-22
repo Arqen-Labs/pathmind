@@ -18,9 +18,9 @@ public enum NodeMode {
     GOAL_CURRENT("Set Goal Current", "Set goal to player's current position"),
     GOAL_CLEAR("Clear Goal", "Clear current goal"),
     
-    // MINE modes
-    MINE_SINGLE("Mine Single Block", "Mine a single block type"),
-    MINE_MULTIPLE("Mine Multiple Blocks", "Mine multiple block types"),
+    // COLLECT modes
+    COLLECT_SINGLE("Collect Single Block", "Collect a single block type"),
+    COLLECT_MULTIPLE("Collect Multiple Blocks", "Collect multiple block types"),
     
     // BUILD modes
     BUILD_PLAYER("Build at Player", "Build schematic at player's location"),
@@ -87,9 +87,9 @@ public enum NodeMode {
                 return new NodeMode[]{
                     GOAL_XYZ, GOAL_XZ, GOAL_Y, GOAL_CURRENT, GOAL_CLEAR
                 };
-            case MINE:
+            case COLLECT:
                 return new NodeMode[]{
-                    MINE_SINGLE, MINE_MULTIPLE
+                    COLLECT_SINGLE, COLLECT_MULTIPLE
                 };
             case BUILD:
                 return new NodeMode[]{
@@ -133,8 +133,8 @@ public enum NodeMode {
                 return GOTO_XYZ;
             case GOAL:
                 return GOAL_XYZ;
-            case MINE:
-                return MINE_SINGLE;
+            case COLLECT:
+                return COLLECT_SINGLE;
             case BUILD:
                 return BUILD_PLAYER;
             case EXPLORE:

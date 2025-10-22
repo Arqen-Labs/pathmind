@@ -496,7 +496,7 @@ public class PathmindVisualEditorScreen extends Screen {
                     || clickedNode.getType() == NodeType.EVENT_CALL
                     || clickedNode.hasParameters();
                 if (clickedNode.getType() == NodeType.PLACE
-                    || clickedNode.getType() == NodeType.MINE
+                    || clickedNode.getType() == NodeType.COLLECT
                     || clickedNode.isSensorNode()) {
                     shouldOpenOverlay = false;
                 }

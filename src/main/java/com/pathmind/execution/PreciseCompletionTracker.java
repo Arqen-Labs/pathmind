@@ -33,7 +33,7 @@ public class PreciseCompletionTracker {
     public static final String TASK_GOTO = "goto";
     public static final String TASK_PATH = "path";
     public static final String TASK_GOAL = "goal";
-    public static final String TASK_MINE = "mine";
+    public static final String TASK_COLLECT = "collect";
     public static final String TASK_EXPLORE = "explore";
     public static final String TASK_FARM = "farm";
     
@@ -136,8 +136,8 @@ public class PreciseCompletionTracker {
                 completed = checkGoalCompletion(baritone, taskId);
                 break;
                 
-            case TASK_MINE:
-                completed = checkMiningCompletion(baritone, taskId);
+            case TASK_COLLECT:
+                completed = checkCollectCompletion(baritone, taskId);
                 break;
                 
             case TASK_EXPLORE:
@@ -213,10 +213,10 @@ public class PreciseCompletionTracker {
     /**
      * Check if mining has completed
      */
-    private boolean checkMiningCompletion(IBaritone baritone, String taskId) {
+    private boolean checkCollectCompletion(IBaritone baritone, String taskId) {
         IMineProcess mineProcess = baritone.getMineProcess();
         if (mineProcess == null) {
-            completeTaskWithError(taskId, "Mine process unavailable");
+            completeTaskWithError(taskId, "Collect process unavailable");
             return true;
         }
 
@@ -303,14 +303,34 @@ public class PreciseCompletionTracker {
         CompletableFuture<Void> future = pendingTasks.remove(taskId);
         processStates.remove(taskId);
         taskStartTimes.remove(taskId);
-        
+
         if (future != null && !future.isDone()) {
             System.out.println("PreciseCompletionTracker: Completing task " + taskId + " with error: " + reason);
             processStates.put(taskId, ProcessState.FAILED);
             future.completeExceptionally(new RuntimeException(reason));
         }
     }
-    
+
+    /**
+     * Mark a task as completed from an external event (e.g. amount monitors).
+     */
+    public void markTaskCompleted(String taskId) {
+        CompletableFuture<Void> future = pendingTasks.remove(taskId);
+        if (future == null) {
+            return;
+        }
+
+        processStates.remove(taskId);
+        Long startTime = taskStartTimes.remove(taskId);
+
+        if (!future.isDone()) {
+            long duration = startTime != null ? System.currentTimeMillis() - startTime : 0;
+            System.out.println("PreciseCompletionTracker: Completing task " + taskId + " from external signal (duration: " + duration + "ms)");
+            processStates.put(taskId, ProcessState.COMPLETED);
+            future.complete(null);
+        }
+    }
+
     /**
      * Cancel all pending tasks
      */
