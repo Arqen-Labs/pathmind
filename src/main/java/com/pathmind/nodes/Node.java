@@ -2831,6 +2831,18 @@ public class Node {
             return;
         }
 
+        if (!BaritoneAccess.isMineSupportAvailable()) {
+            String reason = BaritoneAccess.getMineSupportFailureMessage();
+            if (reason == null || reason.isEmpty()) {
+                reason = "Baritone cannot start a mine task because the Nether Pathfinder addon is missing.";
+            }
+            if (client != null) {
+                sendNodeErrorMessage(client, reason);
+            }
+            future.complete(null);
+            return;
+        }
+
         IBaritone baritone = getBaritone();
         if (baritone == null) {
             String reason = BaritoneAccess.getLastFailureMessage();
@@ -2915,6 +2927,12 @@ public class Node {
                 } catch (Throwable throwable) {
                     String reason = BaritoneAccess.getLastFailureMessage();
                     if (reason == null || reason.isEmpty()) {
+                        String supportFailure = BaritoneAccess.getMineSupportFailureMessage();
+                        if (supportFailure != null && !supportFailure.isEmpty()) {
+                            reason = supportFailure;
+                        }
+                    }
+                    if (reason == null || reason.isEmpty()) {
                         reason = "Unable to start Baritone mine task: " + throwable.getClass().getSimpleName();
                     }
                     if (client != null) {
@@ -2943,6 +2961,12 @@ public class Node {
                             mineProcess.mineByName(trimmed);
                         } catch (Throwable throwable) {
                             String reason = BaritoneAccess.getLastFailureMessage();
+                            if (reason == null || reason.isEmpty()) {
+                                String supportFailure = BaritoneAccess.getMineSupportFailureMessage();
+                                if (supportFailure != null && !supportFailure.isEmpty()) {
+                                    reason = supportFailure;
+                                }
+                            }
                             if (reason == null || reason.isEmpty()) {
                                 reason = "Unable to start Baritone mine task: " + throwable.getClass().getSimpleName();
                             }
