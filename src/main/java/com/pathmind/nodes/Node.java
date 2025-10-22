@@ -11,9 +11,11 @@ import java.util.EnumSet;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
+import baritone.api.command.manager.ICommandManager;
 import baritone.api.process.ICustomGoalProcess;
 import baritone.api.process.IMineProcess;
 import baritone.api.process.IExploreProcess;
@@ -73,6 +75,7 @@ import it.unimi.dsi.fastutil.ints.IntList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.lang.reflect.Field;
+import java.util.regex.Pattern;
 
 /**
  * Represents a single node in the Pathmind visual editor.
@@ -127,6 +130,7 @@ public class Node {
     private static final int AMOUNT_FIELD_BOTTOM_MARGIN = 6;
     private static final double PARAMETER_SEARCH_RADIUS = 64.0;
     private static final double DEFAULT_REACH_DISTANCE_SQUARED = 25.0D;
+    private static final Pattern UNSAFE_RESOURCE_ID_PATTERN = Pattern.compile("[^a-z0-9_:/.-]");
     private int width;
     private int height;
     private int nextOutputSocket = 0;
@@ -2849,8 +2853,17 @@ public class Node {
             return;
         }
 
-        IMineProcess mineProcess = baritone.getMineProcess();
+        ICommandManager commandManager = baritone.getCommandManager();
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (commandManager == null) {
+            if (client != null) {
+                sendNodeErrorMessage(client, "Cannot start mining: command manager unavailable.");
+            }
+            future.completeExceptionally(new RuntimeException("Baritone command manager unavailable"));
+            return;
+        }
+
+        IMineProcess mineProcess = baritone.getMineProcess();
         if (mineProcess == null) {
             if (client != null) {
                 sendNodeErrorMessage(client, "Cannot start mining: mining process unavailable.");
@@ -2859,9 +2872,9 @@ public class Node {
             return;
         }
 
-        PreciseCompletionTracker tracker = PreciseCompletionTracker.getInstance();
         List<String> resolvedTargets = new ArrayList<>();
-        int targetAmount = 0;
+        Item trackedItem = null;
+        int requestedAmount = 0;
 
         switch (mode) {
             case MINE_SINGLE: {
@@ -2871,7 +2884,8 @@ public class Node {
                     block = blockParam.getStringValue();
                 }
 
-                String normalizedBlock = normalizeResourceId(block, "minecraft");
+                String sanitized = sanitizeResourceId(block);
+                String normalizedBlock = normalizeResourceId(sanitized, "minecraft");
                 Identifier blockIdentifier = Identifier.tryParse(normalizedBlock);
                 if (blockIdentifier == null || !Registries.BLOCK.containsId(blockIdentifier)) {
                     if (client != null) {
@@ -2892,23 +2906,23 @@ public class Node {
                 }
 
                 NodeParameter amountParam = getParameter("Amount");
-                int requestedAmount = amountParam != null ? amountParam.getIntValue() : 1;
-                if (requestedAmount <= 0) {
-                    if (client != null) {
-                        sendNodeErrorMessage(client, "Set an amount greater than zero before running this node.");
+                if (amountParam != null && !amountParam.getStringValue().isEmpty()) {
+                    int amountValue = amountParam.getIntValue();
+                    if (amountValue <= 0) {
+                        if (client != null) {
+                            sendNodeErrorMessage(client, "Set an amount greater than zero before running this node.");
+                        }
+                        future.complete(null);
+                        return;
                     }
-                    future.complete(null);
-                    return;
-                }
-
-                if (amountParam != null) {
-                    setParameterValueAndPropagate("Amount", Integer.toString(requestedAmount));
+                    requestedAmount = amountValue;
+                    setParameterValueAndPropagate("Amount", Integer.toString(amountValue));
                 }
 
                 String canonicalBlock = blockIdentifier.toString();
                 setParameterValueAndPropagate("Block", canonicalBlock);
                 resolvedTargets.add(canonicalBlock);
-                targetAmount = requestedAmount;
+                trackedItem = blockItem;
                 break;
             }
             case MINE_MULTIPLE: {
@@ -2925,7 +2939,8 @@ public class Node {
                     if (trimmed.isEmpty()) {
                         continue;
                     }
-                    String normalized = normalizeResourceId(trimmed, "minecraft");
+                    String sanitized = sanitizeResourceId(trimmed);
+                    String normalized = normalizeResourceId(sanitized, "minecraft");
                     Identifier identifier = Identifier.tryParse(normalized);
                     if (identifier == null || !Registries.BLOCK.containsId(identifier)) {
                         if (client != null) {
@@ -2971,15 +2986,45 @@ public class Node {
             return;
         }
 
-        tracker.startTrackingTask(PreciseCompletionTracker.TASK_MINE, future);
+        final boolean trackAmount = trackedItem != null && requestedAmount > 0;
+        final Item itemToTrack = trackedItem;
+        final int amountToTrack = requestedAmount;
+        final int startingCount = (trackAmount && client != null && client.player != null)
+            ? client.player.getInventory().count(trackedItem)
+            : -1;
 
-        if (mode == NodeMode.MINE_SINGLE) {
-            System.out.println("Executing mine for: " + resolvedTargets.get(0) + " (target: " + targetAmount + ")");
-            mineProcess.mineByName(targetAmount, resolvedTargets.get(0));
-        } else {
-            System.out.println("Executing mine for blocks: " + String.join(", ", resolvedTargets));
-            mineProcess.mineByName(resolvedTargets.toArray(new String[0]));
-        }
+        String targetList = String.join(" ", resolvedTargets);
+        final String commandPayload = targetList.isEmpty() ? "mine" : "mine " + targetList;
+        System.out.println("Dispatching Baritone mine command via command manager: #" + commandPayload);
+
+        CompletableFuture
+            .supplyAsync(() -> {
+                boolean executed = commandManager.execute(commandPayload);
+                if (!executed) {
+                    throw new RuntimeException("Baritone command manager rejected the mine command.");
+                }
+                return true;
+            })
+            .whenComplete((ignored, throwable) -> {
+                if (throwable != null) {
+                    String reason = throwable.getCause() != null ? throwable.getCause().getMessage() : throwable.getMessage();
+                    System.err.println("Failed to dispatch mine command: " + reason);
+                    if (client != null) {
+                        sendNodeErrorMessageOnClientThread(client, "Cannot start mining: " + (reason != null ? reason : "unknown error."));
+                    }
+                    if (!future.isDone()) {
+                        future.completeExceptionally(new RuntimeException("Failed to execute mine command", throwable));
+                    }
+                    return;
+                }
+
+                PreciseCompletionTracker tracker = PreciseCompletionTracker.getInstance();
+                tracker.startTrackingTask(PreciseCompletionTracker.TASK_MINE, future);
+
+                if (trackAmount) {
+                    startMineAmountMonitor(baritone, itemToTrack, startingCount, amountToTrack);
+                }
+            });
     }
     
     private void executeCraftCommand(CompletableFuture<Void> future) {
@@ -4966,6 +5011,26 @@ public class Node {
         return placementState.canPlaceAt(client.world, placementContext.getBlockPos());
     }
 
+    private String sanitizeResourceId(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+        String lower = trimmed.toLowerCase(Locale.ROOT).replace(' ', '_');
+        String sanitized = UNSAFE_RESOURCE_ID_PATTERN.matcher(lower).replaceAll("");
+        int firstColon = sanitized.indexOf(':');
+        if (firstColon != -1) {
+            int nextColon = sanitized.indexOf(':', firstColon + 1);
+            if (nextColon != -1) {
+                sanitized = sanitized.substring(0, firstColon + 1) + sanitized.substring(firstColon + 1).replace(':', '_');
+            }
+        }
+        return sanitized;
+    }
+
     private String normalizeResourceId(String value, String defaultNamespace) {
         if (value == null) {
             return null;
@@ -4978,6 +5043,77 @@ public class Node {
             return defaultNamespace + ":" + trimmed;
         }
         return trimmed;
+    }
+
+    private void startMineAmountMonitor(IBaritone baritone, Item trackedItem, int initialCount, int targetAmount) {
+        if (baritone == null || trackedItem == null || targetAmount <= 0) {
+            return;
+        }
+
+        final int[] baseline = new int[] { Math.max(initialCount, 0) };
+        final boolean[] baselineCaptured = new boolean[] { initialCount >= 0 };
+
+        Runnable pollTask = new Runnable() {
+            @Override
+            public void run() {
+                IMineProcess currentProcess = baritone.getMineProcess();
+                if (currentProcess == null || !currentProcess.isActive()) {
+                    return;
+                }
+
+                net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+                if (client == null) {
+                    CompletableFuture.delayedExecutor(300, TimeUnit.MILLISECONDS).execute(this);
+                    return;
+                }
+
+                CountDownLatch latch = new CountDownLatch(1);
+                int[] currentCount = new int[] { baseline[0] };
+                client.execute(() -> {
+                    if (client.player != null) {
+                        currentCount[0] = client.player.getInventory().count(trackedItem);
+                        if (!baselineCaptured[0]) {
+                            baseline[0] = currentCount[0];
+                            baselineCaptured[0] = true;
+                        }
+                    }
+                    latch.countDown();
+                });
+
+                try {
+                    boolean completed = latch.await(1, TimeUnit.SECONDS);
+                    if (!completed) {
+                        CompletableFuture.delayedExecutor(300, TimeUnit.MILLISECONDS).execute(this);
+                        return;
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+
+                if (!baselineCaptured[0]) {
+                    CompletableFuture.delayedExecutor(300, TimeUnit.MILLISECONDS).execute(this);
+                    return;
+                }
+
+                if (currentCount[0] - baseline[0] >= targetAmount) {
+                    client.execute(() -> {
+                        IMineProcess process = baritone.getMineProcess();
+                        if (process != null && process.isActive()) {
+                            Identifier itemId = Registries.ITEM.getId(trackedItem);
+                            String debugName = itemId != null ? itemId.toString() : trackedItem.toString();
+                            System.out.println("Mine amount monitor: gathered " + targetAmount + " of " + debugName + ", cancelling mine process.");
+                            process.cancel();
+                        }
+                    });
+                    return;
+                }
+
+                CompletableFuture.delayedExecutor(300, TimeUnit.MILLISECONDS).execute(this);
+            }
+        };
+
+        CompletableFuture.delayedExecutor(300, TimeUnit.MILLISECONDS).execute(pollTask);
     }
 
     private static String formatBlockPos(BlockPos pos) {
