@@ -892,48 +892,20 @@ public class NodeGraph {
             renderConnections(context);
         }
 
-        for (Node node : nodes) {
-            if (node.isSensorNode() || node.isAttachedToActionControl() || node.isParameterNode()) {
+        Set<Node> processedRoots = new HashSet<>();
+        for (Node candidate : nodes) {
+            Node root = findRenderChainRoot(candidate);
+            if (root == null || !processedRoots.add(root)) {
                 continue;
             }
-            boolean chainDragging = isNodeOrAttachmentChainDragging(node);
-            boolean shouldRender = onlyDragged ? chainDragging : !chainDragging;
-            if (shouldRender) {
-                renderNode(context, textRenderer, node, mouseX, mouseY, delta);
-            }
-        }
 
-        for (Node node : nodes) {
-            if (!node.isSensorNode()) {
+            boolean chainDragging = isNodeOrAttachmentChainDragging(root);
+            boolean shouldRender = onlyDragged ? chainDragging : !chainDragging;
+            if (!shouldRender) {
                 continue;
             }
-            boolean chainDragging = isNodeOrAttachmentChainDragging(node);
-            boolean shouldRender = onlyDragged ? chainDragging : !chainDragging;
-            if (shouldRender) {
-                renderNode(context, textRenderer, node, mouseX, mouseY, delta);
-            }
-        }
 
-        for (Node node : nodes) {
-            if (!node.isParameterNode()) {
-                continue;
-            }
-            boolean chainDragging = isNodeOrAttachmentChainDragging(node);
-            boolean shouldRender = onlyDragged ? chainDragging : !chainDragging;
-            if (shouldRender) {
-                renderNode(context, textRenderer, node, mouseX, mouseY, delta);
-            }
-        }
-
-        for (Node node : nodes) {
-            if (!node.isAttachedToActionControl()) {
-                continue;
-            }
-            boolean chainDragging = isNodeOrAttachmentChainDragging(node);
-            boolean shouldRender = onlyDragged ? chainDragging : !chainDragging;
-            if (shouldRender) {
-                renderNode(context, textRenderer, node, mouseX, mouseY, delta);
-            }
+            renderNodeChain(context, textRenderer, root, mouseX, mouseY, delta, new HashSet<>());
         }
     }
 
@@ -963,6 +935,63 @@ public class NodeGraph {
             }
         }
         return false;
+    }
+
+    private Node findRenderChainRoot(Node node) {
+        Node current = node;
+        Set<Node> visited = new HashSet<>();
+        while (current != null && visited.add(current)) {
+            Node parent = getRenderChainParent(current);
+            if (parent == null) {
+                return current;
+            }
+            current = parent;
+        }
+        return current;
+    }
+
+    private Node getRenderChainParent(Node node) {
+        if (node == null) {
+            return null;
+        }
+        if (node.isAttachedToControl()) {
+            return node.getParentControl();
+        }
+        if (node.isAttachedToActionControl()) {
+            return node.getParentActionControl();
+        }
+        return node.getParentParameterHost();
+    }
+
+    private void renderNodeChain(
+        DrawContext context,
+        TextRenderer textRenderer,
+        Node node,
+        int mouseX,
+        int mouseY,
+        float delta,
+        Set<Node> visited
+    ) {
+        if (node == null || !visited.add(node)) {
+            return;
+        }
+
+        renderNode(context, textRenderer, node, mouseX, mouseY, delta);
+
+        Node attachedSensor = node.getAttachedSensor();
+        if (attachedSensor != null) {
+            renderNodeChain(context, textRenderer, attachedSensor, mouseX, mouseY, delta, visited);
+        }
+
+        Node attachedParameter = node.getAttachedParameter();
+        if (attachedParameter != null) {
+            renderNodeChain(context, textRenderer, attachedParameter, mouseX, mouseY, delta, visited);
+        }
+
+        Node attachedAction = node.getAttachedActionNode();
+        if (attachedAction != null) {
+            renderNodeChain(context, textRenderer, attachedAction, mouseX, mouseY, delta, visited);
+        }
     }
 
     private void renderNode(DrawContext context, TextRenderer textRenderer, Node node, int mouseX, int mouseY, float delta) {
