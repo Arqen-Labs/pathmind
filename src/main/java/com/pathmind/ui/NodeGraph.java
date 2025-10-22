@@ -17,11 +17,10 @@ import net.minecraft.text.Text;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
-import java.util.Map;
 import java.util.Set;
 
 /**
@@ -35,8 +34,6 @@ public class NodeGraph {
 
     private final List<Node> nodes;
     private final List<NodeConnection> connections;
-    private final Map<Node, Long> nodeZOrder;
-    private long zOrderSequence;
     private Node selectedNode;
     private Node draggingNode;
     private int draggingNodeStartX;
@@ -113,8 +110,6 @@ public class NodeGraph {
         this.draggingNodeMoved = false;
         this.activePreset = PresetManager.getActivePreset();
         this.cascadeDeletionPreviewNodes = new HashSet<>();
-        this.nodeZOrder = new HashMap<>();
-        this.zOrderSequence = 0L;
 
         // Add preset nodes similar to Blender's shader editor
         // Will be initialized with proper centering when screen dimensions are available
@@ -124,8 +119,6 @@ public class NodeGraph {
         // Clear any existing nodes
         nodes.clear();
         connections.clear();
-        nodeZOrder.clear();
-        zOrderSequence = 0L;
         
         // Calculate workspace area
         int workspaceStartX = sidebarWidth;
@@ -154,8 +147,7 @@ public class NodeGraph {
             return;
         }
         nodes.add(node);
-        setNodeOnTop(node);
-        resortNodesByZOrder();
+        bringNodeGroupToFront(node);
     }
 
     public void removeNode(Node node) {
@@ -258,8 +250,6 @@ public class NodeGraph {
         connections.removeIf(conn ->
             conn.getOutputNode().equals(node) || conn.getInputNode().equals(node));
         nodes.remove(node);
-        nodeZOrder.remove(node);
-        resortNodesByZOrder();
 
         if (selectedNode == node) {
             selectedNode = null;
@@ -984,24 +974,25 @@ public class NodeGraph {
     }
 
     private void setGroupOnTop(List<Node> group) {
-        for (Node member : group) {
-            setNodeOnTop(member);
-        }
-        resortNodesByZOrder();
-    }
-
-    private void setNodeOnTop(Node node) {
-        if (node == null) {
+        if (group.isEmpty()) {
             return;
         }
-        nodeZOrder.put(node, ++zOrderSequence);
-    }
 
-    private void resortNodesByZOrder() {
-        nodes.sort((a, b) -> Long.compare(
-            nodeZOrder.getOrDefault(a, 0L),
-            nodeZOrder.getOrDefault(b, 0L)
-        ));
+        Set<Node> groupSet = new HashSet<>(group);
+        LinkedHashSet<Node> orderedSet = new LinkedHashSet<>();
+        for (Node existing : nodes) {
+            if (groupSet.contains(existing)) {
+                orderedSet.add(existing);
+            }
+        }
+        orderedSet.addAll(group);
+
+        if (orderedSet.isEmpty()) {
+            return;
+        }
+
+        nodes.removeIf(groupSet::contains);
+        nodes.addAll(orderedSet);
     }
 
     private void renderNode(DrawContext context, TextRenderer textRenderer, Node node, int mouseX, int mouseY, float delta) {
@@ -2227,8 +2218,6 @@ public class NodeGraph {
         lastClickedNode = null;
         lastClickTime = 0;
         cascadeDeletionPreviewNodes.clear();
-        nodeZOrder.clear();
-        zOrderSequence = 0L;
     }
 
     private boolean applyLoadedData(NodeGraphData data) {
@@ -2238,8 +2227,6 @@ public class NodeGraph {
         draggingNode = null;
         draggingNodeDetached = false;
         draggingNodeMoved = false;
-        nodeZOrder.clear();
-        zOrderSequence = 0L;
 
         // Load nodes and create node map for connections
         java.util.Map<String, Node> nodeMap = new java.util.HashMap<>();
