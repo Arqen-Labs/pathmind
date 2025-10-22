@@ -14,7 +14,7 @@ A Minecraft Fabric mod that introduces a visual node editor system for creating 
 - **Minecraft**: 1.21.8
 - **Fabric Loader**: 0.17.2 or higher
 - **Fabric API**: 0.133.4+1.21.8 or higher
-- **Baritone API**: 1.15.0 (Fabric version) - [Download here](https://github.com/cabaletta/baritone/releases/download/v1.15.0/baritone-api-fabric-1.15.0.jar). Place the jar in `libs/` or set the `BARITONE_API_JAR` environment variable (or `-PbaritoneApiPath=...`) before building.
+- **Baritone API**: 1.15.0 (Fabric version) - [Download here](https://github.com/cabaletta/baritone/releases/download/v1.15.0/baritone-api-fabric-1.15.0.jar)
 - **Java**: 21 or higher
 
 ### Installation
