@@ -1,11 +1,10 @@
 package com.pathmind.execution;
 
 import baritone.api.IBaritone;
+import baritone.api.behavior.IPathingBehavior;
 import baritone.api.process.IMineProcess;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.item.Item;
-
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Watches the player's inventory during mining runs that target a specific quantity
@@ -121,12 +120,13 @@ public final class MineQuantityMonitor {
             }
         }
 
-        CompletableFuture.runAsync(() -> {
-            try {
-                baritoneRef.getCommandManager().execute("stop");
-            } catch (Exception e) {
-                System.err.println("MineQuantityMonitor: Failed to execute Baritone stop command: " + e.getMessage());
+        try {
+            IPathingBehavior pathingBehavior = baritoneRef.getPathingBehavior();
+            if (pathingBehavior != null) {
+                pathingBehavior.cancelEverything();
             }
-        });
+        } catch (Exception e) {
+            System.err.println("MineQuantityMonitor: Failed to cancel Baritone pathing: " + e.getMessage());
+        }
     }
 }
