@@ -303,14 +303,34 @@ public class PreciseCompletionTracker {
         CompletableFuture<Void> future = pendingTasks.remove(taskId);
         processStates.remove(taskId);
         taskStartTimes.remove(taskId);
-        
+
         if (future != null && !future.isDone()) {
             System.out.println("PreciseCompletionTracker: Completing task " + taskId + " with error: " + reason);
             processStates.put(taskId, ProcessState.FAILED);
             future.completeExceptionally(new RuntimeException(reason));
         }
     }
-    
+
+    /**
+     * Mark a task as completed from an external event (e.g. amount monitors).
+     */
+    public void markTaskCompleted(String taskId) {
+        CompletableFuture<Void> future = pendingTasks.remove(taskId);
+        if (future == null) {
+            return;
+        }
+
+        processStates.remove(taskId);
+        Long startTime = taskStartTimes.remove(taskId);
+
+        if (!future.isDone()) {
+            long duration = startTime != null ? System.currentTimeMillis() - startTime : 0;
+            System.out.println("PreciseCompletionTracker: Completing task " + taskId + " from external signal (duration: " + duration + "ms)");
+            processStates.put(taskId, ProcessState.COMPLETED);
+            future.complete(null);
+        }
+    }
+
     /**
      * Cancel all pending tasks
      */

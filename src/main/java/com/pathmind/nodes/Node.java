@@ -15,7 +15,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
-import baritone.api.command.manager.ICommandManager;
 import baritone.api.process.ICustomGoalProcess;
 import baritone.api.process.IMineProcess;
 import baritone.api.process.IExploreProcess;
@@ -2853,17 +2852,8 @@ public class Node {
             return;
         }
 
-        ICommandManager commandManager = baritone.getCommandManager();
-        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
-        if (commandManager == null) {
-            if (client != null) {
-                sendNodeErrorMessage(client, "Cannot start mining: command manager unavailable.");
-            }
-            future.completeExceptionally(new RuntimeException("Baritone command manager unavailable"));
-            return;
-        }
-
         IMineProcess mineProcess = baritone.getMineProcess();
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
         if (mineProcess == null) {
             if (client != null) {
                 sendNodeErrorMessage(client, "Cannot start mining: mining process unavailable.");
@@ -2993,17 +2983,32 @@ public class Node {
             ? client.player.getInventory().count(trackedItem)
             : -1;
 
+        final int desiredInventoryTotal;
+        if (trackAmount) {
+            int baseline = Math.max(startingCount, 0);
+            long combined = (long) amountToTrack + baseline;
+            desiredInventoryTotal = (int) Math.min(Integer.MAX_VALUE, combined);
+        } else {
+            desiredInventoryTotal = 0;
+        }
+
         String targetList = String.join(" ", resolvedTargets);
-        final String commandPayload = targetList.isEmpty() ? "mine" : "mine " + targetList;
-        System.out.println("Dispatching Baritone mine command via command manager: #" + commandPayload);
+        System.out.println("Starting Baritone mine process for targets: " + targetList
+            + (trackAmount ? (" (target total in inventory: " + desiredInventoryTotal + ")") : ""));
+
+        String[] targetArray = resolvedTargets.toArray(new String[0]);
 
         CompletableFuture
-            .supplyAsync(() -> {
-                boolean executed = commandManager.execute(commandPayload);
-                if (!executed) {
-                    throw new RuntimeException("Baritone command manager rejected the mine command.");
+            .runAsync(() -> {
+                try {
+                    if (trackAmount && desiredInventoryTotal > 0) {
+                        mineProcess.mineByName(desiredInventoryTotal, targetArray);
+                    } else {
+                        mineProcess.mineByName(targetArray);
+                    }
+                } catch (Exception e) {
+                    throw new RuntimeException("Baritone mine process rejected the mine command.", e);
                 }
-                return true;
             })
             .whenComplete((ignored, throwable) -> {
                 if (throwable != null) {
@@ -5105,6 +5110,7 @@ public class Node {
                             System.out.println("Mine amount monitor: gathered " + targetAmount + " of " + debugName + ", cancelling mine process.");
                             process.cancel();
                         }
+                        PreciseCompletionTracker.getInstance().markTaskCompleted(PreciseCompletionTracker.TASK_MINE);
                     });
                     return;
                 }
