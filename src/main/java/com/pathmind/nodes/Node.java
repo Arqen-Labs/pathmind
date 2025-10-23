@@ -3342,14 +3342,26 @@ public class Node {
         final boolean finalTrackAmount = trackAmount;
         final int finalRequestedAmount = amountToTrack;
 
-        CompletableFuture
-            .runAsync(() -> {
-                try {
-                    finalMineProcess.mine(targetBlockArray);
-                } catch (Exception e) {
-                    throw new RuntimeException("Baritone mine process rejected the collect command.", e);
-                }
-            })
+        CompletableFuture<Void> dispatchFuture = new CompletableFuture<>();
+
+        Runnable dispatchTask = () -> {
+            try {
+                finalMineProcess.mine(targetBlockArray);
+                dispatchFuture.complete(null);
+            } catch (Exception e) {
+                dispatchFuture.completeExceptionally(
+                    new RuntimeException("Baritone mine process rejected the collect command.", e)
+                );
+            }
+        };
+
+        if (client != null) {
+            client.execute(dispatchTask);
+        } else {
+            CompletableFuture.runAsync(dispatchTask);
+        }
+
+        dispatchFuture
             .whenComplete((ignored, throwable) -> {
                 if (throwable != null) {
                     if (future.isDone() || isCancellationException(throwable)) {
