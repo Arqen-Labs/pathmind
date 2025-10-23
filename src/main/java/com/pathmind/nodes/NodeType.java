@@ -97,6 +97,7 @@ public enum NodeType {
 
     // Parameter nodes
     PARAM_COORDINATE("Coordinate", 0xFF8BC34A, "Reusable XYZ coordinate data"),
+    PARAM_CLOSEST("Closest", 0xFF8BC34A, "Finds the nearest open position for placement"),
     PARAM_BLOCK("Block", 0xFF8BC34A, "Represents a single block type"),
     PARAM_BLOCK_LIST("Block List", 0xFF8BC34A, "Represents multiple block types"),
     PARAM_ITEM("Item", 0xFF8BC34A, "Represents an item and quantity"),
