@@ -573,14 +573,14 @@ public class Node {
     }
 
     public int getInputSocketCount() {
-        if (type == NodeType.START || type == NodeType.EVENT_FUNCTION || isSensorNode()) {
+        if (type == NodeType.START || type == NodeType.EVENT_FUNCTION || isSensorNode() || isParameterNode()) {
             return 0;
         }
         return 1;
     }
 
     public int getOutputSocketCount() {
-        if (isSensorNode()) {
+        if (isSensorNode() || isParameterNode()) {
             return 0;
         }
         if (type == NodeType.CONTROL_FOREVER) {
