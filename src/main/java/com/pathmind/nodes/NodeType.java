@@ -234,6 +234,7 @@ public enum NodeType {
             case MESSAGE:
                 return NodeCategory.UTILITY;
             case PARAM_COORDINATE:
+            case PARAM_CLOSEST:
             case PARAM_BLOCK:
             case PARAM_BLOCK_LIST:
             case PARAM_ITEM:

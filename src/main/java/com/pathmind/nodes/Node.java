@@ -2008,11 +2008,22 @@ public class Node {
 
     private ParameterHandlingResult preprocessAttachedParameter(EnumSet<ParameterUsage> usages, CompletableFuture<Void> future) {
         List<Node> parameterNodes = new ArrayList<>();
-        if (attachedParameter != null) {
-            parameterNodes.add(attachedParameter);
-        }
-        if (attachedSecondaryParameter != null) {
-            parameterNodes.add(attachedSecondaryParameter);
+        boolean prioritizeSecondaryForPosition = usages.contains(ParameterUsage.POSITION)
+            && providesPlacementCoordinates(attachedSecondaryParameter);
+        if (prioritizeSecondaryForPosition) {
+            if (attachedSecondaryParameter != null) {
+                parameterNodes.add(attachedSecondaryParameter);
+            }
+            if (attachedParameter != null) {
+                parameterNodes.add(attachedParameter);
+            }
+        } else {
+            if (attachedParameter != null) {
+                parameterNodes.add(attachedParameter);
+            }
+            if (attachedSecondaryParameter != null) {
+                parameterNodes.add(attachedSecondaryParameter);
+            }
         }
 
         runtimeParameterData = null;
@@ -4184,7 +4195,13 @@ public class Node {
     }
 
     private boolean shouldInheritPlacementCoordinates() {
-        Node parameterNode = attachedSecondaryParameter != null ? attachedSecondaryParameter : attachedParameter;
+        if (providesPlacementCoordinates(attachedSecondaryParameter)) {
+            return true;
+        }
+        return providesPlacementCoordinates(attachedParameter);
+    }
+
+    private boolean providesPlacementCoordinates(Node parameterNode) {
         if (parameterNode == null) {
             return false;
         }
@@ -4195,6 +4212,7 @@ public class Node {
             case PARAM_SCHEMATIC:
             case PARAM_PLACE_TARGET:
             case PARAM_WAYPOINT:
+            case PARAM_CLOSEST:
                 return true;
             default:
                 return false;
