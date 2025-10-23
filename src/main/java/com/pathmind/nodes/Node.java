@@ -3195,6 +3195,7 @@ public class Node {
         }
 
         List<String> resolvedTargets = new ArrayList<>();
+        List<Block> targetBlocks = new ArrayList<>();
         Item trackedItem = null;
         int requestedAmount = 0;
 
@@ -3245,6 +3246,7 @@ public class Node {
                 setParameterValueAndPropagate("Block", canonicalBlock);
                 resolvedTargets.add(canonicalBlock);
                 trackedItem = blockItem;
+                targetBlocks.add(targetBlock);
                 break;
             }
             case COLLECT_MULTIPLE: {
@@ -3280,6 +3282,7 @@ public class Node {
                         return;
                     }
                     canonicalNames.add(identifier.toString());
+                    targetBlocks.add(targetBlock);
                 }
 
                 if (canonicalNames.isEmpty()) {
@@ -3328,22 +3331,33 @@ public class Node {
         System.out.println("Starting Baritone collect command for targets: " + targetList
             + (trackAmount ? (" (target inventory total: " + desiredInventoryTotal + ")") : ""));
 
-        String[] targetArray = resolvedTargets.toArray(new String[0]);
+        final Block[] targetBlockArray = targetBlocks.toArray(new Block[0]);
+        if (targetBlockArray.length == 0) {
+            future.complete(null);
+            return;
+        }
+        final IMineProcess finalMineProcess = mineProcess;
+        final Item finalTrackedItem = itemToTrack;
+        final int finalStartingCount = startingCount;
+        final boolean finalTrackAmount = trackAmount;
+        final int finalRequestedAmount = amountToTrack;
 
         CompletableFuture
             .runAsync(() -> {
                 try {
-                    if (trackAmount && desiredInventoryTotal > 0) {
-                        mineProcess.mineByName(desiredInventoryTotal, targetArray);
-                    } else {
-                        mineProcess.mineByName(targetArray);
-                    }
+                    finalMineProcess.mine(targetBlockArray);
                 } catch (Exception e) {
                     throw new RuntimeException("Baritone mine process rejected the collect command.", e);
                 }
             })
             .whenComplete((ignored, throwable) -> {
                 if (throwable != null) {
+                    if (future.isDone() || isCancellationException(throwable)) {
+                        if (!future.isDone()) {
+                            future.complete(null);
+                        }
+                        return;
+                    }
                     String reason = throwable.getCause() != null ? throwable.getCause().getMessage() : throwable.getMessage();
                     System.err.println("Failed to dispatch collect command: " + reason);
                     if (client != null) {
@@ -3355,13 +3369,28 @@ public class Node {
                     return;
                 }
 
-                PreciseCompletionTracker tracker = PreciseCompletionTracker.getInstance();
-                tracker.startTrackingTask(PreciseCompletionTracker.TASK_COLLECT, future);
-
-                if (trackAmount) {
-                    startCollectAmountMonitor(baritone, itemToTrack, startingCount, amountToTrack);
-                }
+                client.execute(() -> {
+                    startCollectCompletionWatcher(baritone, finalMineProcess, future);
+                    if (finalTrackAmount) {
+                        startCollectAmountMonitor(baritone, finalMineProcess, finalTrackedItem, finalStartingCount, finalRequestedAmount, future);
+                    }
+                });
             });
+    }
+
+    private boolean isCancellationException(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && message.toLowerCase(Locale.ROOT).contains("cancel")) {
+                return true;
+            }
+            if (current instanceof java.util.concurrent.CancellationException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
     
     private void executeCraftCommand(CompletableFuture<Void> future) {
@@ -5523,8 +5552,8 @@ public class Node {
         return trimmed;
     }
 
-    private void startCollectAmountMonitor(IBaritone baritone, Item trackedItem, int initialCount, int targetAmount) {
-        if (baritone == null || trackedItem == null || targetAmount <= 0) {
+    private void startCollectAmountMonitor(IBaritone baritone, IMineProcess mineProcess, Item trackedItem, int initialCount, int targetAmount, CompletableFuture<Void> future) {
+        if (baritone == null || mineProcess == null || trackedItem == null || targetAmount <= 0) {
             return;
         }
 
@@ -5534,8 +5563,14 @@ public class Node {
         Runnable pollTask = new Runnable() {
             @Override
             public void run() {
+                if (future.isDone()) {
+                    return;
+                }
                 IMineProcess currentProcess = baritone.getMineProcess();
-                if (currentProcess == null || !currentProcess.isActive()) {
+                if (currentProcess == null || currentProcess != mineProcess || !currentProcess.isActive()) {
+                    if (!future.isDone()) {
+                        future.complete(null);
+                    }
                     return;
                 }
 
@@ -5577,18 +5612,80 @@ public class Node {
                 if (currentCount[0] >= targetAmount) {
                     client.execute(() -> {
                         IMineProcess process = baritone.getMineProcess();
-                        if (process != null && process.isActive()) {
+                        if (process != null && process == mineProcess && process.isActive()) {
                             Identifier itemId = Registries.ITEM.getId(trackedItem);
                             String debugName = itemId != null ? itemId.toString() : trackedItem.toString();
                             System.out.println("Collect amount monitor: reached " + currentCount[0] + " of " + debugName + ", cancelling collect process.");
                             process.cancel();
                         }
-                        PreciseCompletionTracker.getInstance().markTaskCompleted(PreciseCompletionTracker.TASK_COLLECT);
+                        if (!future.isDone()) {
+                            future.complete(null);
+                        }
                     });
                     return;
                 }
 
                 CompletableFuture.delayedExecutor(300, TimeUnit.MILLISECONDS).execute(this);
+            }
+        };
+
+        CompletableFuture.delayedExecutor(300, TimeUnit.MILLISECONDS).execute(pollTask);
+    }
+
+    private void startCollectCompletionWatcher(IBaritone baritone, IMineProcess mineProcess, CompletableFuture<Void> future) {
+        if (baritone == null || mineProcess == null) {
+            if (!future.isDone()) {
+                future.complete(null);
+            }
+            return;
+        }
+
+        final boolean[] seenActive = new boolean[] { false };
+
+        Runnable pollTask = new Runnable() {
+            @Override
+            public void run() {
+                if (future.isDone()) {
+                    return;
+                }
+
+                IMineProcess current = baritone.getMineProcess();
+                if (current == null || current != mineProcess) {
+                    if (!seenActive[0]) {
+                        net.minecraft.client.MinecraftClient instance = net.minecraft.client.MinecraftClient.getInstance();
+                        if (instance != null) {
+                            sendNodeErrorMessage(instance, "Baritone refused to start collecting. Make sure no other mining task is active.");
+                        }
+                    }
+                    completeFuture();
+                    return;
+                }
+
+                if (current.isActive()) {
+                    seenActive[0] = true;
+                    scheduleNext();
+                    return;
+                }
+
+                if (!seenActive[0]) {
+                    scheduleNext();
+                    return;
+                }
+
+                completeFuture();
+            }
+
+            private void scheduleNext() {
+                if (future.isDone()) {
+                    return;
+                }
+                CompletableFuture.delayedExecutor(300, TimeUnit.MILLISECONDS).execute(this);
+            }
+
+            private void completeFuture() {
+                if (!future.isDone()) {
+                    future.complete(null);
+                }
             }
         };
 
