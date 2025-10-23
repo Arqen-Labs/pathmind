@@ -671,15 +671,22 @@ public class Node {
                pointY >= slotTop && pointY <= slotTop + slotHeight;
     }
 
+    private boolean usesDualParameterSlots() {
+        return type == NodeType.PLACE;
+    }
+
     public boolean hasSecondaryParameterSlot() {
-        return hasParameterSlot() && type == NodeType.PLACE;
+        if (!hasParameterSlot()) {
+            return false;
+        }
+        return usesDualParameterSlots();
     }
 
     public int getParameterSlotCount() {
         if (!hasParameterSlot()) {
             return 0;
         }
-        return hasSecondaryParameterSlot() ? 2 : 1;
+        return usesDualParameterSlots() ? 2 : 1;
     }
 
     public int getParameterSlotLeft() {
@@ -838,7 +845,7 @@ public class Node {
         if (!hasParameterSlot()) {
             return "";
         }
-        if (type == NodeType.PLACE) {
+        if (usesDualParameterSlots()) {
             return slotIndex == 0 ? "Block" : "Target";
         }
         return "Parameter";
