@@ -88,6 +88,7 @@ public enum NodeType {
     SENSOR_IS_IN_LAVA("In Lava", 0xFF64B5F6, "Detect if the player is touching lava"),
     SENSOR_IS_UNDERWATER("Underwater", 0xFF64B5F6, "Detect if the player is fully submerged"),
     SENSOR_IS_FALLING("Is Falling", 0xFF64B5F6, "Detect if the player is currently falling"),
+    SENSOR_IS_RENDERED("Is Rendered", 0xFF64B5F6, "Detect if a specified block or item is currently visible to the player"),
 
     // Utility Commands
     SCREEN_CONTROL("Screen Control", 0xFF9E9E9E, "Open or close in-game screens"),
@@ -183,6 +184,7 @@ public enum NodeType {
             case SENSOR_IS_IN_LAVA:
             case SENSOR_IS_UNDERWATER:
             case SENSOR_IS_FALLING:
+            case SENSOR_IS_RENDERED:
                 return NodeCategory.SENSORS;
             case GOTO:
             case GOAL:
@@ -283,7 +285,6 @@ public enum NodeType {
             case INTERACT:
             case ATTACK:
             case TURN:
-            case SWING:
             case PLACE_HAND:
             case DROP_SLOT:
             case MOVE_ITEM:
@@ -307,6 +308,7 @@ public enum NodeType {
             case SENSOR_ENTITY_NEARBY:
             case SENSOR_ITEM_IN_INVENTORY:
             case SENSOR_IS_FALLING:
+            case SENSOR_IS_RENDERED:
             case PARAM_COORDINATE:
             case PARAM_BLOCK:
             case PARAM_BLOCK_LIST:

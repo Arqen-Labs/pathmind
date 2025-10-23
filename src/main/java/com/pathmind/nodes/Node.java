@@ -385,6 +385,7 @@ public class Node {
             case SENSOR_IS_IN_LAVA:
             case SENSOR_IS_UNDERWATER:
             case SENSOR_IS_FALLING:
+            case SENSOR_IS_RENDERED:
                 return true;
             default:
                 return false;
@@ -418,6 +419,7 @@ public class Node {
             && type != NodeType.START
             && type != NodeType.EVENT_CALL
             && type != NodeType.EVENT_FUNCTION
+            && type != NodeType.SWING
             && type.getCategory() != NodeCategory.LOGIC;
     }
 
@@ -976,6 +978,36 @@ public class Node {
             if (value == null) {
                 value = values.get(key.toLowerCase(Locale.ROOT));
             }
+            if (value == null && "Resource".equalsIgnoreCase(key)) {
+                value = values.get("Block");
+                if (value == null) {
+                    value = values.get(normalizeParameterKey("Block"));
+                }
+                if (value == null) {
+                    value = values.get("Blocks");
+                }
+                if (value == null) {
+                    value = values.get(normalizeParameterKey("Blocks"));
+                }
+                if (value == null) {
+                    value = values.get("Item");
+                }
+                if (value == null) {
+                    value = values.get(normalizeParameterKey("Item"));
+                }
+                if (value == null) {
+                    value = values.get("Entity");
+                }
+                if (value == null) {
+                    value = values.get(normalizeParameterKey("Entity"));
+                }
+                if (value == null) {
+                    value = values.get("Player");
+                }
+                if (value == null) {
+                    value = values.get(normalizeParameterKey("Player"));
+                }
+            }
             if (value != null) {
                 target.setStringValue(value);
                 applied = true;
@@ -1250,6 +1282,7 @@ public class Node {
                 break;
             case INTERACT:
                 parameters.add(new NodeParameter("Hand", ParameterType.STRING, "main"));
+                parameters.add(new NodeParameter("Block", ParameterType.BLOCK_TYPE, ""));
                 parameters.add(new NodeParameter("PreferEntity", ParameterType.BOOLEAN, "true"));
                 parameters.add(new NodeParameter("PreferBlock", ParameterType.BOOLEAN, "true"));
                 parameters.add(new NodeParameter("FallbackToItemUse", ParameterType.BOOLEAN, "true"));
@@ -1263,11 +1296,6 @@ public class Node {
                 parameters.add(new NodeParameter("SwingOnPlace", ParameterType.BOOLEAN, "true"));
                 parameters.add(new NodeParameter("RequireBlockHit", ParameterType.BOOLEAN, "true"));
                 parameters.add(new NodeParameter("RestoreSneakState", ParameterType.BOOLEAN, "true"));
-                break;
-            case SWING:
-                parameters.add(new NodeParameter("Hand", ParameterType.STRING, "main"));
-                parameters.add(new NodeParameter("Count", ParameterType.INTEGER, "1"));
-                parameters.add(new NodeParameter("IntervalSeconds", ParameterType.DOUBLE, "0.0"));
                 break;
             case ATTACK:
                 parameters.add(new NodeParameter("Hand", ParameterType.STRING, "main"));
@@ -1328,6 +1356,9 @@ public class Node {
             case SENSOR_IS_IN_LAVA:
             case SENSOR_IS_UNDERWATER:
             case SENSOR_IS_FALLING:
+                break;
+            case SENSOR_IS_RENDERED:
+                parameters.add(new NodeParameter("Resource", ParameterType.STRING, "minecraft:stone"));
                 break;
             case PARAM_COORDINATE:
                 parameters.add(new NodeParameter("X", ParameterType.INTEGER, "0"));
@@ -2524,6 +2555,7 @@ public class Node {
             case SENSOR_IS_IN_LAVA:
             case SENSOR_IS_UNDERWATER:
             case SENSOR_IS_FALLING:
+            case SENSOR_IS_RENDERED:
                 completeSensorEvaluation(future);
                 break;
             
@@ -3002,7 +3034,7 @@ public class Node {
 
         if (trackAmount && startingCount >= amountToTrack && client != null) {
             String itemName = itemToTrack.getName().getString();
-            sendNodeInfoMessage(client, "Already have at least " + amountToTrack + " x " + itemName + "; skipping collect command.");
+            sendNodeErrorMessage(client, "Already have at least " + amountToTrack + " x " + itemName + "; skipping collect command.");
             future.complete(null);
             return;
         }
@@ -5303,11 +5335,11 @@ public class Node {
     }
     
     private void executeInteractCommand(CompletableFuture<Void> future) {
-        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+        if (preprocessAttachedParameter(EnumSet.of(ParameterUsage.POSITION), future) == ParameterHandlingResult.COMPLETE) {
             return;
         }
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
-        if (client == null || client.player == null || client.interactionManager == null) {
+        if (client == null || client.player == null || client.interactionManager == null || client.world == null) {
             future.completeExceptionally(new RuntimeException("Minecraft client not available"));
             return;
         }
@@ -5328,11 +5360,129 @@ public class Node {
             }
         }
 
+        Runnable restoreSneakState = () -> {
+            if (sneakWhileInteracting && restoreSneak) {
+                client.player.setSneaking(previousSneak);
+                if (client.options != null && client.options.sneakKey != null) {
+                    client.options.sneakKey.setPressed(previousSneak);
+                }
+            }
+        };
+
+        RuntimeParameterData parameterData = runtimeParameterData;
+        BlockPos parameterTargetPos = parameterData != null ? parameterData.targetBlockPos : null;
+
+        NodeParameter blockParameter = getParameter("Block");
+        String configuredBlockId = null;
+        String requestedBlockLabel = null;
+        if (parameterData != null) {
+            if (parameterData.targetBlockId != null && !parameterData.targetBlockId.isEmpty()) {
+                configuredBlockId = parameterData.targetBlockId;
+            } else if (parameterData.targetBlockIds != null && !parameterData.targetBlockIds.isEmpty()) {
+                configuredBlockId = parameterData.targetBlockIds.get(0);
+            }
+        }
+        if (blockParameter != null) {
+            String value = blockParameter.getStringValue();
+            if (value != null && !value.trim().isEmpty()) {
+                configuredBlockId = value.trim();
+                requestedBlockLabel = value.trim();
+            }
+        }
+        if (requestedBlockLabel == null) {
+            requestedBlockLabel = configuredBlockId;
+        }
+
+        Block targetBlock = null;
+        if (configuredBlockId != null && !configuredBlockId.isEmpty()) {
+            String sanitized = sanitizeResourceId(configuredBlockId);
+            String normalized = normalizeResourceId(sanitized, "minecraft");
+            Identifier identifier = Identifier.tryParse(normalized);
+            if (identifier == null || !Registries.BLOCK.containsId(identifier)) {
+                restoreSneakState.run();
+                String label = requestedBlockLabel != null && !requestedBlockLabel.isEmpty() ? requestedBlockLabel : configuredBlockId;
+                sendNodeErrorMessage(client, "Cannot interact with \"" + label + "\": unknown block identifier.");
+                future.complete(null);
+                return;
+            }
+            targetBlock = Registries.BLOCK.get(identifier);
+            configuredBlockId = identifier.toString();
+            setParameterValueAndPropagate("Block", configuredBlockId);
+        }
+
         HitResult target = client.crosshairTarget;
         ActionResult result = ActionResult.PASS;
         boolean attemptedInteraction = false;
 
-        if (preferEntity && target instanceof EntityHitResult entityHit) {
+        if (targetBlock != null || parameterTargetPos != null) {
+            BlockPos targetPos = parameterTargetPos;
+            if (targetPos == null && targetBlock != null) {
+                Optional<BlockPos> nearest = findNearestBlock(client, Collections.singletonList(targetBlock), PARAMETER_SEARCH_RADIUS);
+                if (nearest.isPresent()) {
+                    targetPos = nearest.get();
+                }
+            }
+            if (targetPos == null) {
+                String name = targetBlock != null ? targetBlock.getName().getString()
+                    : (requestedBlockLabel != null && !requestedBlockLabel.isEmpty() ? requestedBlockLabel : "block");
+                restoreSneakState.run();
+                sendNodeErrorMessage(client, name + " is not nearby for " + type.getDisplayName() + ".");
+                future.complete(null);
+                return;
+            }
+
+            BlockState state = client.world.getBlockState(targetPos);
+            if (state.isAir()) {
+                String name = targetBlock != null ? targetBlock.getName().getString()
+                    : (requestedBlockLabel != null && !requestedBlockLabel.isEmpty() ? requestedBlockLabel : "block");
+                restoreSneakState.run();
+                sendNodeErrorMessage(client, name + " is missing for " + type.getDisplayName() + ".");
+                future.complete(null);
+                return;
+            }
+
+            if (targetBlock == null) {
+                targetBlock = state.getBlock();
+                Identifier stateId = Registries.BLOCK.getId(targetBlock);
+                if (stateId != null) {
+                    setParameterValueAndPropagate("Block", stateId.toString());
+                }
+            }
+
+            if (targetBlock != null && !state.isOf(targetBlock)) {
+                String name = targetBlock.getName().getString();
+                restoreSneakState.run();
+                sendNodeErrorMessage(client, name + " is not nearby for " + type.getDisplayName() + ".");
+                future.complete(null);
+                return;
+            }
+
+            String blockDisplayName = targetBlock.getName().getString();
+
+            if (state.createScreenHandlerFactory(client.world, targetPos) == null) {
+                restoreSneakState.run();
+                sendNodeErrorMessage(client, blockDisplayName + " cannot be opened.");
+                future.complete(null);
+                return;
+            }
+
+            Vec3d eyePos = client.player.getEyePos();
+            Vec3d hitVec = Vec3d.ofCenter(targetPos);
+            if (eyePos.squaredDistanceTo(hitVec) > DEFAULT_REACH_DISTANCE_SQUARED) {
+                restoreSneakState.run();
+                sendNodeErrorMessage(client, blockDisplayName + " is too far away to interact with.");
+                future.complete(null);
+                return;
+            }
+
+            Direction facing = Direction.getFacing(hitVec.x - eyePos.x, hitVec.y - eyePos.y, hitVec.z - eyePos.z);
+            BlockHitResult manualHit = new BlockHitResult(hitVec, facing == null ? Direction.UP : facing, targetPos, false);
+            target = manualHit;
+            result = client.interactionManager.interactBlock(client.player, hand, manualHit);
+            attemptedInteraction = true;
+        }
+
+        if (!attemptedInteraction && preferEntity && target instanceof EntityHitResult entityHit) {
             result = client.interactionManager.interactEntity(client.player, entityHit.getEntity(), hand);
             attemptedInteraction = true;
         }
@@ -5353,13 +5503,7 @@ public class Node {
             }
         }
 
-        if (sneakWhileInteracting && restoreSneak) {
-            client.player.setSneaking(previousSneak);
-            if (client.options != null && client.options.sneakKey != null) {
-                client.options.sneakKey.setPressed(previousSneak);
-            }
-        }
-
+        restoreSneakState.run();
         future.complete(null);
     }
     
@@ -6056,6 +6200,59 @@ public class Node {
                 result = isFalling(distance);
                 break;
             }
+            case SENSOR_IS_RENDERED: {
+                String resourceId = getStringParameter("Resource", "minecraft:stone");
+                Node parameterNode = getAttachedParameterOfType(
+                    NodeType.PARAM_BLOCK,
+                    NodeType.PARAM_BLOCK_LIST,
+                    NodeType.PARAM_ITEM,
+                    NodeType.PARAM_ENTITY,
+                    NodeType.PARAM_PLAYER,
+                    NodeType.PARAM_PLACE_TARGET
+                );
+                if (parameterNode != null) {
+                    NodeType parameterType = parameterNode.getType();
+                    switch (parameterType) {
+                        case PARAM_ITEM: {
+                            String nodeItem = getParameterString(parameterNode, "Item");
+                            if (nodeItem != null && !nodeItem.isEmpty()) {
+                                resourceId = nodeItem;
+                            }
+                            break;
+                        }
+                        case PARAM_ENTITY: {
+                            String nodeEntity = getParameterString(parameterNode, "Entity");
+                            if (nodeEntity != null && !nodeEntity.isEmpty()) {
+                                resourceId = nodeEntity;
+                            }
+                            break;
+                        }
+                        case PARAM_PLAYER: {
+                            String nodePlayer = getParameterString(parameterNode, "Player");
+                            if (nodePlayer != null && !nodePlayer.isEmpty()) {
+                                resourceId = nodePlayer;
+                            }
+                            break;
+                        }
+                        case PARAM_BLOCK_LIST: {
+                            String nodeBlocks = getParameterString(parameterNode, "Blocks");
+                            if (nodeBlocks != null && !nodeBlocks.isEmpty()) {
+                                resourceId = nodeBlocks;
+                            }
+                            break;
+                        }
+                        default: {
+                            String nodeBlock = getParameterString(parameterNode, "Block");
+                            if (nodeBlock != null && !nodeBlock.isEmpty()) {
+                                resourceId = nodeBlock;
+                            }
+                            break;
+                        }
+                    }
+                }
+                result = isResourceRendered(resourceId);
+                break;
+            }
             default:
                 result = false;
                 break;
@@ -6259,6 +6456,192 @@ public class Node {
         }
         net.minecraft.item.Item item = Registries.ITEM.get(identifier);
         return client.player.getInventory().count(item) > 0;
+    }
+
+    private boolean isResourceRendered(String resourceId) {
+        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+        if (client == null || client.player == null || client.world == null || resourceId == null || resourceId.isEmpty()) {
+            return false;
+        }
+        String trimmed = resourceId.trim();
+        if (trimmed.isEmpty()) {
+            return false;
+        }
+        if (trimmed.indexOf(',') >= 0) {
+            String[] parts = trimmed.split(",");
+            for (String part : parts) {
+                if (part != null && !part.trim().isEmpty() && isResourceRendered(part.trim())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return isSingleResourceRendered(client, trimmed);
+    }
+
+    private boolean isSingleResourceRendered(net.minecraft.client.MinecraftClient client, String resourceId) {
+        if (client == null || client.player == null || client.world == null || resourceId == null || resourceId.isEmpty()) {
+            return false;
+        }
+        String normalized = resourceId.contains(":")
+            ? resourceId.toLowerCase(Locale.ROOT)
+            : resourceId;
+        Identifier identifier = Identifier.tryParse(normalized);
+        if (identifier != null) {
+            if (Registries.BLOCK.containsId(identifier)) {
+                Block block = Registries.BLOCK.get(identifier);
+                return isBlockRendered(client, block);
+            }
+            if (Registries.ITEM.containsId(identifier)) {
+                Item item = Registries.ITEM.get(identifier);
+                return isItemRendered(client, item);
+            }
+            if (Registries.ENTITY_TYPE.containsId(identifier)) {
+                EntityType<?> entityType = Registries.ENTITY_TYPE.get(identifier);
+                return isEntityRendered(client, entityType);
+            }
+        }
+        return isPlayerRendered(client, resourceId);
+    }
+
+    private boolean isBlockRendered(net.minecraft.client.MinecraftClient client, Block block) {
+        if (client == null || client.player == null || client.world == null || block == null) {
+            return false;
+        }
+
+        HitResult hitResult = client.crosshairTarget;
+        if (hitResult instanceof BlockHitResult blockHit) {
+            BlockPos hitPos = blockHit.getBlockPos();
+            if (client.world.getBlockState(hitPos).isOf(block)) {
+                return true;
+            }
+        }
+
+        BlockPos playerPos = client.player.getBlockPos();
+        int viewDistance = client.options.getViewDistance().getValue();
+        int horizontalRadius = MathHelper.clamp(viewDistance * 4, 8, 48);
+        int verticalRadius = MathHelper.clamp(viewDistance * 2, 6, 32);
+        BlockPos.Mutable mutable = new BlockPos.Mutable();
+
+        for (int dx = -horizontalRadius; dx <= horizontalRadius; dx++) {
+            for (int dy = -verticalRadius; dy <= verticalRadius; dy++) {
+                for (int dz = -horizontalRadius; dz <= horizontalRadius; dz++) {
+                    mutable.set(playerPos.getX() + dx, playerPos.getY() + dy, playerPos.getZ() + dz);
+                    BlockState state = client.world.getBlockState(mutable);
+                    if (state.isOf(block) && isBlockVisible(client, mutable)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isBlockVisible(net.minecraft.client.MinecraftClient client, BlockPos pos) {
+        if (client == null || client.player == null || client.world == null) {
+            return false;
+        }
+        Vec3d cameraPos = client.gameRenderer.getCamera().getPos();
+        Vec3d target = Vec3d.ofCenter(pos);
+        RaycastContext context = new RaycastContext(
+            cameraPos,
+            target,
+            RaycastContext.ShapeType.COLLIDER,
+            RaycastContext.FluidHandling.NONE,
+            client.player
+        );
+        BlockHitResult hit = client.world.raycast(context);
+        if (hit == null) {
+            return false;
+        }
+        if (hit.getType() == HitResult.Type.MISS) {
+            return true;
+        }
+        return hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(pos);
+    }
+
+    private boolean isItemRendered(net.minecraft.client.MinecraftClient client, Item item) {
+        if (client == null || client.player == null || client.world == null || item == null) {
+            return false;
+        }
+
+        if (client.player.getMainHandStack().isOf(item) || client.player.getOffHandStack().isOf(item)) {
+            return true;
+        }
+
+        HitResult hitResult = client.crosshairTarget;
+        if (hitResult instanceof EntityHitResult entityHit) {
+            Entity targetEntity = entityHit.getEntity();
+            if (targetEntity instanceof ItemEntity itemEntity && !itemEntity.getStack().isEmpty() && itemEntity.getStack().isOf(item)) {
+                return true;
+            }
+        }
+
+        double renderDistance = Math.max(8.0, client.options.getViewDistance().getValue() * 4.0);
+        Box searchBox = client.player.getBoundingBox().expand(renderDistance);
+        List<ItemEntity> candidates = client.world.getEntitiesByClass(
+            ItemEntity.class,
+            searchBox,
+            entity -> entity != null && !entity.isRemoved() && !entity.getStack().isEmpty()
+                && entity.getStack().isOf(item) && client.player.canSee(entity)
+        );
+        return !candidates.isEmpty();
+    }
+
+    private boolean isEntityRendered(net.minecraft.client.MinecraftClient client, EntityType<?> entityType) {
+        if (client == null || client.player == null || client.world == null || entityType == null) {
+            return false;
+        }
+
+        HitResult hitResult = client.crosshairTarget;
+        if (hitResult instanceof EntityHitResult entityHit && entityHit.getEntity() != null && entityHit.getEntity().getType() == entityType) {
+            return true;
+        }
+
+        double renderDistance = Math.max(8.0, client.options.getViewDistance().getValue() * 4.0);
+        Box searchBox = client.player.getBoundingBox().expand(renderDistance);
+        List<Entity> matches = client.world.getOtherEntities(
+            client.player,
+            searchBox,
+            entity -> entity != null && entity.isAlive() && entity.getType() == entityType && client.player.canSee(entity)
+        );
+        return !matches.isEmpty();
+    }
+
+    private boolean isPlayerRendered(net.minecraft.client.MinecraftClient client, String playerName) {
+        if (client == null || client.player == null || client.world == null || playerName == null || playerName.isEmpty()) {
+            return false;
+        }
+
+        String trimmed = playerName.trim();
+        if (trimmed.isEmpty()) {
+            return false;
+        }
+
+        HitResult hitResult = client.crosshairTarget;
+        if (hitResult instanceof EntityHitResult entityHit && entityHit.getEntity() instanceof AbstractClientPlayerEntity targetPlayer) {
+            if (targetPlayer.getGameProfile().getName().equalsIgnoreCase(trimmed)) {
+                return true;
+            }
+        }
+
+        double renderDistance = Math.max(8.0, client.options.getViewDistance().getValue() * 4.0);
+        for (AbstractClientPlayerEntity playerEntity : client.world.getPlayers()) {
+            if (playerEntity == null || !playerEntity.isAlive()) {
+                continue;
+            }
+            if (!playerEntity.getGameProfile().getName().equalsIgnoreCase(trimmed)) {
+                continue;
+            }
+            if (playerEntity.squaredDistanceTo(client.player) > renderDistance * renderDistance) {
+                continue;
+            }
+            if (client.player.canSee(playerEntity)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private boolean isSwimming() {
