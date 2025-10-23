@@ -21,6 +21,7 @@ import baritone.api.process.IMineProcess;
 import baritone.api.process.IFarmProcess;
 import baritone.api.pathing.goals.GoalBlock;
 import baritone.api.utils.BlockOptionalMeta;
+import baritone.api.utils.BlockOptionalMetaLookup;
 import com.pathmind.execution.PreciseCompletionTracker;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.player.PlayerInventory;
@@ -3256,12 +3257,20 @@ public class Node {
         }
 
         if (collectMode == NodeMode.COLLECT_MULTIPLE) {
-            BlockOptionalMeta[] metas = validTargets.stream()
-                .map(BlockOptionalMeta::new)
-                .toArray(BlockOptionalMeta[]::new);
+            String[] targetArray = validTargets.stream()
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toArray(String[]::new);
+
+            if (targetArray.length == 0) {
+                net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+                sendNodeErrorMessage(client, "Mine node requires a valid block name.");
+                future.complete(null);
+                return;
+            }
 
             PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_COLLECT, future);
-            mineProcess.mine(metas);
+            mineProcess.mine(new BlockOptionalMetaLookup(targetArray));
             return;
         }
 
@@ -3300,7 +3309,7 @@ public class Node {
         System.out.println("Executing collect command for blocks: " + String.join(", ", targetArray) + " amount=" + desiredAmount);
 
         PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_COLLECT, future);
-        mineProcess.mineByName(desiredAmount, targetArray);
+        mineProcess.mine(desiredAmount, new BlockOptionalMetaLookup(targetArray));
     }
     
     private void executeCraftCommand(CompletableFuture<Void> future) {
