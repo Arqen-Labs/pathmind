@@ -2706,7 +2706,8 @@ public class Node {
                 executeGoalCommand(future);
                 break;
             case COLLECT:
-                executeCollectCommand(future);
+                System.out.println("Mine node is visual only; skipping execution.");
+                future.complete(null);
                 break;
             case BUILD:
                 executeBuildCommand(future);

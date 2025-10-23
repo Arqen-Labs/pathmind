@@ -19,8 +19,8 @@ public enum NodeMode {
     GOAL_CLEAR("Clear Goal", "Clear current goal"),
     
     // COLLECT modes
-    COLLECT_SINGLE("Collect Single Block", "Collect a single block type"),
-    COLLECT_MULTIPLE("Collect Multiple Blocks", "Collect multiple block types"),
+    COLLECT_SINGLE("Mine Single Block", "Visual-only setup for mining a single block type"),
+    COLLECT_MULTIPLE("Mine Multiple Blocks", "Visual-only setup for mining multiple block types"),
     
     // BUILD modes
     BUILD_PLAYER("Build at Player", "Build schematic at player's location"),
