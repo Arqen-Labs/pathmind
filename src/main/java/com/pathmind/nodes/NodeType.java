@@ -54,7 +54,7 @@ public enum NodeType {
     INTERACT("Interact", 0xFF4DB6AC, "Interacts with the targeted block or entity"),
     PLACE_HAND("Place from Hand", 0xFFBA68C8, "Places a block from the selected hand"),
 
-    // Inventory Commands
+    // GUI Commands
     HOTBAR("Hotbar Slot", 0xFFCDDC39, "Selects a hotbar slot"),
     DROP_ITEM("Drop Item", 0xFFFFAB91, "Drops the currently selected item"),
     DROP_SLOT("Drop Slot", 0xFFFF7043, "Drops items from a specific slot"),
@@ -62,7 +62,7 @@ public enum NodeType {
     SWAP_SLOTS("Swap Slots", 0xFFFFF176, "Swaps items between inventory slots"),
     CLEAR_SLOT("Clear Slot", 0xFFB0BEC5, "Clears a slot and optionally drops its contents"),
     OPEN_INVENTORY("Open Inventory", 0xFFB0BEC5, "Opens the player's inventory screen"),
-    CLOSE_INVENTORY("Close Inventory", 0xFFB0BEC5, "Closes the player's inventory screen"),
+    CLOSE_GUI("Close GUI", 0xFFB0BEC5, "Closes the currently open GUI"),
 
     // Equipment Commands
     EQUIP_ARMOR("Equip Armor", 0xFF7E57C2, "Equips armor from an inventory slot"),
@@ -112,6 +112,7 @@ public enum NodeType {
     PARAM_RANGE("Range", 0xFF8BC34A, "Represents a generic radius or range"),
     PARAM_ROTATION("Rotation", 0xFF8BC34A, "Represents yaw and pitch angles"),
     PARAM_PLACE_TARGET("Place", 0xFF8BC34A, "Represents a block placement with coordinates"),
+    PARAM_CLOSEST("Closest", 0xFF8BC34A, "Represents the nearest open block location"),
     PARAM_LIGHT_THRESHOLD("Light Threshold", 0xFF8BC34A, "Represents a light level threshold"),
     PARAM_HEALTH_THRESHOLD("Health Threshold", 0xFF8BC34A, "Represents a health threshold"),
     PARAM_HUNGER_THRESHOLD("Hunger Threshold", 0xFF8BC34A, "Represents a hunger threshold"),
@@ -221,13 +222,13 @@ public enum NodeType {
             case SWAP_SLOTS:
             case CLEAR_SLOT:
             case OPEN_INVENTORY:
-            case CLOSE_INVENTORY:
+            case CLOSE_GUI:
             case EQUIP_ARMOR:
             case UNEQUIP_ARMOR:
             case EQUIP_HAND:
             case UNEQUIP_HAND:
             case SWAP_HANDS:
-                return NodeCategory.INVENTORY;
+                return NodeCategory.GUI;
             case SCREEN_CONTROL:
             case WAIT:
             case MESSAGE:
@@ -248,6 +249,7 @@ public enum NodeType {
             case PARAM_RANGE:
             case PARAM_ROTATION:
             case PARAM_PLACE_TARGET:
+            case PARAM_CLOSEST:
             case PARAM_LIGHT_THRESHOLD:
             case PARAM_HEALTH_THRESHOLD:
             case PARAM_HUNGER_THRESHOLD:
@@ -294,6 +296,7 @@ public enum NodeType {
             case UNEQUIP_ARMOR:
             case EQUIP_HAND:
             case UNEQUIP_HAND:
+            case CLOSE_GUI:
             case CONTROL_REPEAT:
             case CONTROL_REPEAT_UNTIL:
             case CONTROL_IF_ELSE:
@@ -325,6 +328,7 @@ public enum NodeType {
             case PARAM_RANGE:
             case PARAM_ROTATION:
             case PARAM_PLACE_TARGET:
+            case PARAM_CLOSEST:
             case PARAM_LIGHT_THRESHOLD:
             case PARAM_HEALTH_THRESHOLD:
             case PARAM_HUNGER_THRESHOLD:

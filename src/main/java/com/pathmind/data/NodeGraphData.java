@@ -54,9 +54,11 @@ public class NodeGraphData {
         private String parentActionControlId;
         private String attachedParameterId;
         private String parentParameterHostId;
+        private List<ParameterAttachmentData> parameterAttachments;
 
         public NodeData() {
             this.parameters = new ArrayList<>();
+            this.parameterAttachments = new ArrayList<>();
         }
 
         public NodeData(String id, NodeType type, NodeMode mode, int x, int y, List<ParameterData> parameters) {
@@ -72,6 +74,7 @@ public class NodeGraphData {
             this.parentActionControlId = null;
             this.attachedParameterId = null;
             this.parentParameterHostId = null;
+            this.parameterAttachments = new ArrayList<>();
         }
 
         // Getters and setters
@@ -110,6 +113,9 @@ public class NodeGraphData {
 
         public String getParentParameterHostId() { return parentParameterHostId; }
         public void setParentParameterHostId(String parentParameterHostId) { this.parentParameterHostId = parentParameterHostId; }
+
+        public List<ParameterAttachmentData> getParameterAttachments() { return parameterAttachments; }
+        public void setParameterAttachments(List<ParameterAttachmentData> parameterAttachments) { this.parameterAttachments = parameterAttachments; }
     }
     
     /**
@@ -169,5 +175,34 @@ public class NodeGraphData {
         
         public String getType() { return type; }
         public void setType(String type) { this.type = type; }
+    }
+
+    public static class ParameterAttachmentData {
+        private int slotIndex;
+        private String parameterNodeId;
+
+        public ParameterAttachmentData() {
+        }
+
+        public ParameterAttachmentData(int slotIndex, String parameterNodeId) {
+            this.slotIndex = slotIndex;
+            this.parameterNodeId = parameterNodeId;
+        }
+
+        public int getSlotIndex() {
+            return slotIndex;
+        }
+
+        public void setSlotIndex(int slotIndex) {
+            this.slotIndex = slotIndex;
+        }
+
+        public String getParameterNodeId() {
+            return parameterNodeId;
+        }
+
+        public void setParameterNodeId(String parameterNodeId) {
+            this.parameterNodeId = parameterNodeId;
+        }
     }
 }

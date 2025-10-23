@@ -68,6 +68,9 @@ public class Sidebar {
             List<NodeType> nodes = new ArrayList<>();
             
             for (NodeType nodeType : NodeType.values()) {
+                if (nodeType == NodeType.PARAM_PLACE_TARGET) {
+                    continue;
+                }
                 if (nodeType.getCategory() == category && nodeType.isDraggableFromSidebar()) {
                     nodes.add(nodeType);
                 }

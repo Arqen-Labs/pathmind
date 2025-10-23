@@ -181,7 +181,19 @@ public class NodeGraphPersistence {
         }
 
         for (NodeGraphData.NodeData nodeData : data.getNodes()) {
-            if (nodeData.getAttachedParameterId() != null) {
+            List<NodeGraphData.ParameterAttachmentData> attachments = nodeData.getParameterAttachments();
+            if (attachments != null && !attachments.isEmpty()) {
+                Node host = nodeMap.get(nodeData.getId());
+                if (host != null) {
+                    attachments.sort(java.util.Comparator.comparingInt(NodeGraphData.ParameterAttachmentData::getSlotIndex));
+                    for (NodeGraphData.ParameterAttachmentData attachment : attachments) {
+                        Node parameter = nodeMap.get(attachment.getParameterNodeId());
+                        if (parameter != null) {
+                            host.attachParameter(parameter, attachment.getSlotIndex());
+                        }
+                    }
+                }
+            } else if (nodeData.getAttachedParameterId() != null) {
                 Node host = nodeMap.get(nodeData.getId());
                 Node parameter = nodeMap.get(nodeData.getAttachedParameterId());
                 if (host != null && parameter != null) {
@@ -191,6 +203,10 @@ public class NodeGraphPersistence {
         }
 
         for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            List<NodeGraphData.ParameterAttachmentData> attachments = nodeData.getParameterAttachments();
+            if (attachments != null && !attachments.isEmpty()) {
+                continue;
+            }
             if (nodeData.getParentParameterHostId() != null) {
                 Node parameter = nodeMap.get(nodeData.getId());
                 Node host = nodeMap.get(nodeData.getParentParameterHostId());
@@ -305,7 +321,25 @@ public class NodeGraphPersistence {
             nodeData.setParentControlId(node.getParentControlId());
             nodeData.setAttachedActionId(node.getAttachedActionId());
             nodeData.setParentActionControlId(node.getParentActionControlId());
-            nodeData.setAttachedParameterId(node.getAttachedParameterId());
+            List<NodeGraphData.ParameterAttachmentData> attachmentData = new ArrayList<>();
+            if (!node.getAttachedParameters().isEmpty()) {
+                List<Integer> slotIndices = new ArrayList<>(node.getAttachedParameters().keySet());
+                java.util.Collections.sort(slotIndices);
+                for (Integer slotIndex : slotIndices) {
+                    Node parameterNode = node.getAttachedParameter(slotIndex);
+                    if (parameterNode != null) {
+                        attachmentData.add(new NodeGraphData.ParameterAttachmentData(slotIndex, parameterNode.getId()));
+                    }
+                }
+                if (!attachmentData.isEmpty()) {
+                    nodeData.setAttachedParameterId(attachmentData.get(0).getParameterNodeId());
+                } else {
+                    nodeData.setAttachedParameterId(null);
+                }
+            } else {
+                nodeData.setAttachedParameterId(null);
+            }
+            nodeData.setParameterAttachments(attachmentData);
             nodeData.setParentParameterHostId(node.getParentParameterHostId());
 
             data.getNodes().add(nodeData);
@@ -361,6 +395,9 @@ class NodeTypeAdapter extends com.google.gson.TypeAdapter<NodeType> {
             if ("MINE".equals(name)) {
                 return NodeType.COLLECT;
             }
+            if ("CLOSE_INVENTORY".equals(name)) {
+                return NodeType.CLOSE_GUI;
+            }
             return NodeType.valueOf(name);
         } catch (IllegalArgumentException e) {
             // Handle unknown node types gracefully
@@ -376,11 +413,19 @@ class NodeTypeAdapter extends com.google.gson.TypeAdapter<NodeType> {
 class NodeModeAdapter extends com.google.gson.TypeAdapter<com.pathmind.nodes.NodeMode> {
     @Override
     public void write(com.google.gson.stream.JsonWriter out, com.pathmind.nodes.NodeMode value) throws java.io.IOException {
+        if (value == null) {
+            out.nullValue();
+            return;
+        }
         out.value(value.name());
     }
 
     @Override
     public com.pathmind.nodes.NodeMode read(com.google.gson.stream.JsonReader in) throws java.io.IOException {
+        if (in.peek() == com.google.gson.stream.JsonToken.NULL) {
+            in.nextNull();
+            return null;
+        }
         String name = in.nextString();
         try {
             if ("MINE_SINGLE".equals(name)) {

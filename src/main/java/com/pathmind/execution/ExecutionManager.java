@@ -689,7 +689,19 @@ public class ExecutionManager {
         }
 
         for (NodeGraphData.NodeData nodeData : graphData.getNodes()) {
-            if (nodeData.getAttachedParameterId() != null) {
+            List<NodeGraphData.ParameterAttachmentData> attachments = nodeData.getParameterAttachments();
+            if (attachments != null && !attachments.isEmpty()) {
+                Node host = nodeMap.get(nodeData.getId());
+                if (host != null) {
+                    attachments.sort(java.util.Comparator.comparingInt(NodeGraphData.ParameterAttachmentData::getSlotIndex));
+                    for (NodeGraphData.ParameterAttachmentData attachment : attachments) {
+                        Node parameter = nodeMap.get(attachment.getParameterNodeId());
+                        if (parameter != null) {
+                            host.attachParameter(parameter, attachment.getSlotIndex());
+                        }
+                    }
+                }
+            } else if (nodeData.getAttachedParameterId() != null) {
                 Node host = nodeMap.get(nodeData.getId());
                 Node parameter = nodeMap.get(nodeData.getAttachedParameterId());
                 if (host != null && parameter != null) {
@@ -699,6 +711,10 @@ public class ExecutionManager {
         }
 
         for (NodeGraphData.NodeData nodeData : graphData.getNodes()) {
+            List<NodeGraphData.ParameterAttachmentData> attachments = nodeData.getParameterAttachments();
+            if (attachments != null && !attachments.isEmpty()) {
+                continue;
+            }
             if (nodeData.getParentParameterHostId() != null) {
                 Node parameter = nodeMap.get(nodeData.getId());
                 Node host = nodeMap.get(nodeData.getParentParameterHostId());

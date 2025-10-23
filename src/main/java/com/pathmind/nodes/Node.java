@@ -145,8 +145,9 @@ public class Node {
     private Node parentControl;
     private Node attachedActionNode;
     private Node parentActionControl;
-    private Node attachedParameter;
+    private final Map<Integer, Node> attachedParameters;
     private Node parentParameterHost;
+    private int parentParameterSlotIndex;
     private boolean socketsHidden;
     private RuntimeParameterData runtimeParameterData;
 
@@ -161,8 +162,9 @@ public class Node {
         this.parentControl = null;
         this.attachedActionNode = null;
         this.parentActionControl = null;
-        this.attachedParameter = null;
+        this.attachedParameters = new HashMap<>();
         this.parentParameterHost = null;
+        this.parentParameterSlotIndex = -1;
         this.socketsHidden = false;
         initializeParameters();
         recalculateDimensions();
@@ -298,9 +300,7 @@ public class Node {
         if (attachedActionNode != null) {
             updateAttachedActionPosition();
         }
-        if (attachedParameter != null) {
-            updateAttachedParameterPosition();
-        }
+        updateAttachedParameterPositions();
     }
 
     private void setPositionSilently(int x, int y) {
@@ -412,7 +412,7 @@ public class Node {
     }
 
     public boolean canAcceptParameter() {
-        if (type == NodeType.OPEN_INVENTORY || type == NodeType.CLOSE_INVENTORY) {
+        if (type == NodeType.OPEN_INVENTORY || type == NodeType.CLOSE_GUI) {
             return false;
         }
         return !isParameterNode()
@@ -425,6 +425,52 @@ public class Node {
 
     public boolean hasParameterSlot() {
         return canAcceptParameter();
+    }
+
+    public boolean canAcceptParameterAt(int slotIndex) {
+        if (!canAcceptParameter()) {
+            return false;
+        }
+        return slotIndex >= 0 && slotIndex < getParameterSlotCount();
+    }
+
+    private boolean isParameterSlotRequired(int slotIndex) {
+        if (!canAcceptParameterAt(slotIndex)) {
+            return false;
+        }
+        if (type == NodeType.PLACE) {
+            if (slotIndex == 0) {
+                return true;
+            }
+            Node coordinateParameter = getAttachedParameter(slotIndex);
+            if (coordinateParameter != null) {
+                return true;
+            }
+            Node blockParameter = getAttachedParameter(0);
+            return blockParameter == null || !parameterProvidesCoordinates(blockParameter);
+        }
+        return slotIndex == 0;
+    }
+
+    private boolean isParameterCompatibleWithSlot(Node parameter, int slotIndex) {
+        if (parameter == null) {
+            return false;
+        }
+        if (type != NodeType.PLACE) {
+            return true;
+        }
+        NodeType parameterType = parameter.getType();
+        if (slotIndex == 0) {
+            switch (parameterType) {
+                case PARAM_BLOCK:
+                case PARAM_BLOCK_LIST:
+                case PARAM_PLACE_TARGET:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+        return slotIndex == 1 ? parameterProvidesCoordinates(parameterType) : true;
     }
 
     public boolean canAcceptActionNode() {
@@ -467,19 +513,35 @@ public class Node {
     }
 
     public boolean hasAttachedParameter() {
-        return attachedParameter != null;
+        return !attachedParameters.isEmpty();
     }
 
     public Node getAttachedParameter() {
-        return attachedParameter;
+        return getAttachedParameter(0);
+    }
+
+    public Node getAttachedParameter(int slotIndex) {
+        if (slotIndex < 0) {
+            return null;
+        }
+        return attachedParameters.get(slotIndex);
     }
 
     public Node getParentParameterHost() {
         return parentParameterHost;
     }
 
+    public int getParentParameterSlotIndex() {
+        return parentParameterSlotIndex;
+    }
+
+    public Map<Integer, Node> getAttachedParameters() {
+        return Collections.unmodifiableMap(attachedParameters);
+    }
+
     public String getAttachedParameterId() {
-        return attachedParameter != null ? attachedParameter.getId() : null;
+        Node parameter = getAttachedParameter();
+        return parameter != null ? parameter.getId() : null;
     }
 
     public String getParentParameterHostId() {
@@ -595,7 +657,10 @@ public class Node {
                 top += BODY_PADDING_NO_PARAMS;
             }
         } else if (hasParameterSlot()) {
-            top += PARAMETER_SLOT_LABEL_HEIGHT + getParameterSlotHeight() + PARAMETER_SLOT_BOTTOM_PADDING;
+            int slotCount = getParameterSlotCount();
+            for (int i = 0; i < slotCount; i++) {
+                top += PARAMETER_SLOT_LABEL_HEIGHT + getParameterSlotHeight(i) + PARAMETER_SLOT_BOTTOM_PADDING;
+            }
             if (hasCoordinateInputFields()) {
                 top += getCoordinateFieldDisplayHeight();
             }
@@ -637,12 +702,38 @@ public class Node {
                pointY >= slotTop && pointY <= slotTop + slotHeight;
     }
 
+    public int getParameterSlotCount() {
+        if (!hasParameterSlot()) {
+            return 0;
+        }
+        if (type == NodeType.PLACE) {
+            return 2;
+        }
+        return 1;
+    }
+
     public int getParameterSlotLeft() {
         return x + PARAMETER_SLOT_MARGIN_HORIZONTAL;
     }
 
+    public int getParameterSlotTop(int slotIndex) {
+        int top = y + HEADER_HEIGHT + PARAMETER_SLOT_LABEL_HEIGHT;
+        for (int i = 0; i < slotIndex; i++) {
+            top += getParameterSlotHeight(i) + PARAMETER_SLOT_BOTTOM_PADDING + PARAMETER_SLOT_LABEL_HEIGHT;
+        }
+        return top;
+    }
+
+    @Deprecated
     public int getParameterSlotTop() {
-        return y + HEADER_HEIGHT + PARAMETER_SLOT_LABEL_HEIGHT;
+        return getParameterSlotTop(0);
+    }
+
+    public String getParameterSlotLabel(int slotIndex) {
+        if (type == NodeType.PLACE) {
+            return slotIndex == 0 ? "Block" : "Position";
+        }
+        return "Parameter";
     }
 
     public int getParameterSlotWidth() {
@@ -650,13 +741,28 @@ public class Node {
         return Math.max(PARAMETER_SLOT_MIN_CONTENT_WIDTH, widthWithMargins);
     }
 
-    public int getParameterSlotHeight() {
-        int contentHeight = attachedParameter != null ? attachedParameter.getHeight() : PARAMETER_SLOT_MIN_CONTENT_HEIGHT;
+    public int getParameterSlotHeight(int slotIndex) {
+        Node parameter = getAttachedParameter(slotIndex);
+        int contentHeight = parameter != null ? parameter.getHeight() : PARAMETER_SLOT_MIN_CONTENT_HEIGHT;
         return contentHeight + 2 * PARAMETER_SLOT_INNER_PADDING;
     }
 
+    @Deprecated
+    public int getParameterSlotHeight() {
+        return getParameterSlotHeight(0);
+    }
+
+    private int getParameterSlotsBottom() {
+        int slotCount = getParameterSlotCount();
+        if (slotCount <= 0) {
+            return y + HEADER_HEIGHT;
+        }
+        int lastIndex = slotCount - 1;
+        return getParameterSlotTop(lastIndex) + getParameterSlotHeight(lastIndex);
+    }
+
     public boolean hasCoordinateInputFields() {
-        return type == NodeType.PLACE;
+        return false;
     }
 
     public int getCoordinateFieldDisplayHeight() {
@@ -667,7 +773,7 @@ public class Node {
     }
 
     public int getCoordinateFieldLabelTop() {
-        return getParameterSlotTop() + getParameterSlotHeight() + COORDINATE_FIELD_TOP_MARGIN;
+        return getParameterSlotsBottom() + COORDINATE_FIELD_TOP_MARGIN;
     }
 
     public int getCoordinateFieldInputTop() {
@@ -716,7 +822,7 @@ public class Node {
     }
 
     public int getAmountFieldLabelTop() {
-        int top = getParameterSlotTop() + getParameterSlotHeight();
+        int top = getParameterSlotsBottom();
         if (hasCoordinateInputFields()) {
             top += getCoordinateFieldDisplayHeight();
         }
@@ -744,28 +850,45 @@ public class Node {
     }
 
     public boolean isPointInsideParameterSlot(int pointX, int pointY) {
-        if (!hasParameterSlot()) {
-            return false;
-        }
-        int slotLeft = getParameterSlotLeft();
-        int slotTop = getParameterSlotTop();
-        int slotWidth = getParameterSlotWidth();
-        int slotHeight = getParameterSlotHeight();
-        return pointX >= slotLeft && pointX <= slotLeft + slotWidth &&
-               pointY >= slotTop && pointY <= slotTop + slotHeight;
+        return getParameterSlotIndexAt(pointX, pointY) >= 0;
     }
 
-    public void updateAttachedParameterPosition() {
-        if (attachedParameter == null) {
+    public int getParameterSlotIndexAt(int pointX, int pointY) {
+        if (!hasParameterSlot()) {
+            return -1;
+        }
+        int slotCount = getParameterSlotCount();
+        int slotLeft = getParameterSlotLeft();
+        int slotWidth = getParameterSlotWidth();
+        for (int i = 0; i < slotCount; i++) {
+            int slotTop = getParameterSlotTop(i);
+            int slotHeight = getParameterSlotHeight(i);
+            if (pointX >= slotLeft && pointX <= slotLeft + slotWidth &&
+                pointY >= slotTop && pointY <= slotTop + slotHeight) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    public void updateAttachedParameterPositions() {
+        for (Integer slotIndex : attachedParameters.keySet()) {
+            updateAttachedParameterPosition(slotIndex);
+        }
+    }
+
+    private void updateAttachedParameterPosition(int slotIndex) {
+        Node parameter = getAttachedParameter(slotIndex);
+        if (parameter == null) {
             return;
         }
         int slotX = getParameterSlotLeft() + PARAMETER_SLOT_INNER_PADDING;
-        int slotY = getParameterSlotTop() + PARAMETER_SLOT_INNER_PADDING;
+        int slotY = getParameterSlotTop(slotIndex) + PARAMETER_SLOT_INNER_PADDING;
         int availableWidth = getParameterSlotWidth() - 2 * PARAMETER_SLOT_INNER_PADDING;
-        int availableHeight = getParameterSlotHeight() - 2 * PARAMETER_SLOT_INNER_PADDING;
-        int parameterX = slotX + Math.max(0, (availableWidth - attachedParameter.getWidth()) / 2);
-        int parameterY = slotY + Math.max(0, (availableHeight - attachedParameter.getHeight()) / 2);
-        attachedParameter.setPositionSilently(parameterX, parameterY);
+        int availableHeight = getParameterSlotHeight(slotIndex) - 2 * PARAMETER_SLOT_INNER_PADDING;
+        int parameterX = slotX + Math.max(0, (availableWidth - parameter.getWidth()) / 2);
+        int parameterY = slotY + Math.max(0, (availableHeight - parameter.getHeight()) / 2);
+        parameter.setPositionSilently(parameterX, parameterY);
     }
 
     public int getActionSlotLeft() {
@@ -874,44 +997,51 @@ public class Node {
     }
 
     public boolean attachParameter(Node parameter) {
-        if (!canAcceptParameter() || parameter == null || !parameter.isParameterNode() || parameter == this) {
+        return attachParameter(parameter, 0);
+    }
+
+    public boolean attachParameter(Node parameter, int slotIndex) {
+        if (!canAcceptParameterAt(slotIndex) || parameter == null || !parameter.isParameterNode() || parameter == this) {
             return false;
         }
 
-        if (parameter.parentParameterHost == this && attachedParameter == parameter) {
-            updateAttachedParameterPosition();
+        if (parameter.parentParameterHost == this && parameter.parentParameterSlotIndex == slotIndex) {
+            updateAttachedParameterPosition(slotIndex);
             return true;
         }
 
+        if (!isParameterCompatibleWithSlot(parameter, slotIndex)) {
+            sendIncompatibleParameterMessage(parameter);
+            return false;
+        }
+
         Node previousHost = parameter.parentParameterHost;
+        int previousSlot = parameter.parentParameterSlotIndex;
 
-        boolean applied = applyParameterValuesFromNode(parameter);
-        boolean handledAtRuntime = applied || canHandleParameterRuntime(parameter);
-
-        if (previousHost != null && previousHost != this) {
-            previousHost.detachParameter();
+        if (previousHost != null && (previousHost != this || previousSlot != slotIndex)) {
+            previousHost.detachParameter(previousSlot);
         }
 
-        if (attachedParameter != null && attachedParameter != parameter) {
-            Node previous = attachedParameter;
-            previous.parentParameterHost = null;
-            previous.setDragging(false);
-            previous.setSelected(false);
-            previous.setSocketsHidden(false);
-            previous.setPositionSilently(this.x + this.width + PARAMETER_SLOT_MARGIN_HORIZONTAL, this.y);
+        Node existing = attachedParameters.get(slotIndex);
+        if (existing != null && existing != parameter) {
+            detachParameter(slotIndex);
         }
 
-        attachedParameter = parameter;
+        attachedParameters.put(slotIndex, parameter);
         parameter.parentParameterHost = this;
+        parameter.parentParameterSlotIndex = slotIndex;
         parameter.setDragging(false);
         parameter.setSelected(false);
         parameter.setSocketsHidden(true);
         parameter.recalculateDimensions();
 
+        refreshAttachedParameterValues();
+
         recalculateDimensions();
-        updateAttachedParameterPosition();
+        updateAttachedParameterPositions();
         updateParentControlLayout();
 
+        boolean handledAtRuntime = canApplyParameterValues(parameter) || canHandleParameterRuntime(parameter);
         if (!handledAtRuntime) {
             net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
             sendNodeErrorMessage(client, "Parameter \"" + parameter.getType().getDisplayName() + "\" cannot configure \"" + this.type.getDisplayName() + "\" and will be ignored.");
@@ -921,17 +1051,24 @@ public class Node {
     }
 
     public void detachParameter() {
-        if (attachedParameter != null) {
-            Node parameter = attachedParameter;
-            attachedParameter = null;
-            parameter.parentParameterHost = null;
-            parameter.setSocketsHidden(false);
-            parameter.recalculateDimensions();
-            parameter.setPositionSilently(this.x + this.width + PARAMETER_SLOT_MARGIN_HORIZONTAL, this.y);
-            resetParametersToDefaults();
-            recalculateDimensions();
-            updateParentControlLayout();
+        detachParameter(0);
+    }
+
+    public void detachParameter(int slotIndex) {
+        Node parameter = attachedParameters.remove(slotIndex);
+        if (parameter == null) {
+            return;
         }
+        parameter.parentParameterHost = null;
+        parameter.parentParameterSlotIndex = -1;
+        parameter.setSocketsHidden(false);
+        parameter.recalculateDimensions();
+        parameter.setPositionSilently(this.x + this.width + PARAMETER_SLOT_MARGIN_HORIZONTAL, this.y);
+
+        refreshAttachedParameterValues();
+        recalculateDimensions();
+        updateAttachedParameterPositions();
+        updateParentControlLayout();
     }
 
     private void updateParentControlLayout() {
@@ -1014,6 +1151,47 @@ public class Node {
             }
         }
         return applied;
+    }
+
+    private boolean canApplyParameterValues(Node parameter) {
+        if (parameter == null || parameter.getParameters().isEmpty() || this.parameters.isEmpty()) {
+            return false;
+        }
+        Map<String, String> exported = parameter.exportParameterValues();
+        if (exported.isEmpty()) {
+            return false;
+        }
+        for (NodeParameter target : this.parameters) {
+            String key = target.getName();
+            if (exported.containsKey(key)
+                || exported.containsKey(normalizeParameterKey(key))
+                || exported.containsKey(key.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void refreshAttachedParameterValues() {
+        if (isParameterNode()) {
+            return;
+        }
+        resetParametersToDefaults();
+        if (attachedParameters.isEmpty()) {
+            return;
+        }
+        List<Integer> slotIndices = new ArrayList<>(attachedParameters.keySet());
+        Collections.sort(slotIndices);
+        for (Integer slotIndex : slotIndices) {
+            Node parameter = attachedParameters.get(slotIndex);
+            if (parameter == null) {
+                continue;
+            }
+            Map<String, String> exported = parameter.exportParameterValues();
+            if (!exported.isEmpty()) {
+                applyParameterValuesFromMap(exported);
+            }
+        }
     }
 
     private boolean canHandleParameterRuntime(Node parameter) {
@@ -1422,6 +1600,10 @@ public class Node {
                 parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "0"));
                 parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
                 break;
+            case PARAM_CLOSEST:
+                parameters.add(new NodeParameter("Range", ParameterType.INTEGER, "5"));
+                parameters.add(new NodeParameter("RequireSolidGround", ParameterType.BOOLEAN, "true"));
+                break;
             case PARAM_LIGHT_THRESHOLD:
                 parameters.add(new NodeParameter("Threshold", ParameterType.INTEGER, "7"));
                 break;
@@ -1469,11 +1651,16 @@ public class Node {
             parameter.setStringValue(value);
         }
 
-        if (attachedParameter != null && attachedParameter.isParameterNode()) {
-            NodeParameter attachedParam = attachedParameter.getParameter(name);
-            if (attachedParam != null) {
-                attachedParam.setStringValue(value);
-                attachedParameter.recalculateDimensions();
+        if (!attachedParameters.isEmpty()) {
+            for (Node parameterNode : attachedParameters.values()) {
+                if (parameterNode == null || !parameterNode.isParameterNode()) {
+                    continue;
+                }
+                NodeParameter attachedParam = parameterNode.getParameter(name);
+                if (attachedParam != null) {
+                    attachedParam.setStringValue(value);
+                    parameterNode.recalculateDimensions();
+                }
             }
         }
     }
@@ -1623,6 +1810,14 @@ public class Node {
                 }
                 break;
             }
+            case PARAM_CLOSEST: {
+                String range = values.get("Range");
+                if (range != null) {
+                    values.put("Distance", range);
+                    values.put(normalizeParameterKey("Distance"), range);
+                }
+                break;
+            }
             case PARAM_ROTATION: {
                 String yaw = values.get("Yaw");
                 if (yaw != null) {
@@ -1685,8 +1880,12 @@ public class Node {
         int computedWidth = maxTextLength * CHAR_PIXEL_WIDTH + 24; // padding and border allowance
         if (hasParameterSlot()) {
             int parameterContentWidth = PARAMETER_SLOT_MIN_CONTENT_WIDTH;
-            if (attachedParameter != null) {
-                parameterContentWidth = Math.max(parameterContentWidth, attachedParameter.getWidth());
+            if (!attachedParameters.isEmpty()) {
+                for (Node parameterNode : attachedParameters.values()) {
+                    if (parameterNode != null) {
+                        parameterContentWidth = Math.max(parameterContentWidth, parameterNode.getWidth());
+                    }
+                }
             }
             int requiredWidth = parameterContentWidth + 2 * (PARAMETER_SLOT_INNER_PADDING + PARAMETER_SLOT_MARGIN_HORIZONTAL);
             computedWidth = Math.max(computedWidth, requiredWidth);
@@ -1737,7 +1936,10 @@ public class Node {
                 contentHeight += BODY_PADDING_NO_PARAMS;
             }
         } else if (hasParameterSlot()) {
-            contentHeight += PARAMETER_SLOT_LABEL_HEIGHT + getParameterSlotHeight() + PARAMETER_SLOT_BOTTOM_PADDING;
+            int slotCount = getParameterSlotCount();
+            for (int i = 0; i < slotCount; i++) {
+                contentHeight += PARAMETER_SLOT_LABEL_HEIGHT + getParameterSlotHeight(i) + PARAMETER_SLOT_BOTTOM_PADDING;
+            }
             if (hasCoordinateInputFields()) {
                 contentHeight += getCoordinateFieldDisplayHeight();
             }
@@ -1786,9 +1988,7 @@ public class Node {
         if (attachedActionNode != null) {
             updateAttachedActionPosition();
         }
-        if (attachedParameter != null) {
-            updateAttachedParameterPosition();
-        }
+        updateAttachedParameterPositions();
     }
 
     /**
@@ -1824,10 +2024,16 @@ public class Node {
         // Execute on the main Minecraft thread
         net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
 
-        if (hasParameterSlot() && attachedParameter == null) {
-            sendNodeErrorMessage(client, type.getDisplayName() + " requires a parameter node to be attached before it can run.");
-            future.complete(null);
-            return future;
+        if (hasParameterSlot()) {
+            int requiredSlotCount = getParameterSlotCount();
+            for (int i = 0; i < requiredSlotCount; i++) {
+                if (isParameterSlotRequired(i) && getAttachedParameter(i) == null) {
+                    String label = getParameterSlotLabel(i);
+                    sendNodeErrorMessage(client, type.getDisplayName() + " requires a " + label.toLowerCase(Locale.ROOT) + " parameter before it can run.");
+                    future.complete(null);
+                    return future;
+                }
+            }
         }
 
         if (client != null) {
@@ -1848,14 +2054,28 @@ public class Node {
     }
 
     private ParameterHandlingResult preprocessAttachedParameter(EnumSet<ParameterUsage> usages, CompletableFuture<Void> future) {
-        Node parameterNode = attachedParameter;
-        runtimeParameterData = null;
+        return preprocessParameterSlot(0, usages, future, true);
+    }
 
+    private ParameterHandlingResult preprocessParameterSlot(int slotIndex, EnumSet<ParameterUsage> usages, CompletableFuture<Void> future, boolean resetRuntimeData) {
+        if (!canAcceptParameterAt(slotIndex)) {
+            return ParameterHandlingResult.CONTINUE;
+        }
+        if (resetRuntimeData) {
+            runtimeParameterData = null;
+        }
+        Node parameterNode = getAttachedParameter(slotIndex);
+        return preprocessParameterNode(parameterNode, usages, future);
+    }
+
+    private ParameterHandlingResult preprocessParameterNode(Node parameterNode, EnumSet<ParameterUsage> usages, CompletableFuture<Void> future) {
         if (parameterNode == null) {
             return ParameterHandlingResult.CONTINUE;
         }
+        if (runtimeParameterData == null) {
+            runtimeParameterData = new RuntimeParameterData();
+        }
 
-        runtimeParameterData = new RuntimeParameterData();
         boolean handled = false;
 
         Map<String, String> exported = parameterNode.exportParameterValues();
@@ -2070,6 +2290,23 @@ public class Node {
                 }
                 break;
             }
+            case PARAM_CLOSEST: {
+                if (client == null || client.player == null || client.world == null) {
+                    return Optional.empty();
+                }
+                int range = Math.max(1, parseNodeInt(parameterNode, "Range", 5));
+                String requireSolidGroundValue = getParameterString(parameterNode, "RequireSolidGround");
+                boolean requireSolidGround = requireSolidGroundValue == null || Boolean.parseBoolean(requireSolidGroundValue);
+                Optional<BlockPos> open = findNearestOpenBlock(client, range, requireSolidGround);
+                if (open.isEmpty()) {
+                    sendParameterSearchFailure("No open block found within range for " + type.getDisplayName() + ".", future);
+                    return Optional.empty();
+                }
+                if (data != null) {
+                    data.targetBlockPos = open.get();
+                }
+                return Optional.of(Vec3d.ofCenter(open.get()));
+            }
         }
 
         return Optional.empty();
@@ -2278,6 +2515,9 @@ public class Node {
         if (client == null) {
             return;
         }
+        if (parameterNode != null && this.type == NodeType.PLACE && parameterNode.getType() == NodeType.PARAM_CLOSEST) {
+            return;
+        }
         sendNodeErrorMessage(client, "Parameter \"" + parameterNode.getType().getDisplayName() + "\" cannot be used with \"" + this.type.getDisplayName() + "\".");
     }
 
@@ -2395,6 +2635,49 @@ public class Node {
         return Optional.ofNullable(bestPos);
     }
 
+    private Optional<BlockPos> findNearestOpenBlock(net.minecraft.client.MinecraftClient client, int range, boolean requireSolidGround) {
+        if (client == null || client.player == null || client.world == null) {
+            return Optional.empty();
+        }
+        int radius = Math.max(1, Math.min(range, 32));
+        BlockPos playerPos = client.player.getBlockPos();
+        BlockPos.Mutable mutable = new BlockPos.Mutable();
+        BlockPos bestPos = null;
+        double bestDistance = Double.MAX_VALUE;
+
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dy = -radius; dy <= radius; dy++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    mutable.set(playerPos.getX() + dx, playerPos.getY() + dy, playerPos.getZ() + dz);
+                    if (!client.world.getWorldBorder().contains(mutable)) {
+                        continue;
+                    }
+                    if (!isBlockReplaceable(client.world, mutable)) {
+                        continue;
+                    }
+                    if (requireSolidGround) {
+                        BlockPos below = mutable.down();
+                        BlockState belowState = client.world.getBlockState(below);
+                        if (!belowState.isSolidBlock(client.world, below)) {
+                            continue;
+                        }
+                    }
+                    Box blockBox = new Box(mutable.getX(), mutable.getY(), mutable.getZ(), mutable.getX() + 1, mutable.getY() + 1, mutable.getZ() + 1);
+                    if (!client.world.getOtherEntities(null, blockBox).isEmpty()) {
+                        continue;
+                    }
+                    double distance = mutable.getSquaredDistance(playerPos);
+                    if (distance < bestDistance) {
+                        bestDistance = distance;
+                        bestPos = mutable.toImmutable();
+                    }
+                }
+            }
+        }
+
+        return Optional.ofNullable(bestPos);
+    }
+
     /**
      * Execute the actual command for this node type.
      * This method should be overridden by specific node implementations if needed.
@@ -2464,7 +2747,7 @@ public class Node {
             case OPEN_INVENTORY:
                 executePlayerGuiCommand(future, NodeMode.PLAYER_GUI_OPEN);
                 break;
-            case CLOSE_INVENTORY:
+            case CLOSE_GUI:
                 executePlayerGuiCommand(future, NodeMode.PLAYER_GUI_CLOSE);
                 break;
             case SCREEN_CONTROL:
@@ -2693,7 +2976,7 @@ public class Node {
     }
 
     private boolean tryExecuteGotoUsingAttachedParameter(IBaritone baritone, ICustomGoalProcess customGoalProcess, CompletableFuture<Void> future) {
-        Node parameterNode = attachedParameter;
+        Node parameterNode = getAttachedParameter();
         if (parameterNode == null) {
             return false;
         }
@@ -3118,7 +3401,7 @@ public class Node {
         if (!isCraftingScreenAvailable(client, craftMode)) {
             String unavailableMessage = craftMode == NodeMode.CRAFT_CRAFTING_TABLE
                     ? "Cannot craft: open a crafting table GUI before running this node."
-                    : "Cannot craft: open your inventory before running this node.";
+                    : "Cannot craft: open your inventory or a crafting table GUI before running this node.";
             sendNodeErrorMessage(client, unavailableMessage);
             future.complete(null);
             return;
@@ -3133,7 +3416,14 @@ public class Node {
             return;
         }
 
-        RecipeEntry<CraftingRecipe> recipeEntry = findCraftingRecipe(client, targetItem, craftMode);
+        final NodeMode effectiveCraftMode;
+        if (craftMode == NodeMode.CRAFT_PLAYER_GUI && handler instanceof CraftingScreenHandler) {
+            effectiveCraftMode = NodeMode.CRAFT_CRAFTING_TABLE;
+        } else {
+            effectiveCraftMode = craftMode;
+        }
+
+        RecipeEntry<CraftingRecipe> recipeEntry = findCraftingRecipe(client, targetItem, effectiveCraftMode);
         if (recipeEntry == null) {
             sendNodeErrorMessage(client, "Cannot craft " + itemDisplayName + ": no matching recipe found.");
             future.complete(null);
@@ -3152,19 +3442,19 @@ public class Node {
         int perCraftOutput = Math.max(1, outputTemplate.getCount());
         int craftsRequested = Math.max(1, (int) Math.ceil(desiredCount / (double) perCraftOutput));
 
-        List<GridIngredient> gridIngredients = resolveGridIngredients(recipeEntry.value(), craftMode);
+        List<GridIngredient> gridIngredients = resolveGridIngredients(recipeEntry.value(), effectiveCraftMode);
         if (gridIngredients.isEmpty()) {
             sendNodeErrorMessage(client, "Cannot craft " + itemDisplayName + ": the recipe has no ingredients.");
             future.complete(null);
             return;
         }
 
-        int[] craftingGridSlots = getCraftingGridSlots(craftMode);
+        int[] craftingGridSlots = getCraftingGridSlots(effectiveCraftMode);
 
         CompletableFuture
             .supplyAsync(() -> {
                 try {
-                    return craftRecipeUsingScreen(client, craftMode, recipeEntry, targetItem, craftsRequested, desiredCount, itemDisplayName, gridIngredients, craftingGridSlots);
+                    return craftRecipeUsingScreen(client, effectiveCraftMode, recipeEntry, targetItem, craftsRequested, desiredCount, itemDisplayName, gridIngredients, craftingGridSlots);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     throw new java.util.concurrent.CompletionException(e);
@@ -3255,17 +3545,17 @@ public class Node {
                             client.setScreen(new InventoryScreen(client.player));
                         }
                         break;
-                    case PLAYER_GUI_CLOSE:
-                        if (client.player == null) {
-                            throw new RuntimeException("Cannot close the player GUI without an active player.");
-                        }
+                case PLAYER_GUI_CLOSE:
+                    if (client.player == null) {
+                        throw new RuntimeException("Cannot close the player GUI without an active player.");
+                    }
 
-                        if (client.currentScreen instanceof InventoryScreen) {
-                            client.player.closeHandledScreen();
-                            client.setScreen(null);
-                        }
-                        break;
-                    default:
+                    if (client.currentScreen != null) {
+                        client.player.closeHandledScreen();
+                        client.setScreen(null);
+                    }
+                    break;
+                default:
                         throw new IllegalStateException("Unknown player GUI mode: " + playerGuiMode);
                 }
             });
@@ -3288,7 +3578,11 @@ public class Node {
             return client.currentScreen instanceof CraftingScreen;
         }
 
-        return client.currentScreen instanceof InventoryScreen;
+        if (craftMode == NodeMode.CRAFT_PLAYER_GUI) {
+            return client.currentScreen instanceof InventoryScreen || client.currentScreen instanceof CraftingScreen;
+        }
+
+        return false;
     }
 
     private boolean isCompatibleCraftingHandler(ScreenHandler handler, NodeMode craftMode) {
@@ -3300,7 +3594,11 @@ public class Node {
             return handler instanceof CraftingScreenHandler;
         }
 
-        return handler instanceof PlayerScreenHandler;
+        if (craftMode == NodeMode.CRAFT_PLAYER_GUI) {
+            return handler instanceof PlayerScreenHandler || handler instanceof CraftingScreenHandler;
+        }
+
+        return false;
     }
 
     private RecipeEntry<CraftingRecipe> findCraftingRecipe(net.minecraft.client.MinecraftClient client, Item targetItem, NodeMode craftMode) {
@@ -3424,7 +3722,7 @@ public class Node {
             if (!isCraftingScreenAvailable(client, craftMode)) {
                 failureMessage = craftMode == NodeMode.CRAFT_CRAFTING_TABLE
                         ? "Cannot craft " + itemDisplayName + ": open a crafting table GUI before running this node."
-                        : "Cannot craft " + itemDisplayName + ": open your inventory before running this node.";
+                        : "Cannot craft " + itemDisplayName + ": open your inventory or a crafting table GUI before running this node.";
                 break;
             }
 
@@ -3434,7 +3732,7 @@ public class Node {
                 break;
             }
 
-            CraftingAttemptResult attemptResult = performCraftingAttempt(client, targetItem, itemDisplayName, gridIngredients, gridSlots);
+            CraftingAttemptResult attemptResult = performCraftingAttempt(client, targetItem, itemDisplayName, gridIngredients, gridSlots, craftMode);
             if (attemptResult.errorMessage != null) {
                 failureMessage = attemptResult.errorMessage;
                 if (attemptResult.produced > 0) {
@@ -3466,7 +3764,8 @@ public class Node {
                                                          Item targetItem,
                                                          String itemDisplayName,
                                                          List<GridIngredient> gridIngredients,
-                                                         int[] gridSlots) throws InterruptedException {
+                                                         int[] gridSlots,
+                                                         NodeMode craftMode) throws InterruptedException {
         java.util.concurrent.atomic.AtomicReference<String> errorRef = new java.util.concurrent.atomic.AtomicReference<>();
         java.util.concurrent.atomic.AtomicInteger producedRef = new java.util.concurrent.atomic.AtomicInteger();
 
@@ -3483,7 +3782,7 @@ public class Node {
                 return;
             }
 
-            clearCraftingGrid(client, interactionManager, handler, gridSlots);
+            clearCraftingGrid(client, interactionManager, handler, gridSlots, craftMode);
         });
 
         if (errorRef.get() != null) {
@@ -3520,8 +3819,14 @@ public class Node {
                     return;
                 }
 
+                int targetSlot = mapLogicalSlotToHandlerSlot(handler, craftMode, ingredient.slotIndex());
+                if (targetSlot < 0) {
+                    errorRef.set("Cannot craft " + itemDisplayName + ": crafting grid slot unavailable.");
+                    return;
+                }
+
                 interactionManager.clickSlot(handler.syncId, sourceSlot, 0, SlotActionType.PICKUP, client.player);
-                interactionManager.clickSlot(handler.syncId, ingredient.slotIndex(), 1, SlotActionType.PICKUP, client.player);
+                interactionManager.clickSlot(handler.syncId, targetSlot, 1, SlotActionType.PICKUP, client.player);
                 interactionManager.clickSlot(handler.syncId, sourceSlot, 0, SlotActionType.PICKUP, client.player);
                 placed.set(true);
             });
@@ -3589,7 +3894,7 @@ public class Node {
                     return;
                 }
 
-                clearCraftingGrid(client, interactionManager, handler, gridSlots);
+                clearCraftingGrid(client, interactionManager, handler, gridSlots, craftMode);
             });
 
             if (errorRef.get() != null) {
@@ -3610,12 +3915,15 @@ public class Node {
     private void clearCraftingGrid(net.minecraft.client.MinecraftClient client,
                                    ClientPlayerInteractionManager interactionManager,
                                    ScreenHandler handler,
-                                   int[] gridSlots) {
+                                   int[] gridSlots,
+                                   NodeMode craftMode) {
         if (client.player == null || interactionManager == null || handler == null || gridSlots == null) {
             return;
         }
 
-        for (int slotIndex : gridSlots) {
+        int[] actualSlots = mapGridSlotsForHandler(handler, craftMode, gridSlots);
+
+        for (int slotIndex : actualSlots) {
             try {
                 Slot slot = handler.getSlot(slotIndex);
                 if (slot != null && slot.hasStack()) {
@@ -3657,14 +3965,57 @@ public class Node {
         return -1;
     }
 
+    private int[] mapGridSlotsForHandler(ScreenHandler handler, NodeMode craftMode, int[] logicalSlots) {
+        if (handler == null || logicalSlots == null) {
+            return new int[0];
+        }
+        int[] mapped = new int[logicalSlots.length];
+        int count = 0;
+        for (int logical : logicalSlots) {
+            int actual = mapLogicalSlotToHandlerSlot(handler, craftMode, logical);
+            if (actual >= 0) {
+                mapped[count++] = actual;
+            }
+        }
+        if (count == mapped.length) {
+            return mapped;
+        }
+        int[] compact = new int[count];
+        for (int i = 0; i < count; i++) {
+            compact[i] = mapped[i];
+        }
+        return compact;
+    }
+
+    private int mapLogicalSlotToHandlerSlot(ScreenHandler handler, NodeMode craftMode, int logicalSlot) {
+        if (handler == null) {
+            return -1;
+        }
+
+        if (craftMode == NodeMode.CRAFT_PLAYER_GUI && handler instanceof CraftingScreenHandler) {
+            return switch (logicalSlot) {
+                case 1 -> 1;
+                case 2 -> 2;
+                case 3 -> 4;
+                case 4 -> 5;
+                default -> -1;
+            };
+        }
+
+        return logicalSlot;
+    }
+
     private List<GridIngredient> resolveGridIngredients(CraftingRecipe recipe, NodeMode craftMode) {
         List<GridIngredient> result = new ArrayList<>();
         if (recipe == null) {
             return result;
         }
 
-        if (craftMode == NodeMode.CRAFT_PLAYER_GUI && recipe instanceof ShapedRecipe shapedRecipe) {
-            return resolvePlayerGridIngredients(shapedRecipe);
+        if (recipe instanceof ShapedRecipe shapedRecipe) {
+            if (craftMode == NodeMode.CRAFT_PLAYER_GUI) {
+                return resolvePlayerGridIngredients(shapedRecipe);
+            }
+            return resolveCraftingTableGridIngredients(shapedRecipe);
         }
 
         IngredientPlacement placement = recipe.getIngredientPlacement();
@@ -3760,6 +4111,42 @@ public class Node {
         return result;
     }
 
+    private List<GridIngredient> resolveCraftingTableGridIngredients(ShapedRecipe recipe) {
+        List<GridIngredient> result = new ArrayList<>();
+        List<Optional<Ingredient>> ingredients = recipe.getIngredients();
+        if (ingredients == null || ingredients.isEmpty()) {
+            return result;
+        }
+
+        int width = Math.min(recipe.getWidth(), 3);
+        int height = Math.min(recipe.getHeight(), 3);
+        int recipeWidth = Math.max(recipe.getWidth(), 1);
+
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                int index = x + (y * recipeWidth);
+                if (index < 0 || index >= ingredients.size()) {
+                    continue;
+                }
+
+                Optional<Ingredient> optional = ingredients.get(index);
+                if (optional == null || optional.isEmpty()) {
+                    continue;
+                }
+
+                Ingredient ingredient = optional.get();
+                if (ingredient.isEmpty()) {
+                    continue;
+                }
+
+                int slotIndex = 1 + x + (y * 3);
+                result.add(new GridIngredient(slotIndex, ingredient));
+            }
+        }
+
+        return result;
+    }
+
     private int[] getCraftingGridSlots(NodeMode craftMode) {
         if (craftMode == NodeMode.CRAFT_CRAFTING_TABLE) {
             return new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9};
@@ -3806,14 +4193,32 @@ public class Node {
     }
 
     private void executePlaceCommand(CompletableFuture<Void> future) {
-        boolean inheritPlacementCoordinates = shouldInheritPlacementCoordinates();
-        EnumSet<ParameterUsage> placementParameterUsages = inheritPlacementCoordinates
-            ? EnumSet.of(ParameterUsage.POSITION)
-            : EnumSet.noneOf(ParameterUsage.class);
+        Node blockParameterNode = getAttachedParameter(0);
+        Node coordinateParameterNode = getAttachedParameter(1);
+        boolean coordinateHandledByBlockParam = coordinateParameterNode == null && parameterProvidesCoordinates(blockParameterNode);
 
-        if (preprocessAttachedParameter(placementParameterUsages, future) == ParameterHandlingResult.COMPLETE) {
-            return;
+        if (blockParameterNode != null) {
+            EnumSet<ParameterUsage> blockUsages = coordinateHandledByBlockParam
+                ? EnumSet.of(ParameterUsage.POSITION)
+                : EnumSet.noneOf(ParameterUsage.class);
+            if (preprocessParameterSlot(0, blockUsages, future, true) == ParameterHandlingResult.COMPLETE) {
+                return;
+            }
+        } else {
+            runtimeParameterData = null;
         }
+
+        if (coordinateParameterNode != null) {
+            EnumSet<ParameterUsage> coordinateUsages = parameterProvidesCoordinates(coordinateParameterNode)
+                ? EnumSet.of(ParameterUsage.POSITION)
+                : EnumSet.noneOf(ParameterUsage.class);
+            if (preprocessParameterSlot(1, coordinateUsages, future, blockParameterNode == null) == ParameterHandlingResult.COMPLETE) {
+                return;
+            }
+        }
+
+        boolean inheritPlacementCoordinates = coordinateHandledByBlockParam
+            || parameterProvidesCoordinates(coordinateParameterNode);
         String block = "stone";
         int x = 0, y = 0, z = 0;
 
@@ -3924,16 +4329,35 @@ public class Node {
     }
 
     private boolean shouldInheritPlacementCoordinates() {
-        if (attachedParameter == null) {
+        Node parameterNode = getAttachedParameter(1);
+        if (parameterNode == null) {
+            parameterNode = getAttachedParameter();
+        }
+        return parameterProvidesCoordinates(parameterNode);
+    }
+
+    private boolean parameterProvidesCoordinates(Node parameterNode) {
+        if (parameterNode == null) {
             return false;
         }
+        return parameterProvidesCoordinates(parameterNode.getType());
+    }
 
-        NodeType parameterType = attachedParameter.getType();
+    private boolean parameterProvidesCoordinates(NodeType parameterType) {
+        if (parameterType == null) {
+            return false;
+        }
         switch (parameterType) {
             case PARAM_COORDINATE:
             case PARAM_SCHEMATIC:
             case PARAM_PLACE_TARGET:
+            case PARAM_ITEM:
+            case PARAM_ENTITY:
+            case PARAM_PLAYER:
+            case PARAM_BLOCK:
+            case PARAM_BLOCK_LIST:
             case PARAM_WAYPOINT:
+            case PARAM_CLOSEST:
                 return true;
             default:
                 return false;
@@ -6042,16 +6466,27 @@ public class Node {
     }
 
     private Node getAttachedParameterOfType(NodeType... allowedTypes) {
-        if (attachedParameter == null || !attachedParameter.isParameterNode()) {
+        if (attachedParameters.isEmpty()) {
             return null;
         }
-        NodeType parameterType = attachedParameter.getType();
-        for (NodeType allowed : allowedTypes) {
-            if (parameterType == allowed) {
-                return attachedParameter;
+        List<Integer> slotIndices = new ArrayList<>(attachedParameters.keySet());
+        Collections.sort(slotIndices);
+        for (Integer slotIndex : slotIndices) {
+            Node parameter = attachedParameters.get(slotIndex);
+            if (parameter == null || !parameter.isParameterNode()) {
+                continue;
+            }
+            NodeType parameterType = parameter.getType();
+            for (NodeType allowed : allowedTypes) {
+                if (parameterType == allowed) {
+                    return parameter;
+                }
             }
         }
-        sendIncompatibleParameterMessage(attachedParameter);
+        Node fallback = getAttachedParameter();
+        if (fallback != null) {
+            sendIncompatibleParameterMessage(fallback);
+        }
         return null;
     }
 

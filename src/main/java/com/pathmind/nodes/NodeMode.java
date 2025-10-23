@@ -43,7 +43,7 @@ public enum NodeMode {
 
     // Player GUI modes
     PLAYER_GUI_OPEN("Open Player GUI", "Open the player's inventory screen"),
-    PLAYER_GUI_CLOSE("Close Player GUI", "Close the player's inventory screen"),
+    PLAYER_GUI_CLOSE("Close GUI", "Close the currently open screen"),
 
     // Screen control modes
     SCREEN_OPEN_CHAT("Open Chat", "Open the chat screen for typing"),
@@ -145,7 +145,7 @@ public enum NodeMode {
                 return CRAFT_PLAYER_GUI;
             case OPEN_INVENTORY:
                 return PLAYER_GUI_OPEN;
-            case CLOSE_INVENTORY:
+            case CLOSE_GUI:
                 return PLAYER_GUI_CLOSE;
             case SCREEN_CONTROL:
                 return SCREEN_OPEN_CHAT;

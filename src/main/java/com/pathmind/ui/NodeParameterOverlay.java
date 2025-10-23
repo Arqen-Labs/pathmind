@@ -499,7 +499,11 @@ public class NodeParameterOverlay {
 
         if (node.isParameterNode() && node.getParentParameterHost() != null) {
             Node host = node.getParentParameterHost();
-            host.attachParameter(node);
+            int slotIndex = node.getParentParameterSlotIndex();
+            if (slotIndex < 0) {
+                slotIndex = 0;
+            }
+            host.attachParameter(node, slotIndex);
         }
 
         node.recalculateDimensions();
