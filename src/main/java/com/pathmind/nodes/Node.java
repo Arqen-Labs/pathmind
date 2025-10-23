@@ -3381,12 +3381,19 @@ public class Node {
                     return;
                 }
 
-                client.execute(() -> {
+                if (client != null) {
+                    client.execute(() -> {
+                        startCollectCompletionWatcher(baritone, finalMineProcess, future);
+                        if (finalTrackAmount) {
+                            startCollectAmountMonitor(baritone, finalMineProcess, finalTrackedItem, finalStartingCount, finalRequestedAmount, future);
+                        }
+                    });
+                } else {
                     startCollectCompletionWatcher(baritone, finalMineProcess, future);
                     if (finalTrackAmount) {
                         startCollectAmountMonitor(baritone, finalMineProcess, finalTrackedItem, finalStartingCount, finalRequestedAmount, future);
                     }
-                });
+                }
             });
     }
 
