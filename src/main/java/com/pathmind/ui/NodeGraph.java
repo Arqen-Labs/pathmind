@@ -17,9 +17,11 @@ import net.minecraft.text.Text;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -315,6 +317,53 @@ public class NodeGraph {
         actionDropTarget = null;
         parameterDropTarget = null;
         parameterDropSlotIndex = null;
+    }
+
+    private void bringNodeToFront(Node node) {
+        if (node == null) {
+            return;
+        }
+        Node root = getRootNode(node);
+        List<Node> hierarchy = new ArrayList<>();
+        collectHierarchy(root, hierarchy, new HashSet<>());
+        // Remove all hierarchy nodes from current ordering
+        for (Node member : hierarchy) {
+            nodes.remove(member);
+        }
+        // Append in hierarchy order so they render above others
+        nodes.addAll(hierarchy);
+    }
+
+    private Node getRootNode(Node node) {
+        Node current = node;
+        Node parent;
+        while ((parent = getParentForNode(current)) != null) {
+            current = parent;
+        }
+        return current;
+    }
+
+    private void collectHierarchy(Node node, List<Node> result, Set<Node> visited) {
+        if (node == null || visited.contains(node)) {
+            return;
+        }
+        visited.add(node);
+        result.add(node);
+
+        Node actionChild = node.getAttachedActionNode();
+        collectHierarchy(actionChild, result, visited);
+
+        Node sensorChild = node.getAttachedSensor();
+        collectHierarchy(sensorChild, result, visited);
+
+        Map<Integer, Node> parameterMap = node.getAttachedParameters();
+        if (parameterMap != null && !parameterMap.isEmpty()) {
+            List<Integer> keys = new ArrayList<>(parameterMap.keySet());
+            Collections.sort(keys);
+            for (Integer key : keys) {
+                collectHierarchy(parameterMap.get(key), result, visited);
+            }
+        }
     }
 
     public Node getSelectedNode() {
@@ -629,6 +678,7 @@ public class NodeGraph {
     }
 
     public void stopDragging() {
+        Node rootToPromote = null;
         if (draggingNode != null) {
             Node node = draggingNode;
             if (node.isSensorNode() && sensorDropTarget != null) {
@@ -637,6 +687,7 @@ public class NodeGraph {
                 if (!target.attachSensor(node)) {
                     node.setSocketsHidden(false);
                 }
+                rootToPromote = getRootNode(target);
             } else if (node.isParameterNode() && parameterDropTarget != null && parameterDropSlotIndex != null) {
                 Node target = parameterDropTarget;
                 int slotIndex = parameterDropSlotIndex;
@@ -644,16 +695,22 @@ public class NodeGraph {
                 if (!target.attachParameter(node, slotIndex)) {
                     node.setSocketsHidden(false);
                 }
+                rootToPromote = getRootNode(target);
             } else if (!node.isSensorNode() && actionDropTarget != null) {
                 Node target = actionDropTarget;
                 node.setDragging(false);
                 if (!target.attachActionNode(node)) {
                     node.setSocketsHidden(false);
                 }
+                rootToPromote = getRootNode(target);
             } else {
                 node.setDragging(false);
                 node.setSocketsHidden(false);
+                rootToPromote = getRootNode(node);
             }
+        }
+        if (rootToPromote != null) {
+            bringNodeToFront(rootToPromote);
         }
         draggingNode = null;
         draggingNodeDetached = false;
@@ -904,54 +961,116 @@ public class NodeGraph {
     }
 
     public void render(DrawContext context, TextRenderer textRenderer, int mouseX, int mouseY, float delta, boolean onlyDragged) {
+        boolean anyHierarchyDragging = nodes.stream().anyMatch(node -> !node.isParameterNode() && isHierarchyDragging(node));
+
         if (!onlyDragged) {
             updateCascadeDeletionPreview();
-            // Render connections first (behind nodes) - only for stationary rendering
             renderConnections(context);
         }
 
-        for (Node node : nodes) {
-            if (node.isSensorNode() || node.isAttachedToActionControl() || node.isParameterNode()) {
-                continue;
-            }
-            boolean shouldRender = onlyDragged ? node.isDragging() : !node.isDragging();
-            if (shouldRender) {
-                renderNode(context, textRenderer, node, mouseX, mouseY, delta);
-            }
-        }
+        Set<Node> processedRoots = new HashSet<>();
+        Set<Node> renderedNodes = new HashSet<>();
 
         for (Node node : nodes) {
-            if (!node.isSensorNode()) {
+            Node root = getRootNode(node);
+            if (root == null || processedRoots.contains(root)) {
                 continue;
             }
-            boolean parentDragging = node.isAttachedToControl() && node.getParentControl() != null && node.getParentControl().isDragging();
-            boolean shouldRender = onlyDragged ? (node.isDragging() || parentDragging) : !node.isDragging();
-            if (shouldRender) {
-                renderNode(context, textRenderer, node, mouseX, mouseY, delta);
-            }
+            processedRoots.add(root);
+            renderHierarchy(root, context, textRenderer, mouseX, mouseY, delta, onlyDragged, false, renderedNodes);
         }
 
-        for (Node node : nodes) {
-            if (!node.isParameterNode()) {
-                continue;
-            }
-            boolean parentDragging = node.getParentParameterHost() != null && node.getParentParameterHost().isDragging();
-            boolean shouldRender = onlyDragged ? (node.isDragging() || parentDragging) : !node.isDragging();
-            if (shouldRender) {
-                renderNode(context, textRenderer, node, mouseX, mouseY, delta);
-            }
+    }
+
+    private void renderHierarchy(Node node, DrawContext context, TextRenderer textRenderer, int mouseX, int mouseY, float delta, boolean onlyDragged, boolean ancestorActive, Set<Node> renderedNodes) {
+        if (node == null || renderedNodes.contains(node)) {
+            return;
         }
 
-        for (Node node : nodes) {
-            if (!node.isAttachedToActionControl()) {
-                continue;
-            }
-            boolean parentDragging = node.getParentActionControl() != null && node.getParentActionControl().isDragging();
-            boolean shouldRender = onlyDragged ? (node.isDragging() || parentDragging) : !node.isDragging();
-            if (shouldRender) {
-                renderNode(context, textRenderer, node, mouseX, mouseY, delta);
+        boolean ownActive = isHierarchyDragging(node);
+        boolean hierarchyActive = ancestorActive || ownActive;
+        if ((onlyDragged && !hierarchyActive) || (!onlyDragged && hierarchyActive)) {
+            markHierarchyRendered(node, renderedNodes);
+            return;
+        }
+
+        renderNode(context, textRenderer, node, mouseX, mouseY, delta);
+        renderedNodes.add(node);
+
+        Node actionChild = node.getAttachedActionNode();
+        renderHierarchy(actionChild, context, textRenderer, mouseX, mouseY, delta, onlyDragged, hierarchyActive, renderedNodes);
+
+        Node sensorChild = node.getAttachedSensor();
+        renderHierarchy(sensorChild, context, textRenderer, mouseX, mouseY, delta, onlyDragged, hierarchyActive, renderedNodes);
+
+        Map<Integer, Node> parameterMap = node.getAttachedParameters();
+        if (parameterMap != null && !parameterMap.isEmpty()) {
+            List<Integer> keys = new ArrayList<>(parameterMap.keySet());
+            Collections.sort(keys);
+            for (Integer key : keys) {
+                renderHierarchy(parameterMap.get(key), context, textRenderer, mouseX, mouseY, delta, onlyDragged, hierarchyActive, renderedNodes);
             }
         }
+    }
+
+    private void markHierarchyRendered(Node node, Set<Node> renderedNodes) {
+        if (node == null || renderedNodes.contains(node)) {
+            return;
+        }
+        renderedNodes.add(node);
+        markHierarchyRendered(node.getAttachedActionNode(), renderedNodes);
+        markHierarchyRendered(node.getAttachedSensor(), renderedNodes);
+        Map<Integer, Node> parameterMap = node.getAttachedParameters();
+        if (parameterMap != null && !parameterMap.isEmpty()) {
+            for (Node parameter : parameterMap.values()) {
+                markHierarchyRendered(parameter, renderedNodes);
+            }
+        }
+    }
+
+    private Node getParentForNode(Node node) {
+        if (node == null) {
+            return null;
+        }
+        if (node.isParameterNode()) {
+            return node.getParentParameterHost();
+        }
+        if (node.isSensorNode()) {
+            return node.getParentControl();
+        }
+        if (node.isAttachedToActionControl()) {
+            return node.getParentActionControl();
+        }
+        return null;
+    }
+
+    private boolean isHierarchyDragging(Node node) {
+        return isHierarchyDragging(node, new HashSet<>());
+    }
+
+    private boolean isHierarchyDragging(Node node, Set<Node> visited) {
+        if (node == null || visited.contains(node)) {
+            return false;
+        }
+        visited.add(node);
+        if (node.isDragging()) {
+            return true;
+        }
+        if (isHierarchyDragging(node.getAttachedActionNode(), visited)) {
+            return true;
+        }
+        if (isHierarchyDragging(node.getAttachedSensor(), visited)) {
+            return true;
+        }
+        Map<Integer, Node> parameterMap = node.getAttachedParameters();
+        if (parameterMap != null && !parameterMap.isEmpty()) {
+            for (Node parameter : parameterMap.values()) {
+                if (isHierarchyDragging(parameter, visited)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private void renderNode(DrawContext context, TextRenderer textRenderer, Node node, int mouseX, int mouseY, float delta) {
