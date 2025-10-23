@@ -9,6 +9,7 @@ import java.util.Optional;
 import java.util.Locale;
 import java.util.EnumSet;
 import java.util.Objects;
+import java.util.LinkedHashSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
@@ -3239,6 +3240,7 @@ public class Node {
         }
 
         List<String> validTargets = new ArrayList<>();
+        LinkedHashSet<String> fallbackTargets = new LinkedHashSet<>();
         for (String id : targetBlockIds) {
             if (id == null || id.isEmpty()) {
                 continue;
@@ -3246,6 +3248,12 @@ public class Node {
             Identifier identifier = Identifier.tryParse(id.trim());
             if (identifier != null && Registries.BLOCK.containsId(identifier)) {
                 validTargets.add(identifier.toString());
+                String trimmed = id.trim();
+                if (!trimmed.isEmpty()) {
+                    fallbackTargets.add(trimmed);
+                }
+                fallbackTargets.add(identifier.getPath());
+                fallbackTargets.add(identifier.toString());
             }
         }
 
@@ -3256,21 +3264,39 @@ public class Node {
             return;
         }
 
-        if (collectMode == NodeMode.COLLECT_MULTIPLE) {
-            String[] targetArray = validTargets.stream()
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .toArray(String[]::new);
+        String[] targetArray = validTargets.stream()
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .toArray(String[]::new);
 
-            if (targetArray.length == 0) {
+        String[] fallbackArray = fallbackTargets.stream()
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .toArray(String[]::new);
+
+        if (collectMode == NodeMode.COLLECT_MULTIPLE) {
+            if (targetArray.length == 0 && fallbackArray.length == 0) {
                 net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
                 sendNodeErrorMessage(client, "Mine node requires a valid block name.");
                 future.complete(null);
                 return;
             }
 
+            try {
+                if (!dispatchMineRequest(mineProcess, targetArray, fallbackArray, null)) {
+                    net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+                    sendNodeErrorMessage(client, "Mine node could not start mining: no valid targets.");
+                    future.complete(null);
+                    return;
+                }
+            } catch (RuntimeException e) {
+                net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+                sendNodeErrorMessage(client, "Mine node failed to start mining: " + e.getMessage());
+                future.complete(null);
+                return;
+            }
+
             PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_COLLECT, future);
-            mineProcess.mine(new BlockOptionalMetaLookup(targetArray));
             return;
         }
 
@@ -3294,22 +3320,66 @@ public class Node {
             }
         }
 
-        String[] targetArray = validTargets.stream()
-            .map(String::trim)
-            .filter(s -> !s.isEmpty())
-            .toArray(String[]::new);
-
-        if (targetArray.length == 0) {
+        if (targetArray.length == 0 && fallbackArray.length == 0) {
             net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
             sendNodeErrorMessage(client, "Mine node requires a valid block name.");
             future.complete(null);
             return;
         }
 
-        System.out.println("Executing collect command for blocks: " + String.join(", ", targetArray) + " amount=" + desiredAmount);
+        System.out.println("Executing collect command for blocks: " + String.join(", ", targetArray.length > 0 ? targetArray : fallbackArray) + " amount=" + desiredAmount);
+
+        try {
+            if (!dispatchMineRequest(mineProcess, targetArray, fallbackArray, desiredAmount)) {
+                net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+                sendNodeErrorMessage(client, "Mine node could not start mining: no valid targets.");
+                future.complete(null);
+                return;
+            }
+        } catch (RuntimeException e) {
+            net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+            sendNodeErrorMessage(client, "Mine node failed to start mining: " + e.getMessage());
+            future.complete(null);
+            return;
+        }
 
         PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_COLLECT, future);
-        mineProcess.mine(desiredAmount, new BlockOptionalMetaLookup(targetArray));
+    }
+
+    private boolean dispatchMineRequest(IMineProcess mineProcess, String[] lookupTargets, String[] legacyTargets, Integer desiredAmount) {
+        if (mineProcess == null) {
+            return false;
+        }
+
+        boolean hasLookupTargets = lookupTargets != null && lookupTargets.length > 0;
+        if (hasLookupTargets) {
+            try {
+                if (desiredAmount != null) {
+                    mineProcess.mine(desiredAmount, new BlockOptionalMetaLookup(lookupTargets));
+                } else {
+                    mineProcess.mine(new BlockOptionalMetaLookup(lookupTargets));
+                }
+                return true;
+            } catch (AbstractMethodError | NoSuchMethodError e) {
+                System.err.println("Mine command falling back to legacy Baritone API: " + e.getMessage());
+            } catch (RuntimeException e) {
+                if (legacyTargets == null || legacyTargets.length == 0) {
+                    throw e;
+                }
+                System.err.println("Mine command retrying with legacy Baritone API due to: " + e.getMessage());
+            }
+        }
+
+        if (legacyTargets == null || legacyTargets.length == 0) {
+            return false;
+        }
+
+        if (desiredAmount != null) {
+            mineProcess.mineByName(desiredAmount, legacyTargets);
+        } else {
+            mineProcess.mineByName(legacyTargets);
+        }
+        return true;
     }
     
     private void executeCraftCommand(CompletableFuture<Void> future) {
