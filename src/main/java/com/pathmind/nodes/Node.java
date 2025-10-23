@@ -17,6 +17,7 @@ import baritone.api.IBaritone;
 import baritone.api.process.ICustomGoalProcess;
 import baritone.api.process.IExploreProcess;
 import baritone.api.process.IGetToBlockProcess;
+import baritone.api.process.IMineProcess;
 import baritone.api.process.IFarmProcess;
 import baritone.api.pathing.goals.GoalBlock;
 import baritone.api.utils.BlockOptionalMeta;
@@ -3167,7 +3168,139 @@ public class Node {
     }
     
     private void executeCollectCommand(CompletableFuture<Void> future) {
-        future.complete(null);
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
+
+        NodeMode collectMode = mode != null ? mode : NodeMode.COLLECT_SINGLE;
+
+        IBaritone baritone = getBaritone();
+        if (baritone == null) {
+            future.completeExceptionally(new RuntimeException("Baritone not available"));
+            return;
+        }
+
+        IMineProcess mineProcess = baritone.getMineProcess();
+        if (mineProcess == null) {
+            future.completeExceptionally(new RuntimeException("Mine process not available"));
+            return;
+        }
+
+        List<String> targetBlockIds = new ArrayList<>();
+        RuntimeParameterData parameterData = runtimeParameterData;
+        if (parameterData != null) {
+            if (parameterData.targetBlockIds != null && !parameterData.targetBlockIds.isEmpty()) {
+                for (String id : parameterData.targetBlockIds) {
+                    if (id != null && !id.isEmpty()) {
+                        targetBlockIds.add(id);
+                    }
+                }
+                if (!parameterData.targetBlockIds.isEmpty()) {
+                    setParameterValueAndPropagate("Block", parameterData.targetBlockIds.get(0));
+                    setParameterValueAndPropagate("Blocks", String.join(",", parameterData.targetBlockIds));
+                }
+            } else if (parameterData.targetBlockId != null && !parameterData.targetBlockId.isEmpty()) {
+                targetBlockIds.add(parameterData.targetBlockId);
+                setParameterValueAndPropagate("Block", parameterData.targetBlockId);
+            }
+        }
+
+        if (targetBlockIds.isEmpty()) {
+            if (collectMode == NodeMode.COLLECT_MULTIPLE) {
+                NodeParameter blocksParam = getParameter("Blocks");
+                if (blocksParam != null) {
+                    String raw = blocksParam.getStringValue();
+                    if (raw != null && !raw.isEmpty()) {
+                        for (String part : raw.split("[,;]")) {
+                            String trimmed = part.trim();
+                            if (!trimmed.isEmpty()) {
+                                targetBlockIds.add(trimmed);
+                            }
+                        }
+                    }
+                }
+            } else {
+                NodeParameter blockParam = getParameter("Block");
+                if (blockParam != null) {
+                    String blockId = blockParam.getStringValue();
+                    if (blockId != null && !blockId.isEmpty()) {
+                        targetBlockIds.add(blockId.trim());
+                    }
+                }
+            }
+        }
+
+        if (targetBlockIds.isEmpty()) {
+            net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+            sendNodeErrorMessage(client, "Mine node requires a block selection.");
+            future.complete(null);
+            return;
+        }
+
+        List<String> validTargets = new ArrayList<>();
+        for (String id : targetBlockIds) {
+            if (id == null || id.isEmpty()) {
+                continue;
+            }
+            Identifier identifier = Identifier.tryParse(id.trim());
+            if (identifier != null && Registries.BLOCK.containsId(identifier)) {
+                validTargets.add(identifier.toString());
+            }
+        }
+
+        if (validTargets.isEmpty()) {
+            net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+            sendNodeErrorMessage(client, "Mine node requires a valid block name.");
+            future.complete(null);
+            return;
+        }
+
+        if (collectMode == NodeMode.COLLECT_MULTIPLE) {
+            BlockOptionalMeta[] metas = validTargets.stream()
+                .map(BlockOptionalMeta::new)
+                .toArray(BlockOptionalMeta[]::new);
+
+            PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_COLLECT, future);
+            mineProcess.mine(metas);
+            return;
+        }
+
+        int desiredAmount = Math.max(1, getIntParameter("Amount", 1));
+        Node attachedParameter = getAttachedParameter();
+        if (attachedParameter != null) {
+            String parameterAmount = getParameterString(attachedParameter, "Amount");
+            if (parameterAmount == null || parameterAmount.isEmpty()) {
+                parameterAmount = getParameterString(attachedParameter, "Count");
+            }
+            if (parameterAmount != null && !parameterAmount.isEmpty()) {
+                try {
+                    int parsed = Integer.parseInt(parameterAmount.trim());
+                    if (parsed > 0) {
+                        desiredAmount = parsed;
+                        setParameterValueAndPropagate("Amount", String.valueOf(desiredAmount));
+                    }
+                } catch (NumberFormatException ignored) {
+                    // Keep existing desired amount if parsing fails
+                }
+            }
+        }
+
+        String[] targetArray = validTargets.stream()
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .toArray(String[]::new);
+
+        if (targetArray.length == 0) {
+            net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+            sendNodeErrorMessage(client, "Mine node requires a valid block name.");
+            future.complete(null);
+            return;
+        }
+
+        System.out.println("Executing collect command for blocks: " + String.join(", ", targetArray) + " amount=" + desiredAmount);
+
+        PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_COLLECT, future);
+        mineProcess.mineByName(desiredAmount, targetArray);
     }
     
     private void executeCraftCommand(CompletableFuture<Void> future) {
