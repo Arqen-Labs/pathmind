@@ -689,11 +689,22 @@ public class ExecutionManager {
         }
 
         for (NodeGraphData.NodeData nodeData : graphData.getNodes()) {
+            Node host = nodeMap.get(nodeData.getId());
+            if (host == null) {
+                continue;
+            }
+
             if (nodeData.getAttachedParameterId() != null) {
-                Node host = nodeMap.get(nodeData.getId());
                 Node parameter = nodeMap.get(nodeData.getAttachedParameterId());
-                if (host != null && parameter != null) {
-                    host.attachParameter(parameter);
+                if (parameter != null) {
+                    host.attachParameterToSlot(parameter, Node.ParameterSlot.PRIMARY);
+                }
+            }
+
+            if (nodeData.getAttachedSecondaryParameterId() != null) {
+                Node parameter = nodeMap.get(nodeData.getAttachedSecondaryParameterId());
+                if (parameter != null) {
+                    host.attachParameterToSlot(parameter, Node.ParameterSlot.SECONDARY);
                 }
             }
         }
@@ -703,7 +714,17 @@ public class ExecutionManager {
                 Node parameter = nodeMap.get(nodeData.getId());
                 Node host = nodeMap.get(nodeData.getParentParameterHostId());
                 if (parameter != null && host != null && parameter.isParameterNode()) {
-                    host.attachParameter(parameter);
+                    Node.ParameterSlot slot = Node.ParameterSlot.PRIMARY;
+                    if (nodeData.getParameterAttachmentSlot() != null) {
+                        try {
+                            slot = Node.ParameterSlot.valueOf(nodeData.getParameterAttachmentSlot());
+                        } catch (IllegalArgumentException ignored) {
+                            slot = Node.ParameterSlot.PRIMARY;
+                        }
+                    }
+                    if (!host.hasAttachedParameter(slot) || host.getAttachedParameter(slot) != parameter) {
+                        host.attachParameterToSlot(parameter, slot);
+                    }
                 }
             }
         }
@@ -843,7 +864,10 @@ public class ExecutionManager {
             nodeData.setAttachedActionId(node.getAttachedActionId());
             nodeData.setParentActionControlId(node.getParentActionControlId());
             nodeData.setAttachedParameterId(node.getAttachedParameterId());
+            nodeData.setAttachedSecondaryParameterId(node.getAttachedParameterId(Node.ParameterSlot.SECONDARY));
             nodeData.setParentParameterHostId(node.getParentParameterHostId());
+            Node.ParameterSlot attachmentSlot = node.getParameterAttachmentSlot();
+            nodeData.setParameterAttachmentSlot(attachmentSlot != null ? attachmentSlot.name() : null);
 
             snapshot.getNodes().add(nodeData);
         }

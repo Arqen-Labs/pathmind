@@ -111,6 +111,7 @@ public enum NodeType {
     PARAM_RANGE("Range", 0xFF8BC34A, "Represents a generic radius or range"),
     PARAM_ROTATION("Rotation", 0xFF8BC34A, "Represents yaw and pitch angles"),
     PARAM_PLACE_TARGET("Place", 0xFF8BC34A, "Represents a block placement with coordinates"),
+    PARAM_NEAREST_OPEN_BLOCK("Nearest Open Block", 0xFF8BC34A, "Finds the nearest open block location"),
     PARAM_LIGHT_THRESHOLD("Light Threshold", 0xFF8BC34A, "Represents a light level threshold"),
     PARAM_HEALTH_THRESHOLD("Health Threshold", 0xFF8BC34A, "Represents a health threshold"),
     PARAM_HUNGER_THRESHOLD("Hunger Threshold", 0xFF8BC34A, "Represents a hunger threshold"),

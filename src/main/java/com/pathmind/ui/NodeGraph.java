@@ -71,6 +71,7 @@ public class NodeGraph {
     private Node sensorDropTarget = null;
     private Node actionDropTarget = null;
     private Node parameterDropTarget = null;
+    private Node.ParameterSlot parameterDropTargetSlot = null;
     
     // Double-click detection
     private long lastClickTime = 0;
@@ -193,12 +194,21 @@ public class NodeGraph {
         if (node.isParameterNode() && node.getParentParameterHost() != null) {
             Node parent = node.getParentParameterHost();
             if (parent != null) {
-                parent.detachParameter();
+                Node.ParameterSlot slot = node.getParameterAttachmentSlot();
+                if (slot != null) {
+                    parent.detachParameter(slot);
+                } else {
+                    parent.detachParameter();
+                }
             }
         }
 
         if (node.hasAttachedParameter()) {
             node.detachParameter();
+        }
+
+        if (node.hasAttachedSecondaryParameter()) {
+            node.detachParameter(Node.ParameterSlot.SECONDARY);
         }
 
         if (sensorDropTarget == node) {
@@ -213,6 +223,7 @@ public class NodeGraph {
 
         if (parameterDropTarget == node) {
             parameterDropTarget = null;
+            parameterDropTargetSlot = null;
         }
 
         if (autoReconnect) {
@@ -305,6 +316,7 @@ public class NodeGraph {
         sensorDropTarget = null;
         actionDropTarget = null;
         parameterDropTarget = null;
+        parameterDropTargetSlot = null;
     }
 
     public Node getSelectedNode() {
@@ -398,8 +410,15 @@ public class NodeGraph {
                         if (!node.canAcceptParameter() || node == draggingNode) {
                             continue;
                         }
-                        if (node.isPointInsideParameterSlot(worldMouseX, worldMouseY)) {
+                        if (node.isPointInsideParameterSlot(worldMouseX, worldMouseY, Node.ParameterSlot.PRIMARY)) {
                             parameterDropTarget = node;
+                            parameterDropTargetSlot = Node.ParameterSlot.PRIMARY;
+                            hideSockets = true;
+                            break;
+                        }
+                        if (node.hasSecondaryParameterSlot() && node.isPointInsideParameterSlot(worldMouseX, worldMouseY, Node.ParameterSlot.SECONDARY)) {
+                            parameterDropTarget = node;
+                            parameterDropTargetSlot = Node.ParameterSlot.SECONDARY;
                             hideSockets = true;
                             break;
                         }
@@ -483,8 +502,14 @@ public class NodeGraph {
                 if (!node.canAcceptParameter()) {
                     continue;
                 }
-                if (node.isPointInsideParameterSlot(worldMouseX, worldMouseY)) {
+                if (node.isPointInsideParameterSlot(worldMouseX, worldMouseY, Node.ParameterSlot.PRIMARY)) {
                     parameterDropTarget = node;
+                    parameterDropTargetSlot = Node.ParameterSlot.PRIMARY;
+                    break;
+                }
+                if (node.hasSecondaryParameterSlot() && node.isPointInsideParameterSlot(worldMouseX, worldMouseY, Node.ParameterSlot.SECONDARY)) {
+                    parameterDropTarget = node;
+                    parameterDropTargetSlot = Node.ParameterSlot.SECONDARY;
                     break;
                 }
             }
@@ -530,9 +555,15 @@ public class NodeGraph {
                 if (!node.canAcceptParameter()) {
                     continue;
                 }
-                if (node.isPointInsideParameterSlot(worldMouseX, worldMouseY)) {
+                if (node.isPointInsideParameterSlot(worldMouseX, worldMouseY, Node.ParameterSlot.PRIMARY)) {
                     nodes.add(newNode);
-                    node.attachParameter(newNode);
+                    node.attachParameterToSlot(newNode, Node.ParameterSlot.PRIMARY);
+                    workspaceDirty = true;
+                    return newNode;
+                }
+                if (node.hasSecondaryParameterSlot() && node.isPointInsideParameterSlot(worldMouseX, worldMouseY, Node.ParameterSlot.SECONDARY)) {
+                    nodes.add(newNode);
+                    node.attachParameterToSlot(newNode, Node.ParameterSlot.SECONDARY);
                     workspaceDirty = true;
                     return newNode;
                 }
@@ -624,8 +655,11 @@ public class NodeGraph {
                 }
             } else if (node.isParameterNode() && parameterDropTarget != null) {
                 Node target = parameterDropTarget;
+                Node.ParameterSlot slot = parameterDropTargetSlot != null ? parameterDropTargetSlot : Node.ParameterSlot.PRIMARY;
                 node.setDragging(false);
-                if (!target.attachParameter(node)) {
+                if (target.attachParameterToSlot(node, slot)) {
+                    workspaceDirty = true;
+                } else {
                     node.setSocketsHidden(false);
                 }
             } else if (!node.isSensorNode() && actionDropTarget != null) {
@@ -666,7 +700,12 @@ public class NodeGraph {
         if (draggingNode.isParameterNode() && draggingNode.getParentParameterHost() != null) {
             Node parent = draggingNode.getParentParameterHost();
             if (parent != null) {
-                parent.detachParameter();
+                Node.ParameterSlot slot = draggingNode.getParameterAttachmentSlot();
+                if (slot != null) {
+                    parent.detachParameter(slot);
+                } else {
+                    parent.detachParameter();
+                }
             }
         }
 
@@ -1158,7 +1197,10 @@ public class NodeGraph {
                 }
             } else {
                 if (node.hasParameterSlot()) {
-                    renderParameterSlot(context, textRenderer, node, isOverSidebar);
+                    renderParameterSlot(context, textRenderer, node, isOverSidebar, Node.ParameterSlot.PRIMARY);
+                    if (node.hasSecondaryParameterSlot()) {
+                        renderParameterSlot(context, textRenderer, node, isOverSidebar, Node.ParameterSlot.SECONDARY);
+                    }
                     if (node.hasCoordinateInputFields()) {
                         renderCoordinateInputFields(context, textRenderer, node, isOverSidebar);
                     }
@@ -1239,16 +1281,17 @@ public class NodeGraph {
         }
     }
 
-    private void renderParameterSlot(DrawContext context, TextRenderer textRenderer, Node node, boolean isOverSidebar) {
-        int slotX = node.getParameterSlotLeft() - cameraX;
-        int slotY = node.getParameterSlotTop() - cameraY;
-        int slotWidth = node.getParameterSlotWidth();
-        int slotHeight = node.getParameterSlotHeight();
+    private void renderParameterSlot(DrawContext context, TextRenderer textRenderer, Node node, boolean isOverSidebar, Node.ParameterSlot slot) {
+        int slotX = node.getParameterSlotLeft(slot) - cameraX;
+        int slotY = node.getParameterSlotTop(slot) - cameraY;
+        int slotWidth = node.getParameterSlotWidth(slot);
+        int slotHeight = node.getParameterSlotHeight(slot);
 
-        int backgroundColor = node.hasAttachedParameter() ? 0xFF262626 : 0xFF1E1E1E;
-        int borderColor = node.hasAttachedParameter() ? 0xFF666666 : 0xFF444444;
+        boolean hasParameter = node.hasAttachedParameter(slot);
+        int backgroundColor = hasParameter ? 0xFF262626 : 0xFF1E1E1E;
+        int borderColor = hasParameter ? 0xFF666666 : 0xFF444444;
 
-        if (parameterDropTarget == node) {
+        if (parameterDropTarget == node && parameterDropTargetSlot == slot) {
             borderColor = 0xFF87CEEB;
         }
 
@@ -1258,18 +1301,23 @@ public class NodeGraph {
         int headerColor = isOverSidebar ? 0xFF777777 : 0xFFAAAAAA;
         int headerY = slotY - textRenderer.fontHeight - 2;
         if (headerY > node.getY() - cameraY + 14) {
-            context.drawTextWithShadow(textRenderer, Text.literal("Parameter"), slotX + 2, headerY, headerColor);
+            String title = node.getParameterSlotTitle(slot);
+            title = trimTextToWidth(title, textRenderer, slotWidth - 4);
+            context.drawTextWithShadow(textRenderer, Text.literal(title), slotX + 2, headerY, headerColor);
         }
 
         String label;
-        if (node.hasAttachedParameter()) {
-            label = node.getAttachedParameter().getType().getDisplayName();
+        if (hasParameter) {
+            label = node.getAttachedParameter(slot).getType().getDisplayName();
         } else {
-            label = "Drag parameter here";
+            label = node.getParameterSlotPlaceholder(slot);
         }
         label = trimTextToWidth(label, textRenderer, slotWidth - 8);
 
-        int textColor = node.hasAttachedParameter() ? 0xFFE0E0E0 : (isOverSidebar ? 0xFF666666 : 0xFF888888);
+        int textColor = hasParameter ? 0xFFE0E0E0 : (isOverSidebar ? 0xFF666666 : 0xFF888888);
+        if (parameterDropTarget == node && parameterDropTargetSlot == slot && !hasParameter) {
+            textColor = 0xFF87CEEB;
+        }
         int textY = slotY + slotHeight / 2 - textRenderer.fontHeight / 2;
         context.drawTextWithShadow(textRenderer, Text.literal(label), slotX + 4, textY, textColor);
     }
@@ -2115,6 +2163,9 @@ public class NodeGraph {
             if (node.hasAttachedParameter()) {
                 node.detachParameter();
             }
+            if (node.hasAttachedSecondaryParameter()) {
+                node.detachParameter(Node.ParameterSlot.SECONDARY);
+            }
             if (node.isSensorNode() && node.isAttachedToControl()) {
                 Node parent = node.getParentControl();
                 if (parent != null) {
@@ -2130,7 +2181,12 @@ public class NodeGraph {
             if (node.isParameterNode() && node.getParentParameterHost() != null) {
                 Node parent = node.getParentParameterHost();
                 if (parent != null) {
-                    parent.detachParameter();
+                    Node.ParameterSlot slot = node.getParameterAttachmentSlot();
+                    if (slot != null) {
+                        parent.detachParameter(slot);
+                    } else {
+                        parent.detachParameter();
+                    }
                 }
             }
             node.setDragging(false);
@@ -2241,11 +2297,22 @@ public class NodeGraph {
         }
 
         for (NodeGraphData.NodeData nodeData : data.getNodes()) {
+            Node host = nodeMap.get(nodeData.getId());
+            if (host == null) {
+                continue;
+            }
+
             if (nodeData.getAttachedParameterId() != null) {
-                Node host = nodeMap.get(nodeData.getId());
                 Node parameter = nodeMap.get(nodeData.getAttachedParameterId());
-                if (host != null && parameter != null) {
-                    host.attachParameter(parameter);
+                if (parameter != null) {
+                    host.attachParameterToSlot(parameter, Node.ParameterSlot.PRIMARY);
+                }
+            }
+
+            if (nodeData.getAttachedSecondaryParameterId() != null) {
+                Node parameter = nodeMap.get(nodeData.getAttachedSecondaryParameterId());
+                if (parameter != null) {
+                    host.attachParameterToSlot(parameter, Node.ParameterSlot.SECONDARY);
                 }
             }
         }
@@ -2255,7 +2322,17 @@ public class NodeGraph {
                 Node parameter = nodeMap.get(nodeData.getId());
                 Node host = nodeMap.get(nodeData.getParentParameterHostId());
                 if (parameter != null && host != null && parameter.isParameterNode()) {
-                    host.attachParameter(parameter);
+                    Node.ParameterSlot slot = Node.ParameterSlot.PRIMARY;
+                    if (nodeData.getParameterAttachmentSlot() != null) {
+                        try {
+                            slot = Node.ParameterSlot.valueOf(nodeData.getParameterAttachmentSlot());
+                        } catch (IllegalArgumentException ignored) {
+                            slot = Node.ParameterSlot.PRIMARY;
+                        }
+                    }
+                    if (!host.hasAttachedParameter(slot) || host.getAttachedParameter(slot) != parameter) {
+                        host.attachParameterToSlot(parameter, slot);
+                    }
                 }
             }
         }

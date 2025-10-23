@@ -53,7 +53,9 @@ public class NodeGraphData {
         private String attachedActionId;
         private String parentActionControlId;
         private String attachedParameterId;
+        private String attachedSecondaryParameterId;
         private String parentParameterHostId;
+        private String parameterAttachmentSlot;
 
         public NodeData() {
             this.parameters = new ArrayList<>();
@@ -71,7 +73,9 @@ public class NodeGraphData {
             this.attachedActionId = null;
             this.parentActionControlId = null;
             this.attachedParameterId = null;
+            this.attachedSecondaryParameterId = null;
             this.parentParameterHostId = null;
+            this.parameterAttachmentSlot = null;
         }
 
         // Getters and setters
@@ -108,8 +112,14 @@ public class NodeGraphData {
         public String getAttachedParameterId() { return attachedParameterId; }
         public void setAttachedParameterId(String attachedParameterId) { this.attachedParameterId = attachedParameterId; }
 
+        public String getAttachedSecondaryParameterId() { return attachedSecondaryParameterId; }
+        public void setAttachedSecondaryParameterId(String attachedSecondaryParameterId) { this.attachedSecondaryParameterId = attachedSecondaryParameterId; }
+
         public String getParentParameterHostId() { return parentParameterHostId; }
         public void setParentParameterHostId(String parentParameterHostId) { this.parentParameterHostId = parentParameterHostId; }
+
+        public String getParameterAttachmentSlot() { return parameterAttachmentSlot; }
+        public void setParameterAttachmentSlot(String parameterAttachmentSlot) { this.parameterAttachmentSlot = parameterAttachmentSlot; }
     }
     
     /**

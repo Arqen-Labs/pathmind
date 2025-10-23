@@ -115,6 +115,7 @@ public class Node {
     private static final int PARAMETER_SLOT_MIN_CONTENT_HEIGHT = 32;
     private static final int PARAMETER_SLOT_LABEL_HEIGHT = 12;
     private static final int PARAMETER_SLOT_BOTTOM_PADDING = 6;
+    private static final int PARAMETER_SLOT_VERTICAL_SPACING = 6;
     private static final int SLOT_AREA_PADDING_TOP = 0;
     private static final int SLOT_AREA_PADDING_BOTTOM = 6;
     private static final int SLOT_VERTICAL_SPACING = 6;
@@ -146,7 +147,9 @@ public class Node {
     private Node attachedActionNode;
     private Node parentActionControl;
     private Node attachedParameter;
+    private Node attachedSecondaryParameter;
     private Node parentParameterHost;
+    private ParameterSlot parameterAttachmentSlot;
     private boolean socketsHidden;
     private RuntimeParameterData runtimeParameterData;
 
@@ -162,7 +165,9 @@ public class Node {
         this.attachedActionNode = null;
         this.parentActionControl = null;
         this.attachedParameter = null;
+        this.attachedSecondaryParameter = null;
         this.parentParameterHost = null;
+        this.parameterAttachmentSlot = null;
         this.socketsHidden = false;
         initializeParameters();
         recalculateDimensions();
@@ -207,6 +212,21 @@ public class Node {
         POSITION,
         LOOK_ORIENTATION,
         TURN_OFFSET
+    }
+
+    public enum ParameterSlot {
+        PRIMARY,
+        SECONDARY
+    }
+
+    private static final class ParameterProcessingResult {
+        final ParameterHandlingResult result;
+        final RuntimeParameterData data;
+
+        ParameterProcessingResult(ParameterHandlingResult result, RuntimeParameterData data) {
+            this.result = result;
+            this.data = data;
+        }
     }
 
     private static String normalizeParameterKey(String key) {
@@ -299,7 +319,10 @@ public class Node {
             updateAttachedActionPosition();
         }
         if (attachedParameter != null) {
-            updateAttachedParameterPosition();
+            updateAttachedParameterPosition(ParameterSlot.PRIMARY);
+        }
+        if (attachedSecondaryParameter != null) {
+            updateAttachedParameterPosition(ParameterSlot.SECONDARY);
         }
     }
 
@@ -425,6 +448,17 @@ public class Node {
         return canAcceptParameter();
     }
 
+    public boolean hasSecondaryParameterSlot() {
+        return type == NodeType.PLACE;
+    }
+
+    public boolean hasParameterSlot(ParameterSlot slot) {
+        if (slot == ParameterSlot.SECONDARY) {
+            return hasSecondaryParameterSlot();
+        }
+        return canAcceptParameter();
+    }
+
     public boolean canAcceptActionNode() {
         switch (type) {
             case CONTROL_REPEAT:
@@ -468,8 +502,24 @@ public class Node {
         return attachedParameter != null;
     }
 
+    public boolean hasAttachedSecondaryParameter() {
+        return attachedSecondaryParameter != null;
+    }
+
+    public boolean hasAttachedParameter(ParameterSlot slot) {
+        return getAttachedParameter(slot) != null;
+    }
+
     public Node getAttachedParameter() {
         return attachedParameter;
+    }
+
+    public Node getAttachedParameter(ParameterSlot slot) {
+        return slot == ParameterSlot.SECONDARY ? attachedSecondaryParameter : attachedParameter;
+    }
+
+    public ParameterSlot getParameterAttachmentSlot() {
+        return parameterAttachmentSlot;
     }
 
     public Node getParentParameterHost() {
@@ -477,7 +527,12 @@ public class Node {
     }
 
     public String getAttachedParameterId() {
-        return attachedParameter != null ? attachedParameter.getId() : null;
+        return getAttachedParameterId(ParameterSlot.PRIMARY);
+    }
+
+    public String getAttachedParameterId(ParameterSlot slot) {
+        Node parameter = getAttachedParameter(slot);
+        return parameter != null ? parameter.getId() : null;
     }
 
     public String getParentParameterHostId() {
@@ -593,7 +648,11 @@ public class Node {
                 top += BODY_PADDING_NO_PARAMS;
             }
         } else if (hasParameterSlot()) {
-            top += PARAMETER_SLOT_LABEL_HEIGHT + getParameterSlotHeight() + PARAMETER_SLOT_BOTTOM_PADDING;
+            top += PARAMETER_SLOT_LABEL_HEIGHT + getParameterSlotHeight(ParameterSlot.PRIMARY) + PARAMETER_SLOT_BOTTOM_PADDING;
+            if (hasSecondaryParameterSlot()) {
+                top += PARAMETER_SLOT_VERTICAL_SPACING;
+                top += PARAMETER_SLOT_LABEL_HEIGHT + getParameterSlotHeight(ParameterSlot.SECONDARY) + PARAMETER_SLOT_BOTTOM_PADDING;
+            }
             if (hasCoordinateInputFields()) {
                 top += getCoordinateFieldDisplayHeight();
             }
@@ -636,25 +695,63 @@ public class Node {
     }
 
     public int getParameterSlotLeft() {
+        return getParameterSlotLeft(ParameterSlot.PRIMARY);
+    }
+
+    public int getParameterSlotLeft(ParameterSlot slot) {
         return x + PARAMETER_SLOT_MARGIN_HORIZONTAL;
     }
 
     public int getParameterSlotTop() {
-        return y + HEADER_HEIGHT + PARAMETER_SLOT_LABEL_HEIGHT;
+        return getParameterSlotTop(ParameterSlot.PRIMARY);
+    }
+
+    public int getParameterSlotTop(ParameterSlot slot) {
+        int top = y + HEADER_HEIGHT + PARAMETER_SLOT_LABEL_HEIGHT;
+        if (slot == ParameterSlot.SECONDARY) {
+            top += getParameterSlotHeight(ParameterSlot.PRIMARY);
+            top += PARAMETER_SLOT_BOTTOM_PADDING;
+            top += PARAMETER_SLOT_VERTICAL_SPACING;
+            top += PARAMETER_SLOT_LABEL_HEIGHT;
+        }
+        return top;
     }
 
     public int getParameterSlotWidth() {
+        return getParameterSlotWidth(ParameterSlot.PRIMARY);
+    }
+
+    public int getParameterSlotWidth(ParameterSlot slot) {
         int widthWithMargins = this.width - 2 * PARAMETER_SLOT_MARGIN_HORIZONTAL;
         return Math.max(PARAMETER_SLOT_MIN_CONTENT_WIDTH, widthWithMargins);
     }
 
     public int getParameterSlotHeight() {
-        int contentHeight = attachedParameter != null ? attachedParameter.getHeight() : PARAMETER_SLOT_MIN_CONTENT_HEIGHT;
+        return getParameterSlotHeight(ParameterSlot.PRIMARY);
+    }
+
+    public int getParameterSlotHeight(ParameterSlot slot) {
+        Node parameter = getAttachedParameter(slot);
+        int contentHeight = parameter != null ? parameter.getHeight() : PARAMETER_SLOT_MIN_CONTENT_HEIGHT;
         return contentHeight + 2 * PARAMETER_SLOT_INNER_PADDING;
     }
 
+    public String getParameterSlotTitle(ParameterSlot slot) {
+        if (type == NodeType.PLACE) {
+            return slot == ParameterSlot.SECONDARY ? "Coordinate Parameter" : "Block Parameter";
+        }
+        return "Parameter";
+    }
+
+    public String getParameterSlotPlaceholder(ParameterSlot slot) {
+        if (type == NodeType.PLACE) {
+            return slot == ParameterSlot.SECONDARY ? "Drag coordinates here" : "Drag block here";
+        }
+        return "Drag parameter here";
+    }
+
     public boolean hasCoordinateInputFields() {
-        return type == NodeType.PLACE;
+        return false;
     }
 
     public int getCoordinateFieldDisplayHeight() {
@@ -742,28 +839,33 @@ public class Node {
     }
 
     public boolean isPointInsideParameterSlot(int pointX, int pointY) {
-        if (!hasParameterSlot()) {
+        return isPointInsideParameterSlot(pointX, pointY, ParameterSlot.PRIMARY);
+    }
+
+    public boolean isPointInsideParameterSlot(int pointX, int pointY, ParameterSlot slot) {
+        if (!hasParameterSlot(slot)) {
             return false;
         }
-        int slotLeft = getParameterSlotLeft();
-        int slotTop = getParameterSlotTop();
-        int slotWidth = getParameterSlotWidth();
-        int slotHeight = getParameterSlotHeight();
+        int slotLeft = getParameterSlotLeft(slot);
+        int slotTop = getParameterSlotTop(slot);
+        int slotWidth = getParameterSlotWidth(slot);
+        int slotHeight = getParameterSlotHeight(slot);
         return pointX >= slotLeft && pointX <= slotLeft + slotWidth &&
                pointY >= slotTop && pointY <= slotTop + slotHeight;
     }
 
-    public void updateAttachedParameterPosition() {
-        if (attachedParameter == null) {
+    public void updateAttachedParameterPosition(ParameterSlot slot) {
+        Node parameter = getAttachedParameter(slot);
+        if (parameter == null) {
             return;
         }
-        int slotX = getParameterSlotLeft() + PARAMETER_SLOT_INNER_PADDING;
-        int slotY = getParameterSlotTop() + PARAMETER_SLOT_INNER_PADDING;
-        int availableWidth = getParameterSlotWidth() - 2 * PARAMETER_SLOT_INNER_PADDING;
-        int availableHeight = getParameterSlotHeight() - 2 * PARAMETER_SLOT_INNER_PADDING;
-        int parameterX = slotX + Math.max(0, (availableWidth - attachedParameter.getWidth()) / 2);
-        int parameterY = slotY + Math.max(0, (availableHeight - attachedParameter.getHeight()) / 2);
-        attachedParameter.setPositionSilently(parameterX, parameterY);
+        int slotX = getParameterSlotLeft(slot) + PARAMETER_SLOT_INNER_PADDING;
+        int slotY = getParameterSlotTop(slot) + PARAMETER_SLOT_INNER_PADDING;
+        int availableWidth = getParameterSlotWidth(slot) - 2 * PARAMETER_SLOT_INNER_PADDING;
+        int availableHeight = getParameterSlotHeight(slot) - 2 * PARAMETER_SLOT_INNER_PADDING;
+        int parameterX = slotX + Math.max(0, (availableWidth - parameter.getWidth()) / 2);
+        int parameterY = slotY + Math.max(0, (availableHeight - parameter.getHeight()) / 2);
+        parameter.setPositionSilently(parameterX, parameterY);
     }
 
     public int getActionSlotLeft() {
@@ -872,42 +974,56 @@ public class Node {
     }
 
     public boolean attachParameter(Node parameter) {
-        if (!canAcceptParameter() || parameter == null || !parameter.isParameterNode() || parameter == this) {
+        return attachParameterToSlot(parameter, ParameterSlot.PRIMARY);
+    }
+
+    public boolean attachParameterToSlot(Node parameter, ParameterSlot slot) {
+        if (!hasParameterSlot(slot) || parameter == null || !parameter.isParameterNode() || parameter == this) {
             return false;
         }
 
-        if (parameter.parentParameterHost == this && attachedParameter == parameter) {
-            updateAttachedParameterPosition();
+        Node current = getAttachedParameter(slot);
+        if (parameter.parentParameterHost == this && current == parameter && parameterAttachmentSlot == slot) {
+            updateAttachedParameterPosition(slot);
             return true;
         }
 
         Node previousHost = parameter.parentParameterHost;
+        ParameterSlot previousSlot = parameter.parameterAttachmentSlot;
 
         boolean applied = applyParameterValuesFromNode(parameter);
         boolean handledAtRuntime = applied || canHandleParameterRuntime(parameter);
 
         if (previousHost != null && previousHost != this) {
-            previousHost.detachParameter();
+            previousHost.detachParameter(previousSlot != null ? previousSlot : ParameterSlot.PRIMARY);
         }
 
-        if (attachedParameter != null && attachedParameter != parameter) {
-            Node previous = attachedParameter;
-            previous.parentParameterHost = null;
-            previous.setDragging(false);
-            previous.setSelected(false);
-            previous.setSocketsHidden(false);
-            previous.setPositionSilently(this.x + this.width + PARAMETER_SLOT_MARGIN_HORIZONTAL, this.y);
+        if (current != null && current != parameter) {
+            current.parentParameterHost = null;
+            current.parameterAttachmentSlot = null;
+            current.setDragging(false);
+            current.setSelected(false);
+            current.setSocketsHidden(false);
+            current.setPositionSilently(this.x + this.width + PARAMETER_SLOT_MARGIN_HORIZONTAL, this.y);
         }
 
-        attachedParameter = parameter;
+        if (slot == ParameterSlot.SECONDARY) {
+            attachedSecondaryParameter = parameter;
+        } else {
+            attachedParameter = parameter;
+        }
+
         parameter.parentParameterHost = this;
+        parameter.parameterAttachmentSlot = slot;
         parameter.setDragging(false);
         parameter.setSelected(false);
         parameter.setSocketsHidden(true);
         parameter.recalculateDimensions();
 
+        refreshHostParameters();
+
         recalculateDimensions();
-        updateAttachedParameterPosition();
+        updateAttachedParameterPosition(slot);
         updateParentControlLayout();
 
         if (!handledAtRuntime) {
@@ -919,17 +1035,30 @@ public class Node {
     }
 
     public void detachParameter() {
-        if (attachedParameter != null) {
-            Node parameter = attachedParameter;
-            attachedParameter = null;
-            parameter.parentParameterHost = null;
-            parameter.setSocketsHidden(false);
-            parameter.recalculateDimensions();
-            parameter.setPositionSilently(this.x + this.width + PARAMETER_SLOT_MARGIN_HORIZONTAL, this.y);
-            resetParametersToDefaults();
-            recalculateDimensions();
-            updateParentControlLayout();
+        detachParameter(ParameterSlot.PRIMARY);
+    }
+
+    public void detachParameter(ParameterSlot slot) {
+        Node parameter = getAttachedParameter(slot);
+        if (parameter == null) {
+            return;
         }
+
+        if (slot == ParameterSlot.SECONDARY) {
+            attachedSecondaryParameter = null;
+        } else {
+            attachedParameter = null;
+        }
+
+        parameter.parentParameterHost = null;
+        parameter.parameterAttachmentSlot = null;
+        parameter.setSocketsHidden(false);
+        parameter.recalculateDimensions();
+        parameter.setPositionSilently(this.x + this.width + PARAMETER_SLOT_MARGIN_HORIZONTAL, this.y);
+
+        refreshHostParameters();
+        recalculateDimensions();
+        updateParentControlLayout();
     }
 
     private void updateParentControlLayout() {
@@ -982,6 +1111,130 @@ public class Node {
             }
         }
         return applied;
+    }
+
+    private void refreshHostParameters() {
+        if (isParameterNode()) {
+            return;
+        }
+
+        Map<String, String> existing = exportParameterValues();
+        resetParametersToDefaults();
+        applyParameterValuesFromMap(existing);
+
+        if (attachedParameter != null) {
+            Map<String, String> primaryValues = attachedParameter.exportParameterValues();
+            applyParameterValuesFromMap(primaryValues);
+        }
+
+        if (attachedSecondaryParameter != null) {
+            Map<String, String> secondaryValues = attachedSecondaryParameter.exportParameterValues();
+            applyParameterValuesFromMap(secondaryValues);
+        }
+    }
+
+    private RuntimeParameterData copyRuntimeParameterData(RuntimeParameterData source) {
+        if (source == null) {
+            return null;
+        }
+        RuntimeParameterData copy = new RuntimeParameterData();
+        copy.targetBlockPos = source.targetBlockPos;
+        copy.targetVector = source.targetVector;
+        copy.targetEntity = source.targetEntity;
+        copy.targetItem = source.targetItem;
+        copy.targetBlockId = source.targetBlockId;
+        if (source.targetBlockIds != null) {
+            copy.targetBlockIds = new ArrayList<>(source.targetBlockIds);
+        }
+        copy.targetPlayerName = source.targetPlayerName;
+        copy.targetItemId = source.targetItemId;
+        copy.targetEntityId = source.targetEntityId;
+        copy.message = source.message;
+        copy.durationSeconds = source.durationSeconds;
+        copy.booleanValue = source.booleanValue;
+        copy.handName = source.handName;
+        copy.slotIndex = source.slotIndex;
+        copy.schematicName = source.schematicName;
+        copy.rangeValue = source.rangeValue;
+        copy.resolvedYaw = source.resolvedYaw;
+        copy.resolvedPitch = source.resolvedPitch;
+        copy.resolvedYawOffset = source.resolvedYawOffset;
+        copy.resolvedPitchOffset = source.resolvedPitchOffset;
+        return copy;
+    }
+
+    private RuntimeParameterData mergeRuntimeParameterData(RuntimeParameterData primary, RuntimeParameterData secondary) {
+        if (primary == null && secondary == null) {
+            return null;
+        }
+        if (primary == null) {
+            return copyRuntimeParameterData(secondary);
+        }
+        RuntimeParameterData merged = copyRuntimeParameterData(primary);
+        if (secondary == null) {
+            return merged;
+        }
+        if (secondary.targetBlockPos != null) {
+            merged.targetBlockPos = secondary.targetBlockPos;
+        }
+        if (secondary.targetVector != null) {
+            merged.targetVector = secondary.targetVector;
+        }
+        if (secondary.targetEntity != null) {
+            merged.targetEntity = secondary.targetEntity;
+        }
+        if (secondary.targetItem != null) {
+            merged.targetItem = secondary.targetItem;
+        }
+        if (secondary.targetBlockId != null) {
+            merged.targetBlockId = secondary.targetBlockId;
+        }
+        if (secondary.targetBlockIds != null) {
+            merged.targetBlockIds = new ArrayList<>(secondary.targetBlockIds);
+        }
+        if (secondary.targetPlayerName != null) {
+            merged.targetPlayerName = secondary.targetPlayerName;
+        }
+        if (secondary.targetItemId != null) {
+            merged.targetItemId = secondary.targetItemId;
+        }
+        if (secondary.targetEntityId != null) {
+            merged.targetEntityId = secondary.targetEntityId;
+        }
+        if (secondary.message != null) {
+            merged.message = secondary.message;
+        }
+        if (secondary.durationSeconds != null) {
+            merged.durationSeconds = secondary.durationSeconds;
+        }
+        if (secondary.booleanValue != null) {
+            merged.booleanValue = secondary.booleanValue;
+        }
+        if (secondary.handName != null) {
+            merged.handName = secondary.handName;
+        }
+        if (secondary.slotIndex != null) {
+            merged.slotIndex = secondary.slotIndex;
+        }
+        if (secondary.schematicName != null) {
+            merged.schematicName = secondary.schematicName;
+        }
+        if (secondary.rangeValue != null) {
+            merged.rangeValue = secondary.rangeValue;
+        }
+        if (secondary.resolvedYaw != null) {
+            merged.resolvedYaw = secondary.resolvedYaw;
+        }
+        if (secondary.resolvedPitch != null) {
+            merged.resolvedPitch = secondary.resolvedPitch;
+        }
+        if (secondary.resolvedYawOffset != null) {
+            merged.resolvedYawOffset = secondary.resolvedYawOffset;
+        }
+        if (secondary.resolvedPitchOffset != null) {
+            merged.resolvedPitchOffset = secondary.resolvedPitchOffset;
+        }
+        return merged;
     }
 
     private boolean canHandleParameterRuntime(Node parameter) {
@@ -1391,6 +1644,10 @@ public class Node {
                 parameters.add(new NodeParameter("Y", ParameterType.INTEGER, "0"));
                 parameters.add(new NodeParameter("Z", ParameterType.INTEGER, "0"));
                 break;
+            case PARAM_NEAREST_OPEN_BLOCK:
+                parameters.add(new NodeParameter("Range", ParameterType.INTEGER, "6"));
+                parameters.add(new NodeParameter("VerticalRange", ParameterType.INTEGER, "4"));
+                break;
             case PARAM_LIGHT_THRESHOLD:
                 parameters.add(new NodeParameter("Threshold", ParameterType.INTEGER, "7"));
                 break;
@@ -1657,6 +1914,9 @@ public class Node {
             if (attachedParameter != null) {
                 parameterContentWidth = Math.max(parameterContentWidth, attachedParameter.getWidth());
             }
+            if (hasSecondaryParameterSlot() && attachedSecondaryParameter != null) {
+                parameterContentWidth = Math.max(parameterContentWidth, attachedSecondaryParameter.getWidth());
+            }
             int requiredWidth = parameterContentWidth + 2 * (PARAMETER_SLOT_INNER_PADDING + PARAMETER_SLOT_MARGIN_HORIZONTAL);
             computedWidth = Math.max(computedWidth, requiredWidth);
             if (hasCoordinateInputFields()) {
@@ -1706,7 +1966,11 @@ public class Node {
                 contentHeight += BODY_PADDING_NO_PARAMS;
             }
         } else if (hasParameterSlot()) {
-            contentHeight += PARAMETER_SLOT_LABEL_HEIGHT + getParameterSlotHeight() + PARAMETER_SLOT_BOTTOM_PADDING;
+            contentHeight += PARAMETER_SLOT_LABEL_HEIGHT + getParameterSlotHeight(ParameterSlot.PRIMARY) + PARAMETER_SLOT_BOTTOM_PADDING;
+            if (hasSecondaryParameterSlot()) {
+                contentHeight += PARAMETER_SLOT_VERTICAL_SPACING;
+                contentHeight += PARAMETER_SLOT_LABEL_HEIGHT + getParameterSlotHeight(ParameterSlot.SECONDARY) + PARAMETER_SLOT_BOTTOM_PADDING;
+            }
             if (hasCoordinateInputFields()) {
                 contentHeight += getCoordinateFieldDisplayHeight();
             }
@@ -1756,7 +2020,10 @@ public class Node {
             updateAttachedActionPosition();
         }
         if (attachedParameter != null) {
-            updateAttachedParameterPosition();
+            updateAttachedParameterPosition(ParameterSlot.PRIMARY);
+        }
+        if (attachedSecondaryParameter != null) {
+            updateAttachedParameterPosition(ParameterSlot.SECONDARY);
         }
     }
 
@@ -1817,14 +2084,34 @@ public class Node {
     }
 
     private ParameterHandlingResult preprocessAttachedParameter(EnumSet<ParameterUsage> usages, CompletableFuture<Void> future) {
-        Node parameterNode = attachedParameter;
-        runtimeParameterData = null;
+        ParameterProcessingResult result = preprocessParameterNode(attachedParameter, usages, future, true);
+        runtimeParameterData = copyRuntimeParameterData(result.data);
+        return result.result;
+    }
 
-        if (parameterNode == null) {
-            return ParameterHandlingResult.CONTINUE;
+    private ParameterHandlingResult preprocessPlacementParameters(EnumSet<ParameterUsage> usages, CompletableFuture<Void> future) {
+        ParameterProcessingResult primary = preprocessParameterNode(attachedParameter, usages, future, true);
+        if (primary.result == ParameterHandlingResult.COMPLETE) {
+            runtimeParameterData = copyRuntimeParameterData(primary.data);
+            return ParameterHandlingResult.COMPLETE;
         }
 
-        runtimeParameterData = new RuntimeParameterData();
+        ParameterProcessingResult secondary = preprocessParameterNode(attachedSecondaryParameter, usages, future, true);
+        if (secondary.result == ParameterHandlingResult.COMPLETE) {
+            runtimeParameterData = mergeRuntimeParameterData(primary.data, secondary.data);
+            return ParameterHandlingResult.COMPLETE;
+        }
+
+        runtimeParameterData = mergeRuntimeParameterData(primary.data, secondary.data);
+        return ParameterHandlingResult.CONTINUE;
+    }
+
+    private ParameterProcessingResult preprocessParameterNode(Node parameterNode, EnumSet<ParameterUsage> usages, CompletableFuture<Void> future, boolean emitErrors) {
+        if (parameterNode == null) {
+            return new ParameterProcessingResult(ParameterHandlingResult.CONTINUE, null);
+        }
+
+        RuntimeParameterData data = new RuntimeParameterData();
         boolean handled = false;
 
         Map<String, String> exported = parameterNode.exportParameterValues();
@@ -1833,43 +2120,43 @@ public class Node {
         }
 
         if (usages.contains(ParameterUsage.POSITION)) {
-            Optional<Vec3d> targetVec = resolvePositionTarget(parameterNode, runtimeParameterData, future);
+            Optional<Vec3d> targetVec = resolvePositionTarget(parameterNode, data, future);
             if (targetVec.isPresent()) {
                 handled = true;
-                runtimeParameterData.targetVector = targetVec.get();
+                data.targetVector = targetVec.get();
                 applyVectorToCoordinateParameters(targetVec.get());
             } else if (future != null && future.isDone()) {
-                return ParameterHandlingResult.COMPLETE;
+                return new ParameterProcessingResult(ParameterHandlingResult.COMPLETE, data);
             }
         }
 
         if (usages.contains(ParameterUsage.LOOK_ORIENTATION)) {
-            boolean oriented = resolveLookOrientation(parameterNode, runtimeParameterData, future);
+            boolean oriented = resolveLookOrientation(parameterNode, data, future);
             if (oriented) {
                 handled = true;
             } else if (future != null && future.isDone()) {
-                return ParameterHandlingResult.COMPLETE;
+                return new ParameterProcessingResult(ParameterHandlingResult.COMPLETE, data);
             }
         }
 
         if (usages.contains(ParameterUsage.TURN_OFFSET)) {
-            boolean offsets = resolveTurnOffsets(parameterNode, runtimeParameterData, future);
+            boolean offsets = resolveTurnOffsets(parameterNode, data, future);
             if (offsets) {
                 handled = true;
             } else if (future != null && future.isDone()) {
-                return ParameterHandlingResult.COMPLETE;
+                return new ParameterProcessingResult(ParameterHandlingResult.COMPLETE, data);
             }
         }
 
         if (!handled) {
-            if (future != null && !future.isDone()) {
+            if (emitErrors && future != null && !future.isDone()) {
                 sendIncompatibleParameterMessage(parameterNode);
                 future.complete(null);
             }
-            return ParameterHandlingResult.COMPLETE;
+            return new ParameterProcessingResult(ParameterHandlingResult.COMPLETE, data);
         }
 
-        return ParameterHandlingResult.CONTINUE;
+        return new ParameterProcessingResult(ParameterHandlingResult.CONTINUE, data);
     }
 
     private Optional<Vec3d> resolvePositionTarget(Node parameterNode, RuntimeParameterData data, CompletableFuture<Void> future) {
@@ -1912,6 +2199,22 @@ public class Node {
                     data.targetBlockId = getParameterString(parameterNode, "Block");
                 }
                 return Optional.of(Vec3d.ofCenter(pos));
+            }
+            case PARAM_NEAREST_OPEN_BLOCK: {
+                if (client == null || client.player == null || client.world == null) {
+                    return Optional.empty();
+                }
+                int horizontalRange = Math.max(1, parseNodeInt(parameterNode, "Range", 6));
+                int verticalRange = Math.max(1, parseNodeInt(parameterNode, "VerticalRange", 4));
+                Optional<BlockPos> nearest = findNearestOpenBlock(client, horizontalRange, verticalRange);
+                if (nearest.isEmpty()) {
+                    sendParameterSearchFailure("No open block within range for " + type.getDisplayName() + ".", future);
+                    return Optional.empty();
+                }
+                if (data != null) {
+                    data.targetBlockPos = nearest.get();
+                }
+                return Optional.of(Vec3d.ofCenter(nearest.get()));
             }
             case PARAM_ITEM: {
                 if (client == null || client.player == null) {
@@ -2240,6 +2543,50 @@ public class Node {
         if (applyPitch) {
             data.resolvedPitch = pitch;
         }
+    }
+
+    private Optional<BlockPos> findNearestOpenBlock(net.minecraft.client.MinecraftClient client, int horizontalRange, int verticalRange) {
+        if (client == null || client.world == null || client.player == null) {
+            return Optional.empty();
+        }
+
+        BlockPos origin = client.player.getBlockPos();
+        double bestDistance = Double.MAX_VALUE;
+        BlockPos bestPos = null;
+
+        for (int dy = -verticalRange; dy <= verticalRange; dy++) {
+            for (int dx = -horizontalRange; dx <= horizontalRange; dx++) {
+                for (int dz = -horizontalRange; dz <= horizontalRange; dz++) {
+                    BlockPos candidate = origin.add(dx, dy, dz);
+                    if (!isOpenBlock(client, candidate)) {
+                        continue;
+                    }
+
+                    double distance = Vec3d.ofCenter(candidate).squaredDistanceTo(client.player.getPos());
+                    if (distance < bestDistance) {
+                        bestDistance = distance;
+                        bestPos = candidate;
+                    }
+                }
+            }
+        }
+
+        return Optional.ofNullable(bestPos);
+    }
+
+    private boolean isOpenBlock(net.minecraft.client.MinecraftClient client, BlockPos pos) {
+        if (client == null || client.world == null) {
+            return false;
+        }
+
+        BlockState state = client.world.getBlockState(pos);
+        if (!state.isAir()) {
+            return false;
+        }
+
+        BlockPos below = pos.down();
+        BlockState belowState = client.world.getBlockState(below);
+        return belowState.isSolidBlock(client.world, below) || belowState.isSideSolidFullSquare(client.world, below, Direction.UP);
     }
 
     private void sendIncompatibleParameterMessage(Node parameterNode) {
@@ -3779,7 +4126,7 @@ public class Node {
             ? EnumSet.of(ParameterUsage.POSITION)
             : EnumSet.noneOf(ParameterUsage.class);
 
-        if (preprocessAttachedParameter(placementParameterUsages, future) == ParameterHandlingResult.COMPLETE) {
+        if (preprocessPlacementParameters(placementParameterUsages, future) == ParameterHandlingResult.COMPLETE) {
             return;
         }
         String block = "stone";
@@ -3892,16 +4239,20 @@ public class Node {
     }
 
     private boolean shouldInheritPlacementCoordinates() {
-        if (attachedParameter == null) {
+        return parameterProvidesPlacementCoordinates(attachedParameter)
+            || parameterProvidesPlacementCoordinates(attachedSecondaryParameter);
+    }
+
+    private boolean parameterProvidesPlacementCoordinates(Node parameter) {
+        if (parameter == null) {
             return false;
         }
-
-        NodeType parameterType = attachedParameter.getType();
-        switch (parameterType) {
+        switch (parameter.getType()) {
             case PARAM_COORDINATE:
             case PARAM_SCHEMATIC:
             case PARAM_PLACE_TARGET:
             case PARAM_WAYPOINT:
+            case PARAM_NEAREST_OPEN_BLOCK:
                 return true;
             default:
                 return false;
@@ -5946,7 +6297,7 @@ public class Node {
                 int x = getIntParameter("X", 0);
                 int y = getIntParameter("Y", 64);
                 int z = getIntParameter("Z", 0);
-                Node parameterNode = getAttachedParameterOfType(NodeType.PARAM_COORDINATE, NodeType.PARAM_PLACE_TARGET);
+                Node parameterNode = getAttachedParameterOfType(NodeType.PARAM_COORDINATE, NodeType.PARAM_PLACE_TARGET, NodeType.PARAM_NEAREST_OPEN_BLOCK);
                 if (parameterNode != null) {
                     x = parseNodeInt(parameterNode, "X", x);
                     y = parseNodeInt(parameterNode, "Y", y);
