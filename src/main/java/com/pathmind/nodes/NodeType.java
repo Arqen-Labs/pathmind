@@ -20,7 +20,7 @@ public enum NodeType {
     SURFACE("Surface", 0xFF4CAF50, "Moves to the nearest surface"),
     
     // Resource collection and Building Commands
-    COLLECT("Collect", 0xFF2196F3, "Collects specified block types"),
+    COLLECT("Mine", 0xFF2196F3, "Configures mining-related options"),
     BUILD("Build", 0xFFFF9800, "Constructs structures from schematic files"),
     TUNNEL("Tunnel", 0xFF795548, "Digs a 2x3 tunnel forward automatically"),
     FARM("Farm", 0xFF4CAF50, "Automates harvesting and replanting crops"),
