@@ -3353,7 +3353,7 @@ public class Node {
     }
 
     private void submitMineRequestAsync(net.minecraft.client.MinecraftClient client, IMineProcess mineProcess, String[] lookupTargets, String[] legacyTargets, Integer desiredAmount, CompletableFuture<Void> future) {
-        CompletableFuture.runAsync(() -> {
+        Runnable dispatch = () -> {
             boolean started;
             try {
                 started = dispatchMineRequest(mineProcess, lookupTargets, legacyTargets, desiredAmount);
@@ -3374,7 +3374,13 @@ public class Node {
             }
 
             PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_COLLECT, future);
-        });
+        };
+
+        if (client != null) {
+            client.submit(dispatch);
+        } else {
+            CompletableFuture.runAsync(dispatch);
+        }
     }
     
     private void executeCraftCommand(CompletableFuture<Void> future) {
