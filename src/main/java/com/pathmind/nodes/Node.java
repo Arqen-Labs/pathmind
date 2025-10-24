@@ -3188,6 +3188,8 @@ public class Node {
             return;
         }
 
+        final net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+
         List<String> targetBlockIds = new ArrayList<>();
         RuntimeParameterData parameterData = runtimeParameterData;
         if (parameterData != null) {
@@ -3233,7 +3235,6 @@ public class Node {
         }
 
         if (targetBlockIds.isEmpty()) {
-            net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
             sendNodeErrorMessage(client, "Mine node requires a block selection.");
             future.complete(null);
             return;
@@ -3258,7 +3259,6 @@ public class Node {
         }
 
         if (validTargets.isEmpty()) {
-            net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
             sendNodeErrorMessage(client, "Mine node requires a valid block name.");
             future.complete(null);
             return;
@@ -3276,27 +3276,12 @@ public class Node {
 
         if (collectMode == NodeMode.COLLECT_MULTIPLE) {
             if (targetArray.length == 0 && fallbackArray.length == 0) {
-                net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
                 sendNodeErrorMessage(client, "Mine node requires a valid block name.");
                 future.complete(null);
                 return;
             }
 
-            try {
-                if (!dispatchMineRequest(mineProcess, targetArray, fallbackArray, null)) {
-                    net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
-                    sendNodeErrorMessage(client, "Mine node could not start mining: no valid targets.");
-                    future.complete(null);
-                    return;
-                }
-            } catch (RuntimeException e) {
-                net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
-                sendNodeErrorMessage(client, "Mine node failed to start mining: " + e.getMessage());
-                future.complete(null);
-                return;
-            }
-
-            PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_COLLECT, future);
+            submitMineRequestAsync(client, mineProcess, targetArray, fallbackArray, null, future);
             return;
         }
 
@@ -3321,7 +3306,6 @@ public class Node {
         }
 
         if (targetArray.length == 0 && fallbackArray.length == 0) {
-            net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
             sendNodeErrorMessage(client, "Mine node requires a valid block name.");
             future.complete(null);
             return;
@@ -3329,21 +3313,7 @@ public class Node {
 
         System.out.println("Executing collect command for blocks: " + String.join(", ", targetArray.length > 0 ? targetArray : fallbackArray) + " amount=" + desiredAmount);
 
-        try {
-            if (!dispatchMineRequest(mineProcess, targetArray, fallbackArray, desiredAmount)) {
-                net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
-                sendNodeErrorMessage(client, "Mine node could not start mining: no valid targets.");
-                future.complete(null);
-                return;
-            }
-        } catch (RuntimeException e) {
-            net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
-            sendNodeErrorMessage(client, "Mine node failed to start mining: " + e.getMessage());
-            future.complete(null);
-            return;
-        }
-
-        PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_COLLECT, future);
+        submitMineRequestAsync(client, mineProcess, targetArray, fallbackArray, desiredAmount, future);
     }
 
     private boolean dispatchMineRequest(IMineProcess mineProcess, String[] lookupTargets, String[] legacyTargets, Integer desiredAmount) {
@@ -3380,6 +3350,31 @@ public class Node {
             mineProcess.mineByName(legacyTargets);
         }
         return true;
+    }
+
+    private void submitMineRequestAsync(net.minecraft.client.MinecraftClient client, IMineProcess mineProcess, String[] lookupTargets, String[] legacyTargets, Integer desiredAmount, CompletableFuture<Void> future) {
+        CompletableFuture.runAsync(() -> {
+            boolean started;
+            try {
+                started = dispatchMineRequest(mineProcess, lookupTargets, legacyTargets, desiredAmount);
+            } catch (RuntimeException e) {
+                sendNodeErrorMessage(client, "Mine node failed to start mining: " + e.getMessage());
+                if (!future.isDone()) {
+                    future.complete(null);
+                }
+                return;
+            }
+
+            if (!started) {
+                sendNodeErrorMessage(client, "Mine node could not start mining: no valid targets.");
+                if (!future.isDone()) {
+                    future.complete(null);
+                }
+                return;
+            }
+
+            PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_COLLECT, future);
+        });
     }
     
     private void executeCraftCommand(CompletableFuture<Void> future) {
