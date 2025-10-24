@@ -9,17 +9,23 @@ import java.util.Optional;
 import java.util.Locale;
 import java.util.EnumSet;
 import java.util.Objects;
+import java.util.LinkedHashSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
 import baritone.api.process.ICustomGoalProcess;
 import baritone.api.process.IExploreProcess;
 import baritone.api.process.IGetToBlockProcess;
+import baritone.api.process.IMineProcess;
 import baritone.api.process.IFarmProcess;
 import baritone.api.pathing.goals.GoalBlock;
 import baritone.api.utils.BlockOptionalMeta;
+import baritone.api.utils.BlockOptionalMetaLookup;
 import com.pathmind.execution.PreciseCompletionTracker;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.player.PlayerInventory;
@@ -3167,7 +3173,268 @@ public class Node {
     }
     
     private void executeCollectCommand(CompletableFuture<Void> future) {
-        future.complete(null);
+        if (preprocessAttachedParameter(EnumSet.noneOf(ParameterUsage.class), future) == ParameterHandlingResult.COMPLETE) {
+            return;
+        }
+
+        NodeMode collectMode = mode != null ? mode : NodeMode.COLLECT_SINGLE;
+
+        IBaritone baritone = getBaritone();
+        if (baritone == null) {
+            future.completeExceptionally(new RuntimeException("Baritone not available"));
+            return;
+        }
+
+        IMineProcess mineProcess = baritone.getMineProcess();
+        if (mineProcess == null) {
+            future.completeExceptionally(new RuntimeException("Mine process not available"));
+            return;
+        }
+
+        final net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
+
+        List<String> targetBlockIds = new ArrayList<>();
+        RuntimeParameterData parameterData = runtimeParameterData;
+        if (parameterData != null) {
+            if (parameterData.targetBlockIds != null && !parameterData.targetBlockIds.isEmpty()) {
+                for (String id : parameterData.targetBlockIds) {
+                    if (id != null && !id.isEmpty()) {
+                        targetBlockIds.add(id);
+                    }
+                }
+                if (!parameterData.targetBlockIds.isEmpty()) {
+                    setParameterValueAndPropagate("Block", parameterData.targetBlockIds.get(0));
+                    setParameterValueAndPropagate("Blocks", String.join(",", parameterData.targetBlockIds));
+                }
+            } else if (parameterData.targetBlockId != null && !parameterData.targetBlockId.isEmpty()) {
+                targetBlockIds.add(parameterData.targetBlockId);
+                setParameterValueAndPropagate("Block", parameterData.targetBlockId);
+            }
+        }
+
+        if (targetBlockIds.isEmpty()) {
+            if (collectMode == NodeMode.COLLECT_MULTIPLE) {
+                NodeParameter blocksParam = getParameter("Blocks");
+                if (blocksParam != null) {
+                    String raw = blocksParam.getStringValue();
+                    if (raw != null && !raw.isEmpty()) {
+                        for (String part : raw.split("[,;]")) {
+                            String trimmed = part.trim();
+                            if (!trimmed.isEmpty()) {
+                                targetBlockIds.add(trimmed);
+                            }
+                        }
+                    }
+                }
+            } else {
+                NodeParameter blockParam = getParameter("Block");
+                if (blockParam != null) {
+                    String blockId = blockParam.getStringValue();
+                    if (blockId != null && !blockId.isEmpty()) {
+                        targetBlockIds.add(blockId.trim());
+                    }
+                }
+            }
+        }
+
+        if (targetBlockIds.isEmpty()) {
+            sendNodeErrorMessage(client, "Mine node requires a block selection.");
+            future.complete(null);
+            return;
+        }
+
+        List<String> validTargets = new ArrayList<>();
+        LinkedHashSet<String> fallbackTargets = new LinkedHashSet<>();
+        for (String id : targetBlockIds) {
+            if (id == null || id.isEmpty()) {
+                continue;
+            }
+            Identifier identifier = Identifier.tryParse(id.trim());
+            if (identifier != null && Registries.BLOCK.containsId(identifier)) {
+                validTargets.add(identifier.toString());
+                String trimmed = id.trim();
+                if (!trimmed.isEmpty()) {
+                    fallbackTargets.add(trimmed);
+                }
+                fallbackTargets.add(identifier.getPath());
+                fallbackTargets.add(identifier.toString());
+            }
+        }
+
+        if (validTargets.isEmpty()) {
+            sendNodeErrorMessage(client, "Mine node requires a valid block name.");
+            future.complete(null);
+            return;
+        }
+
+        String[] targetArray = validTargets.stream()
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .toArray(String[]::new);
+
+        String[] fallbackArray = fallbackTargets.stream()
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .toArray(String[]::new);
+
+        BlockOptionalMetaLookup lookupTargets = null;
+        if (collectMode == NodeMode.COLLECT_MULTIPLE) {
+            if (targetArray.length == 0 && fallbackArray.length == 0) {
+                sendNodeErrorMessage(client, "Mine node requires a valid block name.");
+                future.complete(null);
+                return;
+            }
+
+            try {
+                lookupTargets = prepareBlockLookup(client, targetArray);
+            } catch (RuntimeException e) {
+                sendNodeErrorMessage(client, "Mine node could not prepare targets: " + e.getMessage());
+                future.complete(null);
+                return;
+            }
+
+            submitMineRequestAsync(client, mineProcess, lookupTargets, fallbackArray, null, future);
+            return;
+        }
+
+        int desiredAmount = Math.max(1, getIntParameter("Amount", 1));
+        Node attachedParameter = getAttachedParameter();
+        if (attachedParameter != null) {
+            String parameterAmount = getParameterString(attachedParameter, "Amount");
+            if (parameterAmount == null || parameterAmount.isEmpty()) {
+                parameterAmount = getParameterString(attachedParameter, "Count");
+            }
+            if (parameterAmount != null && !parameterAmount.isEmpty()) {
+                try {
+                    int parsed = Integer.parseInt(parameterAmount.trim());
+                    if (parsed > 0) {
+                        desiredAmount = parsed;
+                        setParameterValueAndPropagate("Amount", String.valueOf(desiredAmount));
+                    }
+                } catch (NumberFormatException ignored) {
+                    // Keep existing desired amount if parsing fails
+                }
+            }
+        }
+
+        if (targetArray.length == 0 && fallbackArray.length == 0) {
+            sendNodeErrorMessage(client, "Mine node requires a valid block name.");
+            future.complete(null);
+            return;
+        }
+
+        try {
+            lookupTargets = prepareBlockLookup(client, targetArray);
+        } catch (RuntimeException e) {
+            sendNodeErrorMessage(client, "Mine node could not prepare targets: " + e.getMessage());
+            future.complete(null);
+            return;
+        }
+
+        System.out.println("Executing collect command for blocks: " + String.join(", ", targetArray.length > 0 ? targetArray : fallbackArray) + " amount=" + desiredAmount);
+
+        submitMineRequestAsync(client, mineProcess, lookupTargets, fallbackArray, desiredAmount, future);
+    }
+
+    private boolean dispatchMineRequest(IMineProcess mineProcess, BlockOptionalMetaLookup lookupTargets, String[] legacyTargets, Integer desiredAmount) {
+        if (mineProcess == null) {
+            return false;
+        }
+
+        boolean hasLookupTargets = lookupTargets != null;
+        if (hasLookupTargets) {
+            try {
+                if (desiredAmount != null) {
+                    mineProcess.mine(desiredAmount, lookupTargets);
+                } else {
+                    mineProcess.mine(lookupTargets);
+                }
+                return true;
+            } catch (AbstractMethodError | NoSuchMethodError e) {
+                System.err.println("Mine command falling back to legacy Baritone API: " + e.getMessage());
+            } catch (RuntimeException e) {
+                if (legacyTargets == null || legacyTargets.length == 0) {
+                    throw e;
+                }
+                System.err.println("Mine command retrying with legacy Baritone API due to: " + e.getMessage());
+            }
+        }
+
+        if (legacyTargets == null || legacyTargets.length == 0) {
+            return false;
+        }
+
+        if (desiredAmount != null) {
+            mineProcess.mineByName(desiredAmount, legacyTargets);
+        } else {
+            mineProcess.mineByName(legacyTargets);
+        }
+        return true;
+    }
+
+    private void submitMineRequestAsync(net.minecraft.client.MinecraftClient client, IMineProcess mineProcess, BlockOptionalMetaLookup lookupTargets, String[] legacyTargets, Integer desiredAmount, CompletableFuture<Void> future) {
+        Runnable dispatch = () -> {
+            boolean started;
+            try {
+                started = dispatchMineRequest(mineProcess, lookupTargets, legacyTargets, desiredAmount);
+            } catch (RuntimeException e) {
+                sendNodeErrorMessage(client, "Mine node failed to start mining: " + e.getMessage());
+                if (!future.isDone()) {
+                    future.complete(null);
+                }
+                return;
+            }
+
+            if (!started) {
+                sendNodeErrorMessage(client, "Mine node could not start mining: no valid targets.");
+                if (!future.isDone()) {
+                    future.complete(null);
+                }
+                return;
+            }
+
+            PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_COLLECT, future);
+        };
+
+        CompletableFuture.runAsync(dispatch);
+    }
+
+    private BlockOptionalMetaLookup prepareBlockLookup(net.minecraft.client.MinecraftClient client, String[] lookupTargets) {
+        if (lookupTargets == null || lookupTargets.length == 0) {
+            return null;
+        }
+
+        if (client == null) {
+            return null;
+        }
+
+        if (client.isOnThread()) {
+            return new BlockOptionalMetaLookup(lookupTargets);
+        }
+
+        CompletableFuture<BlockOptionalMetaLookup> lookupFuture = new CompletableFuture<>();
+        client.submit(() -> {
+            try {
+                lookupFuture.complete(new BlockOptionalMetaLookup(lookupTargets));
+            } catch (Throwable t) {
+                lookupFuture.completeExceptionally(t);
+            }
+        });
+
+        try {
+            return lookupFuture.get(3L, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while preparing block targets", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw new RuntimeException("Failed to prepare block targets", cause);
+        } catch (TimeoutException e) {
+            throw new RuntimeException("Timed out preparing block targets", e);
+        }
     }
     
     private void executeCraftCommand(CompletableFuture<Void> future) {
