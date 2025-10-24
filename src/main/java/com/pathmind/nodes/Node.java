@@ -12,6 +12,9 @@ import java.util.Objects;
 import java.util.LinkedHashSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import baritone.api.BaritoneAPI;
 import baritone.api.IBaritone;
@@ -3274,6 +3277,7 @@ public class Node {
             .filter(s -> !s.isEmpty())
             .toArray(String[]::new);
 
+        BlockOptionalMetaLookup lookupTargets = null;
         if (collectMode == NodeMode.COLLECT_MULTIPLE) {
             if (targetArray.length == 0 && fallbackArray.length == 0) {
                 sendNodeErrorMessage(client, "Mine node requires a valid block name.");
@@ -3281,7 +3285,15 @@ public class Node {
                 return;
             }
 
-            submitMineRequestAsync(client, mineProcess, targetArray, fallbackArray, null, future);
+            try {
+                lookupTargets = prepareBlockLookup(client, targetArray);
+            } catch (RuntimeException e) {
+                sendNodeErrorMessage(client, "Mine node could not prepare targets: " + e.getMessage());
+                future.complete(null);
+                return;
+            }
+
+            submitMineRequestAsync(client, mineProcess, lookupTargets, fallbackArray, null, future);
             return;
         }
 
@@ -3311,23 +3323,31 @@ public class Node {
             return;
         }
 
+        try {
+            lookupTargets = prepareBlockLookup(client, targetArray);
+        } catch (RuntimeException e) {
+            sendNodeErrorMessage(client, "Mine node could not prepare targets: " + e.getMessage());
+            future.complete(null);
+            return;
+        }
+
         System.out.println("Executing collect command for blocks: " + String.join(", ", targetArray.length > 0 ? targetArray : fallbackArray) + " amount=" + desiredAmount);
 
-        submitMineRequestAsync(client, mineProcess, targetArray, fallbackArray, desiredAmount, future);
+        submitMineRequestAsync(client, mineProcess, lookupTargets, fallbackArray, desiredAmount, future);
     }
 
-    private boolean dispatchMineRequest(IMineProcess mineProcess, String[] lookupTargets, String[] legacyTargets, Integer desiredAmount) {
+    private boolean dispatchMineRequest(IMineProcess mineProcess, BlockOptionalMetaLookup lookupTargets, String[] legacyTargets, Integer desiredAmount) {
         if (mineProcess == null) {
             return false;
         }
 
-        boolean hasLookupTargets = lookupTargets != null && lookupTargets.length > 0;
+        boolean hasLookupTargets = lookupTargets != null;
         if (hasLookupTargets) {
             try {
                 if (desiredAmount != null) {
-                    mineProcess.mine(desiredAmount, new BlockOptionalMetaLookup(lookupTargets));
+                    mineProcess.mine(desiredAmount, lookupTargets);
                 } else {
-                    mineProcess.mine(new BlockOptionalMetaLookup(lookupTargets));
+                    mineProcess.mine(lookupTargets);
                 }
                 return true;
             } catch (AbstractMethodError | NoSuchMethodError e) {
@@ -3352,7 +3372,7 @@ public class Node {
         return true;
     }
 
-    private void submitMineRequestAsync(net.minecraft.client.MinecraftClient client, IMineProcess mineProcess, String[] lookupTargets, String[] legacyTargets, Integer desiredAmount, CompletableFuture<Void> future) {
+    private void submitMineRequestAsync(net.minecraft.client.MinecraftClient client, IMineProcess mineProcess, BlockOptionalMetaLookup lookupTargets, String[] legacyTargets, Integer desiredAmount, CompletableFuture<Void> future) {
         Runnable dispatch = () -> {
             boolean started;
             try {
@@ -3376,10 +3396,44 @@ public class Node {
             PreciseCompletionTracker.getInstance().startTrackingTask(PreciseCompletionTracker.TASK_COLLECT, future);
         };
 
-        if (client != null) {
-            client.submit(dispatch);
-        } else {
-            CompletableFuture.runAsync(dispatch);
+        CompletableFuture.runAsync(dispatch);
+    }
+
+    private BlockOptionalMetaLookup prepareBlockLookup(net.minecraft.client.MinecraftClient client, String[] lookupTargets) {
+        if (lookupTargets == null || lookupTargets.length == 0) {
+            return null;
+        }
+
+        if (client == null) {
+            return null;
+        }
+
+        if (client.isOnThread()) {
+            return new BlockOptionalMetaLookup(lookupTargets);
+        }
+
+        CompletableFuture<BlockOptionalMetaLookup> lookupFuture = new CompletableFuture<>();
+        client.submit(() -> {
+            try {
+                lookupFuture.complete(new BlockOptionalMetaLookup(lookupTargets));
+            } catch (Throwable t) {
+                lookupFuture.completeExceptionally(t);
+            }
+        });
+
+        try {
+            return lookupFuture.get(3L, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while preparing block targets", e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw new RuntimeException("Failed to prepare block targets", cause);
+        } catch (TimeoutException e) {
+            throw new RuntimeException("Timed out preparing block targets", e);
         }
     }
     
